@@ -1,22 +1,9 @@
 {
-  "name": "pluely",
-  "private": false,
+  "name": "ghostframe",
+  "private": true,
   "version": "0.1.9",
-  "description": "The Open Source Alternative to Cluely - A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations without anyone knowing.",
-  "author": {
-    "name": "Srikanth Nani",
-    "email": "srikanthnani1202@gmail.com",
-    "url": "https://www.srikanthnani.com"
-  },
+  "description": "A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations.",
   "license": "GPL-3.0",
-  "homepage": "https://github.com/iamsrikanthnani/pluely#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/iamsrikanthnani/pluely.git"
-  },
-  "bugs": {
-    "url": "https://github.com/iamsrikanthnani/pluely/issues"
-  },
   "keywords": [
     "ai-assistant",
     "tauri",
@@ -26,9 +13,6 @@
     "meeting-assistant",
     "speech-to-text",
     "llm",
-    "chatgpt",
-    "claude",
-    "cluely-alternative",
     "typescript",
     "react",
     "rust"
@@ -42,6 +26,7 @@
   },
   "dependencies": {
     "@bany/curl-to-json": "^1.2.8",
+    "@elevenlabs/client": "^0.15.0",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-label": "^2.1.7",
@@ -61,7 +46,6 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.3.0",
     "@tauri-apps/plugin-sql": "^2.3.0",
-    "@tauri-apps/plugin-updater": "^2.9.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -71,7 +55,6 @@
     "react-dom": "^19.1.0",
     "react-error-boundary": "^6.0.0",
     "react-router-dom": "^7.9.5",
-    "recharts": "^2.15.4",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
@@ -79,9 +62,7 @@
     "streamdown": "^1.6.10",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.12",
-    "tauri-plugin-keychain": "^2.0.1",
-    "tauri-plugin-macos-permissions-api": "^2.3.0",
-    "tauri-plugin-posthog-api": "^0.2.2"
+    "tauri-plugin-macos-permissions-api": "^2.3.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

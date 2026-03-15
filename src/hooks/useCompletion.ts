@@ -8,7 +8,6 @@ import {
   saveConversation,
   getConversationById,
   generateConversationTitle,
-  shouldUsePluelyAPI,
   MESSAGE_ID_OFFSET,
   generateConversationId,
   generateMessageId,
@@ -55,6 +54,7 @@ interface CompletionState {
 export const useCompletion = () => {
   const {
     selectedAIProvider,
+    currentAIMode,
     allAiProviders,
     systemPrompt,
     screenshotConfiguration,
@@ -179,9 +179,9 @@ export const useCompletion = () => {
 
         let fullResponse = "";
 
-        const usePluelyAPI = await shouldUsePluelyAPI();
+        
         // Check if AI provider is configured
-        if (!selectedAIProvider.provider && !usePluelyAPI) {
+        if (!selectedAIProvider.provider) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -192,7 +192,7 @@ export const useCompletion = () => {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !usePluelyAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -211,13 +211,14 @@ export const useCompletion = () => {
         try {
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: usePluelyAPI ? undefined : provider,
+            provider: provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
             userMessage: input,
             imagesBase64,
             signal,
+            aiMode: currentAIMode,
           })) {
             // Only update if this is still the current request
             if (currentRequestIdRef.current !== requestId) {
@@ -288,6 +289,7 @@ export const useCompletion = () => {
       state.input,
       state.attachedFiles,
       selectedAIProvider,
+      currentAIMode,
       allAiProviders,
       systemPrompt,
       state.conversationHistory,
@@ -488,7 +490,7 @@ export const useCompletion = () => {
     };
 
     const handleStorageChange = async (e: StorageEvent) => {
-      if (e.key === "pluely-conversation-selected" && e.newValue) {
+      if (e.key === "ghostframe-conversation-selected" && e.newValue) {
         try {
           const data = JSON.parse(e.newValue);
           const { id } = data;
@@ -582,9 +584,9 @@ export const useCompletion = () => {
 
             let fullResponse = "";
 
-            const usePluelyAPI = await shouldUsePluelyAPI();
+            
             // Check if AI provider is configured
-            if (!selectedAIProvider.provider && !usePluelyAPI) {
+            if (!selectedAIProvider.provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Please select an AI provider in settings",
@@ -595,7 +597,7 @@ export const useCompletion = () => {
             const provider = allAiProviders.find(
               (p) => p.id === selectedAIProvider.provider
             );
-            if (!provider && !usePluelyAPI) {
+            if (!provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Invalid provider selected",
@@ -614,13 +616,14 @@ export const useCompletion = () => {
 
             // Use the fetchAIResponse function with image and signal
             for await (const chunk of fetchAIResponse({
-              provider: usePluelyAPI ? undefined : provider,
+              provider: provider,
               selectedProvider: selectedAIProvider,
               systemPrompt: systemPrompt || undefined,
               history: messageHistory,
               userMessage: prompt,
               imagesBase64: [base64],
               signal,
+              aiMode: currentAIMode,
             })) {
               // Only update if this is still the current request
               if (currentRequestIdRef.current !== requestId || signal.aborted) {
@@ -702,6 +705,7 @@ export const useCompletion = () => {
       state.attachedFiles.length,
       state.conversationHistory,
       selectedAIProvider,
+      currentAIMode,
       allAiProviders,
       systemPrompt,
       saveCurrentConversation,
@@ -876,7 +880,7 @@ export const useCompletion = () => {
             setState((prev) => ({
               ...prev,
               error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Pluely in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
+                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Ghostframe in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
             }));
             setIsScreenshotLoading(false);
             screenshotInitiatedByThisContext.current = false;

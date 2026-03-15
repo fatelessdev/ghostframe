@@ -9,17 +9,24 @@ export const STORAGE_KEYS = {
   CUSTOM_AI_PROVIDERS: "curl_custom_ai_providers",
   CUSTOM_SPEECH_PROVIDERS: "curl_custom_speech_providers",
   SELECTED_AI_PROVIDER: "curl_selected_ai_provider",
+  CURRENT_AI_MODE: "current_ai_mode",
   SELECTED_STT_PROVIDER: "curl_selected_stt_provider",
   SYSTEM_AUDIO_CONTEXT: "system_audio_context",
   SYSTEM_AUDIO_QUICK_ACTIONS: "system_audio_quick_actions",
   CUSTOMIZABLE: "customizable",
-  PLUELY_API_ENABLED: "pluely_api_enabled",
   SHORTCUTS: "shortcuts",
   AUTOSTART_INITIALIZED: "autostart_initialized",
 
   SELECTED_AUDIO_DEVICES: "selected_audio_devices",
   RESPONSE_SETTINGS: "response_settings",
   SUPPORTS_IMAGES: "supports_images",
+} as const;
+
+export const DEFAULT_AI_MODE = "D" as const;
+
+export const AI_MODE_VARIABLE_KEYS = {
+  DUMB_MODEL: "dumb_model",
+  PRO_MODEL: "pro_model",
 } as const;
 
 // Max number of files that can be attached to a message

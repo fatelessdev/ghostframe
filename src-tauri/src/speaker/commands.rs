@@ -1,4 +1,4 @@
-// Pluely AI Speech Detection, and capture system audio (speaker output) as a stream of f32 samples.
+// Ghostframe AI Speech Detection, and capture system audio (speaker output) as a stream of f32 samples.
 use crate::speaker::{AudioDevice, SpeakerInput};
 use anyhow::Result;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -13,6 +13,14 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tauri_plugin_shell::ShellExt;
 use tracing::{error, warn};
+
+const REALTIME_CHUNK_SAMPLES: usize = 4096;
+
+#[derive(Debug, Clone, Serialize)]
+struct RealtimeAudioChunkEvent {
+    sample_rate: u32,
+    audio_base64: String,
+}
 
 // VAD Configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,9 +43,9 @@ impl Default for VadConfig {
             hop_size: 1024,
             sensitivity_rms: 0.012, // Much less sensitive - only real speech
             peak_threshold: 0.035,  // Higher threshold - filters clicks/noise
-            silence_chunks: 45,     // ~1.0s of silence before stopping
+            silence_chunks: 24,     // ~0.55s of silence before stopping
             min_speech_chunks: 7,   // ~0.16s - captures short answers
-            pre_speech_chunks: 12,  // ~0.27s - enough to catch word start
+            pre_speech_chunks: 8,   // ~0.18s - enough to catch word start
             noise_gate_threshold: 0.003, // Stronger noise filtering
             max_recording_duration_secs: 180, // 3 minutes default
         }
@@ -146,6 +154,7 @@ async fn run_vad_capture(
     let mut in_speech = false;
     let mut silence_chunks = 0;
     let mut speech_chunks = 0;
+    let mut realtime_chunk_buffer = Vec::with_capacity(REALTIME_CHUNK_SAMPLES * 2);
     let max_samples = sr as usize * 30; // 30s safety cap per utterance
 
     while let Some(sample) = stream.next().await {
@@ -173,17 +182,28 @@ async fn run_vad_capture(
                     speech_chunks = 0;
 
                     // Include pre-speech buffer for natural sound
-                    speech_buffer.extend(pre_speech.drain(..));
+                    let pre_speech_samples: Vec<f32> = pre_speech.drain(..).collect();
+                    speech_buffer.extend_from_slice(&pre_speech_samples);
+                    queue_realtime_audio_chunk(
+                        &app,
+                        sr,
+                        &pre_speech_samples,
+                        &mut realtime_chunk_buffer,
+                    );
 
                     let _ = app.emit("speech-start", ());
                 }
 
                 speech_chunks += 1;
                 speech_buffer.extend_from_slice(&mono);
+                queue_realtime_audio_chunk(&app, sr, &mono, &mut realtime_chunk_buffer);
                 silence_chunks = 0; // Reset silence counter on any speech
 
                 // Safety cap: force emit if exceeds 30s
                 if speech_buffer.len() > max_samples {
+                    flush_realtime_audio_chunk(&app, sr, &mut realtime_chunk_buffer);
+                    let _ = app.emit("speech-segment-ended", ());
+
                     let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
                     if let Ok(b64) = samples_to_wav_b64(sr, &normalized_buffer) {
                         // let duration = speech_buffer.len() as f32 / sr as f32;
@@ -203,17 +223,25 @@ async fn run_vad_capture(
 
                     // Check if silence duration exceeds threshold
                     if silence_chunks >= config.silence_chunks {
+                        let silence_duration_samples = silence_chunks * config.hop_size;
+                        let keep_silence_samples = (sr as usize) * 15 / 100; // 0.15s
+                        let trim_amount =
+                            silence_duration_samples.saturating_sub(keep_silence_samples);
+
+                        if trim_amount > 0 && realtime_chunk_buffer.len() >= trim_amount {
+                            realtime_chunk_buffer.truncate(realtime_chunk_buffer.len() - trim_amount);
+                        }
+
+                        flush_realtime_audio_chunk(&app, sr, &mut realtime_chunk_buffer);
+
                         // Verify minimum speech duration
                         if speech_chunks >= config.min_speech_chunks && !speech_buffer.is_empty() {
                             // Trim trailing silence (keep ~0.15s for natural ending)
-                            let silence_duration_samples = silence_chunks * config.hop_size;
-                            let keep_silence_samples = (sr as usize) * 15 / 100; // 0.15s
-                            let trim_amount =
-                                silence_duration_samples.saturating_sub(keep_silence_samples);
-
                             if speech_buffer.len() > trim_amount {
                                 speech_buffer.truncate(speech_buffer.len() - trim_amount);
                             }
+
+                            let _ = app.emit("speech-segment-ended", ());
 
                             // Emit complete speech segment
                             let normalized_buffer = normalize_audio_level(&speech_buffer, 0.1);
@@ -254,6 +282,51 @@ async fn run_vad_capture(
             }
         }
     }
+}
+
+fn queue_realtime_audio_chunk(
+    app: &AppHandle,
+    sample_rate: u32,
+    samples: &[f32],
+    chunk_buffer: &mut Vec<f32>,
+) {
+    if samples.is_empty() {
+        return;
+    }
+
+    chunk_buffer.extend_from_slice(samples);
+
+    while chunk_buffer.len() >= REALTIME_CHUNK_SAMPLES {
+        let chunk = chunk_buffer[..REALTIME_CHUNK_SAMPLES].to_vec();
+        let _ = emit_realtime_audio_chunk(app, sample_rate, &chunk);
+        chunk_buffer.drain(..REALTIME_CHUNK_SAMPLES);
+    }
+}
+
+fn flush_realtime_audio_chunk(app: &AppHandle, sample_rate: u32, chunk_buffer: &mut Vec<f32>) {
+    if chunk_buffer.is_empty() {
+        return;
+    }
+
+    let chunk = chunk_buffer.clone();
+    let _ = emit_realtime_audio_chunk(app, sample_rate, &chunk);
+    chunk_buffer.clear();
+}
+
+fn emit_realtime_audio_chunk(
+    app: &AppHandle,
+    sample_rate: u32,
+    samples: &[f32],
+) -> Result<(), String> {
+    let audio_base64 = samples_to_pcm16_b64(samples);
+    app.emit(
+        "speech-realtime-chunk",
+        RealtimeAudioChunkEvent {
+            sample_rate,
+            audio_base64,
+        },
+    )
+    .map_err(|err| err.to_string())
 }
 
 // Continuous capture (VAD disabled)
@@ -416,6 +489,18 @@ fn normalize_audio_level(samples: &[f32], target_rms: f32) -> Vec<f32> {
             }
         })
         .collect()
+}
+
+fn samples_to_pcm16_b64(mono_f32: &[f32]) -> String {
+    let mut bytes = Vec::with_capacity(mono_f32.len() * 2);
+
+    for &sample in mono_f32 {
+        let clamped = sample.clamp(-1.0, 1.0);
+        let pcm_sample = (clamped * i16::MAX as f32) as i16;
+        bytes.extend_from_slice(&pcm_sample.to_le_bytes());
+    }
+
+    B64.encode(bytes)
 }
 
 // Convert samples to WAV base64 (with proper error handling)
@@ -597,8 +682,8 @@ pub async fn get_capture_status(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn get_audio_sample_rate(_app: AppHandle) -> Result<u32, String> {
-    let input = SpeakerInput::new().map_err(|e| {
+pub fn get_audio_sample_rate(_app: AppHandle, device_id: Option<String>) -> Result<u32, String> {
+    let input = SpeakerInput::new_with_device(device_id).map_err(|e| {
         error!("Failed to create speaker input: {}", e);
         format!("Failed to access system audio: {}", e)
     })?;

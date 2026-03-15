@@ -1,4 +1,4 @@
-import { Card, Updater, DragButton, CustomCursor, Button } from "@/components";
+import { Card, DragButton, CustomCursor, Button } from "@/components";
 import {
   SystemAudio,
   Completion,
@@ -7,16 +7,63 @@ import {
 } from "./components";
 import { useApp } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
-import { SparklesIcon } from "lucide-react";
+import { SparklesIcon, ShieldIcon, EyeIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
 import { getPlatform } from "@/lib";
+import { useState, useEffect } from "react";
+
+const CONTENT_PROTECTION_KEY = "content_protected";
 
 const App = () => {
-  const { isHidden, systemAudio } = useApp();
-  const { customizable } = useAppContext();
+  const { systemAudio } = useApp();
+  const { customizable, currentAIMode, setCurrentAIMode } = useAppContext();
   const platform = getPlatform();
+
+  const [contentProtected, setContentProtected] = useState<boolean>(true);
+
+  useEffect(() => {
+    // Read saved preference; if none saved, read current Rust state
+    const saved = localStorage.getItem(CONTENT_PROTECTION_KEY);
+    if (saved !== null) {
+      const savedValue = saved === "true";
+      // Default Rust state is true; only need to toggle if saved preference is false
+      if (!savedValue) {
+        invoke<boolean>("toggle_content_protection").catch(() => {});
+      }
+      setContentProtected(savedValue);
+    } else {
+      invoke<boolean>("get_content_protection")
+        .then((v) => setContentProtected(v))
+        .catch(() => {});
+    }
+
+    // Keep UI in sync when another part of the app (e.g. dashboard) toggles this
+    const unlisten = listen<boolean>("content-protection-changed", (event) => {
+      setContentProtected(event.payload);
+      localStorage.setItem(CONTENT_PROTECTION_KEY, String(event.payload));
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const toggleAIMode = () => {
+    setCurrentAIMode(currentAIMode === "D" ? "P" : "D");
+  };
+
+  const toggleContentProtection = async () => {
+    try {
+      const newState = await invoke<boolean>("toggle_content_protection");
+      setContentProtected(newState);
+      localStorage.setItem(CONTENT_PROTECTION_KEY, String(newState));
+    } catch (error) {
+      console.error("Failed to toggle content protection:", error);
+    }
+  };
 
   const openDashboard = async () => {
     try {
@@ -36,13 +83,41 @@ const App = () => {
         console.log("Reset");
       }}
     >
-      <div
-        className={`w-screen h-screen flex overflow-hidden justify-center items-start ${
-          isHidden ? "hidden pointer-events-none" : ""
-        }`}
-      >
+      <div className="w-screen h-screen flex overflow-hidden justify-center items-start">
         <Card className="w-full flex flex-row items-center gap-2 p-2">
           <SystemAudio {...systemAudio} />
+          <Button
+            size="icon"
+            variant={currentAIMode === "P" ? "default" : "secondary"}
+            className="font-semibold"
+            title={
+              currentAIMode === "D"
+                ? "D mode active: fast responses. Click to switch to P mode."
+                : "P mode active: smarter slower responses. Click to switch to D mode."
+            }
+            onClick={toggleAIMode}
+          >
+            {currentAIMode}
+          </Button>
+
+          <Button
+            size="icon"
+            variant="ghost"
+            title={
+              contentProtected
+                ? "Content protection ON — window hidden from screen capture. Click to disable."
+                : "Content protection OFF — window visible to screen capture. Click to enable."
+            }
+            onClick={toggleContentProtection}
+            className={`shrink-0 ${contentProtected ? "text-red-400 hover:text-red-300" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {contentProtected ? (
+              <ShieldIcon className="h-4 w-4" />
+            ) : (
+              <EyeIcon className="h-4 w-4" />
+            )}
+          </Button>
+
           {systemAudio?.capturing ? (
             <div className="flex flex-row items-center gap-2 justify-between w-full">
               <div className="flex flex-1 items-center gap-2">
@@ -67,7 +142,7 @@ const App = () => {
                 : "w-full flex flex-row gap-2 items-center"
             }`}
           >
-            <Completion isHidden={isHidden} />
+            <Completion />
             <Button
               size={"icon"}
               className="cursor-pointer"
@@ -78,7 +153,6 @@ const App = () => {
             </Button>
           </div>
 
-          <Updater />
           <DragButton />
         </Card>
         {customizable.cursor.type === "invisible" && platform !== "linux" ? (

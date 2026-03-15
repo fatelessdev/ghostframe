@@ -33,6 +33,15 @@ export const SPEECH_TO_TEXT_PROVIDERS = [
     streaming: false,
   },
   {
+    id: "elevenlabs-realtime-stt",
+    name: "ElevenLabs Realtime Speech-to-Text",
+    curl: `curl -X POST "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe" \\
+      -H "xi-api-key: {{API_KEY}}" \\
+      -H "x-model-id: {{MODEL}}"`,
+    responseContentPath: "text",
+    streaming: true,
+  },
+  {
     id: "google-stt",
     name: "Google Speech-to-Text",
     curl: `curl -X POST "https://speech.googleapis.com/v1/speech:recognize" \\

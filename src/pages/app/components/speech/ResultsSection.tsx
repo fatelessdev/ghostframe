@@ -10,6 +10,7 @@ type Props = {
   conversation: ChatConversation;
   conversationMode: boolean;
   setConversationMode: (mode: boolean) => void;
+  textSize: number;
 };
 
 export const ResultsSection = ({
@@ -19,6 +20,7 @@ export const ResultsSection = ({
   conversation,
   conversationMode,
   setConversationMode,
+  textSize,
 }: Props) => {
   const hasResponse = lastAIResponse || isAIProcessing;
   const hasHistory = conversation.messages.length > 2;
@@ -58,7 +60,10 @@ export const ResultsSection = ({
         <div className="space-y-2">
           {/* System Input - Just text with bold label */}
           {lastTranscription && (
-            <p className="text-[11px] text-muted-foreground">
+            <p
+              className="text-muted-foreground"
+              style={{ fontSize: `${Math.max(11, textSize - 2)}px` }}
+            >
               <span className="font-semibold">System:</span> {lastTranscription}
             </p>
           )}
@@ -74,7 +79,10 @@ export const ResultsSection = ({
                   </span>
                 </div>
               ) : (
-                <div className="prose prose-sm max-w-none dark:prose-invert">
+                <div
+                  className="prose prose-sm max-w-none dark:prose-invert"
+                  style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
+                >
                   <Markdown>{lastAIResponse}</Markdown>
                   {isAIProcessing && (
                     <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
@@ -106,7 +114,10 @@ export const ResultsSection = ({
                   </span>
                 </div>
               ) : (
-                <div className="prose prose-sm max-w-none dark:prose-invert text-sm">
+                <div
+                  className="prose prose-sm max-w-none dark:prose-invert"
+                  style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
+                >
                   <Markdown>{lastAIResponse}</Markdown>
                   {isAIProcessing && (
                     <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
@@ -125,7 +136,9 @@ export const ResultsSection = ({
                   System
                 </span>
               </div>
-              <p className="text-sm">{lastTranscription}</p>
+              <p style={{ fontSize: `${Math.max(12, textSize)}px`, lineHeight: 1.45 }}>
+                {lastTranscription}
+              </p>
             </div>
           )}
 
@@ -152,7 +165,10 @@ export const ResultsSection = ({
                       <span className="text-[8px] font-medium text-muted-foreground uppercase">
                         {message.role === "user" ? "System" : "AI"}
                       </span>
-                      <div className="text-muted-foreground leading-relaxed mt-0.5">
+                      <div
+                        className="text-muted-foreground leading-relaxed mt-0.5"
+                        style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}
+                      >
                         <Markdown>{message.content}</Markdown>
                       </div>
                     </div>

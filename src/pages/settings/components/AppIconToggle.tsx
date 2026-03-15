@@ -1,5 +1,6 @@
 import { Switch, Label, Header } from "@/components";
 import { useApp } from "@/contexts";
+import { getPlatform } from "@/lib";
 
 interface AppIconToggleProps {
   className?: string;
@@ -7,6 +8,7 @@ interface AppIconToggleProps {
 
 export const AppIconToggle = ({ className }: AppIconToggleProps) => {
   const { customizable, toggleAppIconVisibility } = useApp();
+  const isWindows = getPlatform() === "windows";
 
   const handleSwitchChange = async (checked: boolean) => {
     await toggleAppIconVisibility(checked);
@@ -16,9 +18,18 @@ export const AppIconToggle = ({ className }: AppIconToggleProps) => {
     <div id="app-icon" className={`space-y-2 ${className}`}>
       <Header
         title="App Icon Stealth Mode"
-        description="Control dock/taskbar icon visibility when window is hidden for maximum discretion"
+        description={
+          isWindows
+            ? "On Windows, the main Ghostframe window is always hidden from taskbar and Alt+Tab"
+            : "Control dock/taskbar icon visibility for maximum discretion"
+        }
         isMainTitle
       />
+      {isWindows ? (
+        <div className="text-xs text-amber-600 bg-amber-500/10 p-3 rounded-md">
+          Windows keeps the main overlay hidden from taskbar and Alt+Tab at all times. This setting only applies on other platforms.
+        </div>
+      ) : (
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <div>
@@ -40,6 +51,7 @@ export const AppIconToggle = ({ className }: AppIconToggleProps) => {
           aria-label="Toggle app icon visibility"
         />
       </div>
+      )}
     </div>
   );
 };

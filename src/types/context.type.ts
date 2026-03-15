@@ -2,6 +2,8 @@ import { Dispatch, SetStateAction } from "react";
 import { ScreenshotConfig, TYPE_PROVIDER } from "@/types";
 import { CursorType, CustomizableState } from "@/lib/storage";
 
+export type AIMode = "D" | "P";
+
 export type IContextType = {
   systemPrompt: string;
   setSystemPrompt: Dispatch<SetStateAction<string>>;
@@ -11,6 +13,7 @@ export type IContextType = {
     provider: string;
     variables: Record<string, string>;
   };
+  currentAIMode: AIMode;
   onSetSelectedAIProvider: ({
     provider,
     variables,
@@ -18,6 +21,7 @@ export type IContextType = {
     provider: string;
     variables: Record<string, string>;
   }) => void;
+  setCurrentAIMode: (mode: AIMode) => void;
   allSttProviders: TYPE_PROVIDER[];
   customSttProviders: TYPE_PROVIDER[];
   selectedSttProvider: {
@@ -40,11 +44,6 @@ export type IContextType = {
   toggleAlwaysOnTop: (isEnabled: boolean) => Promise<void>;
   toggleAutostart: (isEnabled: boolean) => Promise<void>;
   loadData: () => void;
-  pluelyApiEnabled: boolean;
-  setPluelyApiEnabled: (enabled: boolean) => Promise<void>;
-  hasActiveLicense: boolean;
-  setHasActiveLicense: Dispatch<SetStateAction<boolean>>;
-  getActiveLicenseStatus: () => Promise<void>;
   selectedAudioDevices: {
     input: { id: string; name: string };
     output: { id: string; name: string };

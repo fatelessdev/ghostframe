@@ -7,13 +7,60 @@ import {
 } from "./common.function";
 import { Message, TYPE_PROVIDER } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import curl2Json from "@bany/curl-to-json";
-import { shouldUsePluelyAPI } from "./pluely.api";
 import { CHUNK_POLL_INTERVAL_MS } from "../chat-constants";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
-import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
+import {
+  AI_MODE_VARIABLE_KEYS,
+  DEFAULT_AI_MODE,
+  MARKDOWN_FORMATTING_INSTRUCTIONS,
+} from "@/config/constants";
+
+const curlJsonCache = new Map<string, ReturnType<typeof curl2Json>>();
+const curlVariableCache = new Map<string, ReturnType<typeof extractVariables>>();
+
+function getCachedCurlJson(curl: string) {
+  const cached = curlJsonCache.get(curl);
+  if (cached) {
+    return cached;
+  }
+
+  const parsed = curl2Json(curl);
+  curlJsonCache.set(curl, parsed);
+  return parsed;
+}
+
+function getCachedExtractedVariables(curl: string) {
+  const cached = curlVariableCache.get(curl);
+  if (cached) {
+    return cached;
+  }
+
+  const extracted = extractVariables(curl);
+  curlVariableCache.set(curl, extracted);
+  return extracted;
+}
+
+function resolveAIProviderVariables(
+  variables: Record<string, string>,
+  aiMode: "D" | "P"
+): Record<string, string> {
+  const resolvedVariables = { ...variables };
+  const dumbModel = variables[AI_MODE_VARIABLE_KEYS.DUMB_MODEL]?.trim();
+  const proModel = variables[AI_MODE_VARIABLE_KEYS.PRO_MODEL]?.trim();
+  const defaultModel = variables.model?.trim();
+
+  const activeModel =
+    aiMode === "P"
+      ? proModel || dumbModel || defaultModel
+      : dumbModel || defaultModel || proModel;
+
+  if (activeModel) {
+    resolvedVariables.model = activeModel;
+  }
+
+  return resolvedVariables;
+}
 
 function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   const responseSettings = getResponseSettings();
@@ -37,128 +84,9 @@ function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
     prompts.push(languageOption.prompt);
   }
 
-  // Add markdown formatting instructions
   prompts.push(MARKDOWN_FORMATTING_INSTRUCTIONS);
 
   return prompts.join(" ");
-}
-
-// Pluely AI streaming function
-async function* fetchPluelyAIResponse(params: {
-  systemPrompt?: string;
-  userMessage: string;
-  imagesBase64?: string[];
-  history?: Message[];
-  signal?: AbortSignal;
-}): AsyncIterable<string> {
-  try {
-    const {
-      systemPrompt,
-      userMessage,
-      imagesBase64 = [],
-      history = [],
-      signal,
-    } = params;
-
-    // Check if already aborted before starting
-    if (signal?.aborted) {
-      return;
-    }
-
-    // Convert history to the expected format
-    let historyString: string | undefined;
-    if (history.length > 0) {
-      // Create a copy before reversing to avoid mutating the original array
-      const formattedHistory = [...history].reverse().map((msg) => ({
-        role: msg.role,
-        content: [{ type: "text", text: msg.content }],
-      }));
-      historyString = JSON.stringify(formattedHistory);
-    }
-
-    // Handle images - can be string or array
-    let imageBase64: any = undefined;
-    if (imagesBase64.length > 0) {
-      imageBase64 = imagesBase64.length === 1 ? imagesBase64[0] : imagesBase64;
-    }
-
-    // Set up streaming event listener
-    let streamComplete = false;
-    const streamChunks: string[] = [];
-
-    const unlisten = await listen("chat_stream_chunk", (event) => {
-      const chunk = event.payload as string;
-      streamChunks.push(chunk);
-    });
-
-    const unlistenComplete = await listen("chat_stream_complete", () => {
-      streamComplete = true;
-    });
-
-    try {
-      // Check if aborted before starting invoke
-      if (signal?.aborted) {
-        unlisten();
-        unlistenComplete();
-        return;
-      }
-
-      // Start the streaming request using the new API response endpoint
-      await invoke("chat_stream_response", {
-        userMessage,
-        systemPrompt,
-        imageBase64,
-        history: historyString,
-      });
-
-      // Yield chunks as they come in
-      let lastIndex = 0;
-      while (!streamComplete) {
-        // Check if aborted during streaming
-        if (signal?.aborted) {
-          unlisten();
-          unlistenComplete();
-          return;
-        }
-
-        // Wait a bit for chunks to accumulate
-        await new Promise((resolve) =>
-          setTimeout(resolve, CHUNK_POLL_INTERVAL_MS)
-        );
-
-        // Check again after timeout
-        if (signal?.aborted) {
-          unlisten();
-          unlistenComplete();
-          return;
-        }
-
-        // Yield any new chunks
-        for (let i = lastIndex; i < streamChunks.length; i++) {
-          yield streamChunks[i];
-        }
-        lastIndex = streamChunks.length;
-      }
-
-      // Final abort check before yielding remaining chunks
-      if (signal?.aborted) {
-        unlisten();
-        unlistenComplete();
-        return;
-      }
-
-      // Yield any remaining chunks
-      for (let i = lastIndex; i < streamChunks.length; i++) {
-        yield streamChunks[i];
-      }
-    } finally {
-      unlisten();
-      unlistenComplete();
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    yield `Pluely API Error: ${errorMessage}`;
-  }
 }
 
 export async function* fetchAIResponse(params: {
@@ -172,6 +100,7 @@ export async function* fetchAIResponse(params: {
   userMessage: string;
   imagesBase64?: string[];
   signal?: AbortSignal;
+  aiMode?: "D" | "P";
 }): AsyncIterable<string> {
   try {
     const {
@@ -182,27 +111,15 @@ export async function* fetchAIResponse(params: {
       userMessage,
       imagesBase64 = [],
       signal,
+      aiMode = DEFAULT_AI_MODE,
     } = params;
 
-    // Check if already aborted
     if (signal?.aborted) {
       return;
     }
 
     const enhancedSystemPrompt = buildEnhancedSystemPrompt(systemPrompt);
 
-    // Check if we should use Pluely API instead
-    const usePluelyAPI = await shouldUsePluelyAPI();
-    if (usePluelyAPI) {
-      yield* fetchPluelyAIResponse({
-        systemPrompt: enhancedSystemPrompt,
-        userMessage,
-        imagesBase64,
-        history,
-        signal,
-      });
-      return;
-    }
     if (!provider) {
       throw new Error(`Provider not provided`);
     }
@@ -212,7 +129,7 @@ export async function* fetchAIResponse(params: {
 
     let curlJson;
     try {
-      curlJson = curl2Json(provider.curl);
+      curlJson = getCachedCurlJson(provider.curl);
     } catch (error) {
       throw new Error(
         `Failed to parse curl: ${
@@ -221,14 +138,19 @@ export async function* fetchAIResponse(params: {
       );
     }
 
-    const extractedVariables = extractVariables(provider.curl);
+    const resolvedProviderVariables = resolveAIProviderVariables(
+      selectedProvider.variables || {},
+      aiMode
+    );
+
+    const extractedVariables = getCachedExtractedVariables(provider.curl);
     const requiredVars = extractedVariables.filter(
       ({ key }) => key !== "SYSTEM_PROMPT" && key !== "TEXT" && key !== "IMAGE"
     );
     for (const { key } of requiredVars) {
       if (
-        !selectedProvider.variables?.[key] ||
-        selectedProvider.variables[key].trim() === ""
+        !resolvedProviderVariables[key] ||
+        resolvedProviderVariables[key].trim() === ""
       ) {
         throw new Error(
           `Missing required variable: ${key}. Please configure it in settings.`
@@ -264,7 +186,7 @@ export async function* fetchAIResponse(params: {
 
     const allVariables = {
       ...Object.fromEntries(
-        Object.entries(selectedProvider.variables).map(([key, value]) => [
+        Object.entries(resolvedProviderVariables).map(([key, value]) => [
           key.toUpperCase(),
           value,
         ])
@@ -302,12 +224,11 @@ export async function* fetchAIResponse(params: {
         signal,
       });
     } catch (fetchError) {
-      // Check if aborted
       if (
         signal?.aborted ||
         (fetchError instanceof Error && fetchError.name === "AbortError")
       ) {
-        return; // Silently return on abort
+        return;
       }
       yield `Network error during API request: ${
         fetchError instanceof Error ? fetchError.message : "Unknown error"
@@ -352,7 +273,6 @@ export async function* fetchAIResponse(params: {
     let buffer = "";
 
     while (true) {
-      // Check if aborted
       if (signal?.aborted) {
         reader.cancel();
         return;
@@ -362,12 +282,11 @@ export async function* fetchAIResponse(params: {
       try {
         readResult = await reader.read();
       } catch (readError) {
-        // Check if aborted
         if (
           signal?.aborted ||
           (readError instanceof Error && readError.name === "AbortError")
         ) {
-          return; // Silently return on abort
+          return;
         }
         yield `Error reading stream: ${
           readError instanceof Error ? readError.message : "Unknown error"
@@ -377,7 +296,6 @@ export async function* fetchAIResponse(params: {
       const { done, value } = readResult;
       if (done) break;
 
-      // Check if aborted before processing
       if (signal?.aborted) {
         reader.cancel();
         return;

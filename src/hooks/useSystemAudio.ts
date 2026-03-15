@@ -1,9 +1,22 @@
 import { useEffect, useState, useCallback, useRef } from "react";
+import {
+  CommitStrategy,
+  RealtimeConnection,
+  RealtimeEvents,
+  Scribe,
+} from "@elevenlabs/client";
 import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
-import { fetchSTT, fetchAIResponse } from "@/lib/functions";
+import {
+  fetchSTT,
+  fetchAIResponse,
+  fetchElevenLabsRealtimeToken,
+  getElevenLabsAudioFormat,
+  getElevenLabsRealtimeConfig,
+  isElevenLabsRealtimeProvider,
+} from "@/lib/functions";
 import {
   DEFAULT_QUICK_ACTIONS,
   DEFAULT_SYSTEM_PROMPT,
@@ -11,7 +24,6 @@ import {
 } from "@/config";
 import {
   safeLocalStorage,
-  shouldUsePluelyAPI,
   generateConversationTitle,
   saveConversation,
   CONVERSATION_SAVE_DEBOUNCE_MS,
@@ -39,9 +51,9 @@ const DEFAULT_VAD_CONFIG: VadConfig = {
   hop_size: 1024,
   sensitivity_rms: 0.012, // Much less sensitive - only real speech
   peak_threshold: 0.035, // Higher threshold - filters clicks/noise
-  silence_chunks: 45, // ~1.0s of required silence
+  silence_chunks: 24, // ~0.55s of required silence
   min_speech_chunks: 7, // ~0.16s - captures short answers
-  pre_speech_chunks: 12, // ~0.27s - enough to catch word start
+  pre_speech_chunks: 8, // ~0.18s - enough to catch word start
   noise_gate_threshold: 0.003, // Stronger noise filtering
   max_recording_duration_secs: 180, // 3 minutes default
 };
@@ -61,6 +73,11 @@ export interface ChatConversation {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+}
+
+interface RealtimeAudioChunkEvent {
+  sample_rate: number;
+  audio_base64: string;
 }
 
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
@@ -102,6 +119,7 @@ export function useSystemAudio() {
     selectedSttProvider,
     allSttProviders,
     selectedAIProvider,
+    currentAIMode,
     allAiProviders,
     systemPrompt,
     selectedAudioDevices,
@@ -110,6 +128,31 @@ export function useSystemAudio() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef<boolean>(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const realtimeConnectionRef = useRef<RealtimeConnection | null>(null);
+  const realtimeConnectionReadyRef = useRef<boolean>(false);
+  const realtimeQueuedChunksRef = useRef<RealtimeAudioChunkEvent[]>([]);
+  const realtimeCommitPendingRef = useRef<boolean>(false);
+  const realtimeReconnectInFlightRef = useRef<boolean>(false);
+  const shouldReconnectRealtimeRef = useRef<boolean>(false);
+  const capturingRef = useRef<boolean>(false);
+  const processWithAIRef = useRef(
+    async (
+      _transcription: string,
+      _prompt: string,
+      _previousMessages: Message[]
+    ) => {}
+  );
+  const getEffectiveSystemPromptRef = useRef<() => string>(
+    () => DEFAULT_SYSTEM_PROMPT
+  );
+  const getPreviousMessagesRef = useRef<() => Message[]>(() => []);
+  const isRealtimeSttProvider = isElevenLabsRealtimeProvider(
+    selectedSttProvider.provider
+  );
+
+  useEffect(() => {
+    capturingRef.current = capturing;
+  }, [capturing]);
 
   // Load context settings and VAD config from localStorage on mount
   useEffect(() => {
@@ -155,6 +198,18 @@ export function useSystemAudio() {
       setQuickActions(DEFAULT_QUICK_ACTIONS);
     }
   }, []);
+
+  const getEffectiveSystemPrompt = useCallback(() => {
+    return useSystemPrompt
+      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+      : contextContent || DEFAULT_SYSTEM_PROMPT;
+  }, [contextContent, systemPrompt, useSystemPrompt]);
+
+  const getPreviousMessages = useCallback(() => {
+    return conversation.messages.map((msg) => {
+      return { role: msg.role, content: msg.content };
+    });
+  }, [conversation.messages]);
 
   // Handle continuous recording progress events AND error events
   useEffect(() => {
@@ -224,7 +279,7 @@ export function useSystemAudio() {
       try {
         speechUnlisten = await listen("speech-detected", async (event) => {
           try {
-            if (!capturing) return;
+            if (!capturing || isRealtimeSttProvider) return;
 
             const base64Audio = event.payload as string;
             // Convert to blob
@@ -235,8 +290,8 @@ export function useSystemAudio() {
             }
             const audioBlob = new Blob([bytes], { type: "audio/wav" });
 
-            const usePluelyAPI = await shouldUsePluelyAPI();
-            if (!selectedSttProvider.provider && !usePluelyAPI) {
+            
+            if (!selectedSttProvider.provider) {
               setError("No speech provider selected.");
               return;
             }
@@ -245,7 +300,7 @@ export function useSystemAudio() {
               (p) => p.id === selectedSttProvider.provider
             );
 
-            if (!providerConfig && !usePluelyAPI) {
+            if (!providerConfig) {
               setError("Speech provider config not found.");
               return;
             }
@@ -276,18 +331,10 @@ export function useSystemAudio() {
                 setLastTranscription(transcription);
                 setError("");
 
-                const effectiveSystemPrompt = useSystemPrompt
-                  ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-                  : contextContent || DEFAULT_SYSTEM_PROMPT;
-
-                const previousMessages = conversation.messages.map((msg) => {
-                  return { role: msg.role, content: msg.content };
-                });
-
                 await processWithAI(
                   transcription,
-                  effectiveSystemPrompt,
-                  previousMessages
+                  getEffectiveSystemPrompt(),
+                  getPreviousMessages()
                 );
               } else {
                 setError("Received empty transcription");
@@ -315,9 +362,68 @@ export function useSystemAudio() {
     };
   }, [
     capturing,
+    getEffectiveSystemPrompt,
+    getPreviousMessages,
+    isRealtimeSttProvider,
     selectedSttProvider,
     allSttProviders,
-    conversation.messages.length,
+  ]);
+
+  useEffect(() => {
+    let realtimeChunkUnlisten: (() => void) | undefined;
+    let realtimeSegmentEndUnlisten: (() => void) | undefined;
+
+    const setupRealtimeListeners = async () => {
+      if (!isRealtimeSttProvider) {
+        return;
+      }
+
+      try {
+        realtimeChunkUnlisten = await listen(
+          "speech-realtime-chunk",
+          (event) => {
+            if (!capturing) {
+              return;
+            }
+
+            try {
+              sendRealtimeAudioChunk(event.payload as RealtimeAudioChunkEvent);
+            } catch (error) {
+              console.error("Failed to send realtime audio chunk:", error);
+              setIsProcessing(false);
+              setError("Failed to stream audio to ElevenLabs realtime STT.");
+            }
+          }
+        );
+
+        realtimeSegmentEndUnlisten = await listen("speech-segment-ended", () => {
+          if (!capturing) {
+            return;
+          }
+
+          try {
+            commitRealtimeSegment();
+          } catch (error) {
+            console.error("Failed to commit realtime transcript:", error);
+            setIsProcessing(false);
+            setError("Failed to finalize ElevenLabs realtime transcription.");
+          }
+        });
+      } catch (error) {
+        console.error("Failed to setup realtime audio listeners:", error);
+        setError("Failed to start ElevenLabs realtime speech listener.");
+      }
+    };
+
+    setupRealtimeListeners();
+
+    return () => {
+      if (realtimeChunkUnlisten) realtimeChunkUnlisten();
+      if (realtimeSegmentEndUnlisten) realtimeSegmentEndUnlisten();
+    };
+  }, [
+    capturing,
+    isRealtimeSttProvider,
   ]);
 
   // Context management functions
@@ -430,6 +536,12 @@ export function useSystemAudio() {
   // Start continuous recording manually
   const startContinuousRecording = useCallback(async () => {
     try {
+      if (isRealtimeSttProvider) {
+        setError("ElevenLabs realtime STT requires VAD mode. Enable VAD to use it.");
+        setIsPopoverOpen(true);
+        return;
+      }
+
       setRecordingProgress(0);
       setError("");
 
@@ -447,7 +559,7 @@ export function useSystemAudio() {
       console.error("Failed to start continuous recording:", err);
       setError(`Failed to start recording: ${err}`);
     }
-  }, [vadConfig, selectedAudioDevices.output.id]);
+  }, [isRealtimeSttProvider, vadConfig, selectedAudioDevices.output.id]);
 
   // Ignore current recording (stop without transcription)
   const ignoreContinuousRecording = useCallback(async () => {
@@ -487,8 +599,8 @@ export function useSystemAudio() {
 
         let fullResponse = "";
 
-        const usePluelyAPI = await shouldUsePluelyAPI();
-        if (!selectedAIProvider.provider && !usePluelyAPI) {
+        
+        if (!selectedAIProvider.provider) {
           setError("No AI provider selected.");
           return;
         }
@@ -496,19 +608,20 @@ export function useSystemAudio() {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !usePluelyAPI) {
+        if (!provider) {
           setError("AI provider config not found.");
           return;
         }
 
         try {
           for await (const chunk of fetchAIResponse({
-            provider: usePluelyAPI ? undefined : provider,
+            provider: provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: prompt,
             history: previousMessages,
             userMessage: transcription,
             imagesBase64: [],
+            aiMode: currentAIMode,
           })) {
             fullResponse += chunk;
             setLastAIResponse((prev) => prev + chunk);
@@ -547,8 +660,207 @@ export function useSystemAudio() {
         // No auto-restart - user manually controls when to start next recording
       }
     },
-    [selectedAIProvider, allAiProviders, conversation.messages]
+    [selectedAIProvider, currentAIMode, allAiProviders, conversation.messages]
   );
+
+  useEffect(() => {
+    processWithAIRef.current = processWithAI;
+    getEffectiveSystemPromptRef.current = getEffectiveSystemPrompt;
+    getPreviousMessagesRef.current = () =>
+      getPreviousMessages() as Message[];
+  }, [processWithAI, getEffectiveSystemPrompt, getPreviousMessages]);
+
+  const closeRealtimeSession = useCallback(() => {
+    realtimeConnectionReadyRef.current = false;
+    realtimeQueuedChunksRef.current = [];
+    realtimeCommitPendingRef.current = false;
+    realtimeReconnectInFlightRef.current = false;
+
+    const connection = realtimeConnectionRef.current;
+    realtimeConnectionRef.current = null;
+
+    if (connection) {
+      try {
+        connection.close();
+      } catch (error) {
+        console.error("Failed to close ElevenLabs realtime session:", error);
+      }
+    }
+  }, []);
+
+  const sendRealtimeAudioChunk = useCallback((chunk: RealtimeAudioChunkEvent) => {
+    const connection = realtimeConnectionRef.current;
+
+    if (!connection || !realtimeConnectionReadyRef.current) {
+      realtimeQueuedChunksRef.current.push(chunk);
+      return;
+    }
+
+    connection.send({
+      audioBase64: chunk.audio_base64,
+      sampleRate: chunk.sample_rate,
+    });
+  }, []);
+
+  const commitRealtimeSegment = useCallback(() => {
+    const connection = realtimeConnectionRef.current;
+
+    if (!connection || !realtimeConnectionReadyRef.current) {
+      realtimeCommitPendingRef.current = true;
+      return;
+    }
+
+    setIsProcessing(true);
+    connection.commit();
+  }, []);
+
+  const flushRealtimeQueue = useCallback(() => {
+    const connection = realtimeConnectionRef.current;
+
+    if (!connection || !realtimeConnectionReadyRef.current) {
+      return;
+    }
+
+    while (realtimeQueuedChunksRef.current.length > 0) {
+      const chunk = realtimeQueuedChunksRef.current.shift();
+      if (!chunk) {
+        break;
+      }
+
+      connection.send({
+        audioBase64: chunk.audio_base64,
+        sampleRate: chunk.sample_rate,
+      });
+    }
+
+    if (realtimeCommitPendingRef.current) {
+      realtimeCommitPendingRef.current = false;
+      setIsProcessing(true);
+      connection.commit();
+    }
+  }, []);
+
+  const handleRealtimeCommittedTranscript = useCallback(
+    async (transcription: string) => {
+      const trimmedTranscription = transcription.trim();
+      setIsProcessing(false);
+
+      if (!trimmedTranscription) {
+        return;
+      }
+
+      setLastTranscription(trimmedTranscription);
+      setError("");
+
+      await processWithAIRef.current(
+        trimmedTranscription,
+        getEffectiveSystemPromptRef.current(),
+        getPreviousMessagesRef.current()
+      );
+    },
+    []
+  );
+
+  const scheduleRealtimeReconnect = useCallback(() => {
+    if (
+      realtimeReconnectInFlightRef.current ||
+      !shouldReconnectRealtimeRef.current ||
+      !capturingRef.current ||
+      !isRealtimeSttProvider
+    ) {
+      return;
+    }
+
+    realtimeReconnectInFlightRef.current = true;
+
+    window.setTimeout(() => {
+      void startRealtimeSession()
+        .catch((error) => {
+          console.error("Failed to restart ElevenLabs realtime session:", error);
+          if (capturingRef.current && shouldReconnectRealtimeRef.current) {
+            setError(
+              error instanceof Error
+                ? error.message
+                : "Failed to restart ElevenLabs realtime transcription."
+            );
+          }
+        })
+        .finally(() => {
+          realtimeReconnectInFlightRef.current = false;
+        });
+    }, 0);
+  }, [isRealtimeSttProvider]);
+
+  const startRealtimeSession = useCallback(async () => {
+    closeRealtimeSession();
+
+    const { apiKey, model } = getElevenLabsRealtimeConfig(selectedSttProvider);
+    const deviceId =
+      selectedAudioDevices.output.id !== "default"
+        ? selectedAudioDevices.output.id
+        : null;
+
+    const sampleRate = await invoke<number>("get_audio_sample_rate", {
+      deviceId,
+    });
+    const token = await fetchElevenLabsRealtimeToken(apiKey);
+
+    const connection = Scribe.connect({
+      token,
+      modelId: model,
+      commitStrategy: CommitStrategy.MANUAL,
+      audioFormat: getElevenLabsAudioFormat(sampleRate),
+      sampleRate,
+    });
+
+    realtimeConnectionRef.current = connection;
+    realtimeConnectionReadyRef.current = false;
+    realtimeQueuedChunksRef.current = [];
+    realtimeCommitPendingRef.current = false;
+
+    connection.on(RealtimeEvents.OPEN, () => {
+      realtimeConnectionReadyRef.current = true;
+      flushRealtimeQueue();
+    });
+
+    connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
+      if (!data.text.trim()) {
+        return;
+      }
+
+      setLastTranscription(data.text);
+      setError("");
+    });
+
+    connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+      void handleRealtimeCommittedTranscript(data.text);
+    });
+
+    connection.on(RealtimeEvents.ERROR, (data) => {
+      console.error("ElevenLabs realtime STT error:", data);
+      setIsProcessing(false);
+      setError(data.error || "ElevenLabs realtime STT failed.");
+    });
+
+    connection.on(RealtimeEvents.CLOSE, () => {
+      realtimeConnectionReadyRef.current = false;
+
+      if (realtimeConnectionRef.current === connection) {
+        realtimeConnectionRef.current = null;
+      }
+
+      if (shouldReconnectRealtimeRef.current && capturingRef.current) {
+        scheduleRealtimeReconnect();
+      }
+    });
+  }, [
+    closeRealtimeSession,
+    flushRealtimeQueue,
+    handleRealtimeCommittedTranscript,
+    scheduleRealtimeReconnect,
+    selectedAudioDevices.output.id,
+    selectedSttProvider,
+  ]);
 
   const startCapture = useCallback(async () => {
     try {
@@ -563,6 +875,12 @@ export function useSystemAudio() {
 
       const isContinuous = !vadConfig.enabled;
 
+      if (isContinuous && isRealtimeSttProvider) {
+        setError("ElevenLabs realtime STT requires VAD mode. Enable VAD to use it.");
+        setIsPopoverOpen(true);
+        return;
+      }
+
       // Set up conversation
       const conversationId = generateConversationId("sysaudio");
       setConversation({
@@ -574,6 +892,8 @@ export function useSystemAudio() {
       });
 
       setCapturing(true);
+      capturingRef.current = true;
+      shouldReconnectRealtimeRef.current = true;
       setIsPopoverOpen(true);
       setIsContinuousMode(isContinuous);
       setRecordingProgress(0);
@@ -588,6 +908,10 @@ export function useSystemAudio() {
       // Stop any existing capture
       await invoke<string>("stop_system_audio_capture");
 
+      if (isRealtimeSttProvider) {
+        await startRealtimeSession();
+      }
+
       const deviceId =
         selectedAudioDevices.output.id !== "default"
           ? selectedAudioDevices.output.id
@@ -599,19 +923,36 @@ export function useSystemAudio() {
         deviceId: deviceId,
       });
     } catch (err) {
+      shouldReconnectRealtimeRef.current = false;
+      capturingRef.current = false;
+      closeRealtimeSession();
+      setCapturing(false);
+      setIsContinuousMode(false);
+      setIsRecordingInContinuousMode(false);
       const errorMessage = err instanceof Error ? err.message : String(err);
       setError(errorMessage);
       setIsPopoverOpen(true);
     }
-  }, [vadConfig, selectedAudioDevices.output.id]);
+  }, [
+    closeRealtimeSession,
+    isRealtimeSttProvider,
+    selectedAudioDevices.output.id,
+    startRealtimeSession,
+    vadConfig,
+  ]);
 
   const stopCapture = useCallback(async () => {
     try {
+      shouldReconnectRealtimeRef.current = false;
+      capturingRef.current = false;
+
       // Abort any ongoing AI requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
+
+      closeRealtimeSession();
 
       // Stop the audio capture
       await invoke<string>("stop_system_audio_capture");
@@ -632,7 +973,7 @@ export function useSystemAudio() {
       setError(`Failed to stop capture: ${errorMessage}`);
       console.error("Stop capture error:", err);
     }
-  }, []);
+  }, [closeRealtimeSession]);
 
   // Manual stop for continuous recording
   const manualStopAndSend = useCallback(async () => {
@@ -710,12 +1051,16 @@ export function useSystemAudio() {
 
   useEffect(() => {
     return () => {
+      shouldReconnectRealtimeRef.current = false;
+      capturingRef.current = false;
+
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      closeRealtimeSession();
       invoke("stop_system_audio_capture").catch(() => {});
     };
-  }, []);
+  }, [closeRealtimeSession]);
 
   // Debounced save to prevent race conditions and improve performance
   useEffect(() => {

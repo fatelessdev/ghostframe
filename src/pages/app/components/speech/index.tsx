@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   Button,
   Popover,
@@ -16,6 +16,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { ModeSwitcher } from "./ModeSwitcher";
 import { RecordingPanel } from "./RecordingPanel";
 import { ResultsSection } from "./ResultsSection";
@@ -26,6 +27,14 @@ import { Warning } from "./Warning";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_RESPONSE_SETTINGS,
+  getResponseSettings,
+  updateResponsePanelSize,
+} from "@/lib/storage/response-settings.storage";
+
+const MIN_PANEL_WIDTH = 480;
+const MIN_PANEL_HEIGHT = 300;
 
 export const SystemAudio = (props: useSystemAudioType) => {
   const {
@@ -65,10 +74,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
     scrollAreaRef,
   } = props;
 
-  const { hasActiveLicense, supportsImages } = useApp();
+  const { supportsImages } = useApp();
 
   // View mode toggle
   const [conversationMode, setConversationMode] = useState(false);
+  const [responseSettings, setResponseSettings] = useState(() =>
+    getResponseSettings()
+  );
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
   // Screenshot state
   const [screenshotImage, setScreenshotImage] = useState<string | null>(null);
@@ -76,6 +89,36 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
   const isVadMode = vadConfig.enabled;
   const hasResponse = lastAIResponse || isAIProcessing;
+
+  useEffect(() => {
+    const syncResponseSettings = () => {
+      setResponseSettings(getResponseSettings());
+    };
+
+    const handleResponseSettingsChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<typeof DEFAULT_RESPONSE_SETTINGS>;
+      if (customEvent.detail) {
+        setResponseSettings(customEvent.detail);
+        return;
+      }
+
+      syncResponseSettings();
+    };
+
+    window.addEventListener("storage", syncResponseSettings);
+    window.addEventListener(
+      "responseSettingsChanged",
+      handleResponseSettingsChanged as EventListener
+    );
+
+    return () => {
+      window.removeEventListener("storage", syncResponseSettings);
+      window.removeEventListener(
+        "responseSettingsChanged",
+        handleResponseSettingsChanged as EventListener
+      );
+    };
+  }, []);
 
   // Keyboard shortcut for Cmd+K to toggle view mode
   useEffect(() => {
@@ -92,6 +135,63 @@ export const SystemAudio = (props: useSystemAudioType) => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPopoverOpen]);
+
+  useEffect(() => {
+    const element = panelRef.current;
+    if (!element || !isPopoverOpen) {
+      return;
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+
+      const nextWidth = Math.round(entry.contentRect.width);
+      const nextHeight = Math.round(entry.contentRect.height);
+
+      if (
+        nextWidth === responseSettings.panelWidth &&
+        nextHeight === responseSettings.panelHeight
+      ) {
+        return;
+      }
+
+      setResponseSettings((prev) => ({
+        ...prev,
+        panelWidth: nextWidth,
+        panelHeight: nextHeight,
+      }));
+      updateResponsePanelSize(nextWidth, nextHeight);
+    });
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
+
+  useEffect(() => {
+    if (!isPopoverOpen) {
+      return;
+    }
+
+    const syncWindowSize = async () => {
+      try {
+        await invoke("set_window_height", {
+          window: getCurrentWebviewWindow(),
+          height: Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight),
+          width: Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth),
+        });
+      } catch (error) {
+        console.error("Failed to sync system audio panel size:", error);
+      }
+    };
+
+    void syncWindowSize();
+  }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
 
   // Reset screenshot when processing starts (message is being sent)
   useEffect(() => {
@@ -198,12 +298,18 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
       {(capturing || setupRequired || error) && (
         <PopoverContent
+          ref={panelRef}
           align="end"
           side="bottom"
-          className="select-none w-screen p-0 border shadow-lg overflow-hidden border-input/50"
+          className="select-none p-0 border shadow-lg overflow-hidden border-input/50 min-w-[480px] min-h-[300px] max-h-[calc(100vh-4rem)]"
           sideOffset={8}
+          style={{
+            width: `${Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth)}px`,
+            height: `${Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight)}px`,
+            resize: "both",
+          }}
         >
-          <div className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden">
+          <div className="flex flex-col h-full overflow-hidden bg-background">
             {/* Header - Mode Switcher + Actions */}
             <div className="flex-shrink-0 p-3 border-b border-border/50">
               <div className="flex items-center justify-between gap-2">
@@ -225,8 +331,11 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
                 {/* Action Buttons */}
                 <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="hidden sm:inline text-[10px] text-muted-foreground/70 mr-1">
+                    Drag bottom-right corner to resize
+                  </span>
                   {/* Screenshot Button */}
-                  {hasActiveLicense && !setupRequired && supportsImages && (
+                  {!setupRequired && supportsImages && (
                     <Button
                       size="sm"
                       variant={screenshotImage ? "default" : "outline"}
@@ -355,6 +464,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       conversation={conversation}
                       conversationMode={conversationMode}
                       setConversationMode={setConversationMode}
+                      textSize={responseSettings.textSize}
                     />
 
                     {/* Settings Panel */}

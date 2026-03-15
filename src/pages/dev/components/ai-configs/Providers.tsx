@@ -1,4 +1,5 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
+import { AI_MODE_VARIABLE_KEYS } from "@/config";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
@@ -28,6 +29,15 @@ export const Providers = ({
   const findKeyAndValue = (key: string) => {
     return variables?.find((v) => v?.key === key);
   };
+
+  const getProviderName = () => {
+    return allAiProviders?.find((p) => p?.id === selectedAIProvider?.provider)
+      ?.isCustom
+      ? "Custom Provider"
+      : selectedAIProvider?.provider;
+  };
+
+  const modelVar = findKeyAndValue("model");
 
   const getApiKeyValue = () => {
     const apiKeyVar = findKeyAndValue("api_key");
@@ -174,9 +184,71 @@ export const Providers = ({
       ) : null}
 
       <div className="space-y-4 mt-2">
+        {modelVar ? (
+          <div className="space-y-3">
+            <Header
+              title={modelVar.value || "MODEL"}
+              description={`Set separate models for ${getProviderName()} fast and pro responses. D is fast, P is slower but smarter.`}
+            />
+            <div className="space-y-1">
+              <Header
+                title="D Model"
+                description={`Fast model for normal responses using ${getProviderName()}.`}
+              />
+              <TextInput
+                placeholder={`Enter dumb/fast model for ${getProviderName()}`}
+                value={
+                  selectedAIProvider?.variables?.[
+                    AI_MODE_VARIABLE_KEYS.DUMB_MODEL
+                  ] || selectedAIProvider?.variables?.[modelVar.key] || ""
+                }
+                onChange={(value) => {
+                  if (!selectedAIProvider) return;
+
+                  onSetSelectedAIProvider({
+                    ...selectedAIProvider,
+                    variables: {
+                      ...selectedAIProvider.variables,
+                      [AI_MODE_VARIABLE_KEYS.DUMB_MODEL]: value,
+                      [modelVar.key]: value,
+                    },
+                  });
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Header
+                title="P Model"
+                description={`Smarter, slower model for harder problems like LeetCode using ${getProviderName()}.`}
+              />
+              <TextInput
+                placeholder={`Enter pro/smart model for ${getProviderName()}`}
+                value={
+                  selectedAIProvider?.variables?.[
+                    AI_MODE_VARIABLE_KEYS.PRO_MODEL
+                  ] || ""
+                }
+                onChange={(value) => {
+                  if (!selectedAIProvider) return;
+
+                  onSetSelectedAIProvider({
+                    ...selectedAIProvider,
+                    variables: {
+                      ...selectedAIProvider.variables,
+                      [AI_MODE_VARIABLE_KEYS.PRO_MODEL]: value,
+                    },
+                  });
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
+
         {variables
           .filter(
-            (variable) => variable.key !== findKeyAndValue("api_key")?.key
+            (variable) =>
+              variable.key !== findKeyAndValue("api_key")?.key &&
+              variable.key !== modelVar?.key
           )
           .map((variable) => {
             const getVariableValue = () => {
@@ -192,20 +264,12 @@ export const Providers = ({
                     /_/g,
                     " "
                   )} for ${
-                    allAiProviders?.find(
-                      (p) => p?.id === selectedAIProvider?.provider
-                    )?.isCustom
-                      ? "Custom Provider"
-                      : selectedAIProvider?.provider
+                    getProviderName()
                   }`}
                 />
                 <TextInput
                   placeholder={`Enter ${
-                    allAiProviders?.find(
-                      (p) => p?.id === selectedAIProvider?.provider
-                    )?.isCustom
-                      ? "Custom Provider"
-                      : selectedAIProvider?.provider
+                    getProviderName()
                   } ${variable?.key?.replace(/_/g, " ") || "value"}`}
                   value={getVariableValue()}
                   onChange={(value) => {

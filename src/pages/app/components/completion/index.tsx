@@ -4,13 +4,13 @@ import { Files } from "./Files";
 import { Audio } from "./Audio";
 import { Input } from "./Input";
 
-export const Completion = ({ isHidden }: { isHidden: boolean }) => {
+export const Completion = () => {
   const completion = useCompletion();
 
   return (
     <>
       <Audio {...completion} />
-      <Input {...completion} isHidden={isHidden} />
+      <Input {...completion} />
       <Screenshot {...completion} />
       <Files {...completion} />
     </>

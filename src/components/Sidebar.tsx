@@ -15,7 +15,7 @@ export const Sidebar = () => {
     <aside className="flex w-56 flex-col select-none pt-2">
       {/* Logo */}
       <div
-        onClick={() => navigate("/dashboard")}
+        onClick={() => navigate("/chats")}
         className="flex h-16 items-center px-4 pt-10 gap-1.5"
       >
         <div className="flex size-6 lg:size-7 items-center justify-center rounded-lg bg-primary">
@@ -23,7 +23,7 @@ export const Sidebar = () => {
         </div>
         <div className="flex flex-col">
           <h1 className="text-xs lg:text-md font-semibold text-foreground transition-all duration-300">
-            Pluely
+            Ghostframe
           </h1>
           <span className="text-[8px] lg:text-[10px] text-muted-foreground -mt-1 block">
             {isLoading ? "Loading..." : `(v${version})`}

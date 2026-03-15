@@ -1,10 +1,11 @@
 import {
   AI_PROVIDERS,
+  DEFAULT_AI_MODE,
   DEFAULT_SYSTEM_PROMPT,
   SPEECH_TO_TEXT_PROVIDERS,
   STORAGE_KEYS,
 } from "@/config";
-import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
+import { getPlatform, safeLocalStorage } from "@/lib";
 import { getShortcutsConfig } from "@/lib/storage";
 import {
   getCustomizableState,
@@ -20,7 +21,6 @@ import {
 import { IContextType, ScreenshotConfig, TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { enable, disable } from "@tauri-apps/plugin-autostart";
 import {
@@ -107,6 +107,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     provider: "",
     variables: {},
   });
+  const [currentAIMode, setCurrentAIModeState] = useState<"D" | "P">(() => {
+    const storedMode = safeLocalStorage.getItem(STORAGE_KEYS.CURRENT_AI_MODE);
+    return storedMode === "P" ? "P" : DEFAULT_AI_MODE;
+  });
 
   // STT Providers
   const [customSttProviders, setCustomSttProviders] = useState<TYPE_PROVIDER[]>(
@@ -131,7 +135,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [customizable, setCustomizable] = useState<CustomizableState>(
     DEFAULT_CUSTOMIZABLE_STATE
   );
-  const [hasActiveLicense, setHasActiveLicense] = useState<boolean>(false);
+
   const [supportsImages, setSupportsImagesState] = useState<boolean>(() => {
     const stored = safeLocalStorage.getItem(STORAGE_KEYS.SUPPORTS_IMAGES);
     return stored === null ? true : stored === "true";
@@ -142,50 +146,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setSupportsImagesState(value);
     safeLocalStorage.setItem(STORAGE_KEYS.SUPPORTS_IMAGES, String(value));
   };
-
-  // Pluely API State
-  const [pluelyApiEnabled, setPluelyApiEnabledState] = useState<boolean>(
-    safeLocalStorage.getItem(STORAGE_KEYS.PLUELY_API_ENABLED) === "true"
-  );
-
-  const getActiveLicenseStatus = async () => {
-    const response: { is_active: boolean; is_dev_license: boolean } =
-      await invoke("validate_license_api");
-    setHasActiveLicense(response.is_active);
-
-    if (response?.is_dev_license) {
-      setPluelyApiEnabled(false);
-    }
-
-    // Check if the auto configs are enabled
-    const autoConfigsEnabled = localStorage.getItem("auto-configs-enabled");
-    if (response.is_active && !autoConfigsEnabled) {
-      setScreenshotConfiguration({
-        mode: "auto",
-        autoPrompt: "Analyze the screenshot and provide insights",
-        enabled: false,
-      });
-      // Set the flag to true so that we don't change the mode again
-      localStorage.setItem("auto-configs-enabled", "true");
-    }
-  };
-
-  useEffect(() => {
-    const syncLicenseState = async () => {
-      try {
-        await invoke("set_license_status", {
-          hasLicense: hasActiveLicense,
-        });
-
-        const config = getShortcutsConfig();
-        await invoke("update_shortcuts", { config });
-      } catch (error) {
-        console.error("Failed to synchronize license state:", error);
-      }
-    };
-
-    syncLicenseState();
-  }, [hasActiveLicense]);
 
   // Function to load AI, STT, system prompt and screenshot config data from storage
   const loadData = () => {
@@ -244,6 +204,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       setSelectedAIProvider(JSON.parse(savedSelectedAi));
     }
 
+    const savedAiMode = safeLocalStorage.getItem(STORAGE_KEYS.CURRENT_AI_MODE);
+    if (savedAiMode === "D" || savedAiMode === "P") {
+      setCurrentAIModeState(savedAiMode);
+    } else {
+      setCurrentAIModeState(DEFAULT_AI_MODE);
+    }
+
     // Load selected STT provider
     const savedSelectedStt = safeLocalStorage.getItem(
       STORAGE_KEYS.SELECTED_STT_PROVIDER
@@ -260,28 +227,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
     const stored = safeLocalStorage.getItem(STORAGE_KEYS.CUSTOMIZABLE);
     if (!stored) {
-      // save the default state
       setCustomizableState(customizableState);
     } else {
-      // check if we need to update the schema
       try {
         const parsed = JSON.parse(stored);
         if (!parsed.autostart) {
-          // save the merged state with new autostart property
           setCustomizableState(customizableState);
           updateCursor(customizableState.cursor.type || "invisible");
         }
       } catch (error) {
         console.debug("Failed to check customizable state schema:", error);
       }
-    }
-
-    // Load Pluely API enabled state
-    const savedPluelyApiEnabled = safeLocalStorage.getItem(
-      STORAGE_KEYS.PLUELY_API_ENABLED
-    );
-    if (savedPluelyApiEnabled !== null) {
-      setPluelyApiEnabledState(savedPluelyApiEnabled === "true");
     }
 
     // Load selected audio devices
@@ -304,7 +260,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     try {
       const currentWindow = getCurrentWindow();
       const platform = getPlatform();
-      // For Linux, always use default cursor
       if (platform === "linux") {
         document.documentElement.style.setProperty("--cursor-type", "default");
         return;
@@ -312,12 +267,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       const windowLabel = currentWindow.label;
 
       if (windowLabel === "dashboard") {
-        // For dashboard, always use default cursor
         document.documentElement.style.setProperty("--cursor-type", "default");
         return;
       }
 
-      // For overlay windows (main, capture-overlay-*)
       const safeType = type || "invisible";
       const cursorValue = type === "invisible" ? "none" : safeType;
       document.documentElement.style.setProperty("--cursor-type", cursorValue);
@@ -328,24 +281,30 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Load data on mount
   useEffect(() => {
-    const initializeApp = async () => {
-      // Load license and data
-      await getActiveLicenseStatus();
+    loadData();
 
-      // Track app start
+    const initializeShortcuts = async () => {
       try {
-        const appVersion = await invoke<string>("get_app_version");
-        const storage = await invoke<{
-          instance_id: string;
-        }>("secure_storage_get");
-        await trackAppStart(appVersion, storage.instance_id || "");
+        const config = getShortcutsConfig();
+        await invoke("update_shortcuts", { config });
       } catch (error) {
-        console.debug("Failed to track app start:", error);
+        console.error("Failed to initialize shortcuts:", error);
       }
     };
-    // Load data
-    loadData();
-    initializeApp();
+    initializeShortcuts();
+
+    // Restore saved disguise mode so the Rust backend uses the persisted preset
+    const initializeDisguiseMode = async () => {
+      const saved = localStorage.getItem("disguise_mode");
+      if (saved) {
+        try {
+          await invoke("set_disguise_mode", { mode: saved });
+        } catch {
+          // silently ignore if command not yet registered
+        }
+      }
+    };
+    initializeDisguiseMode();
   }, []);
 
   // Handle customizable settings on state changes
@@ -375,7 +334,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
           STORAGE_KEYS.AUTOSTART_INITIALIZED
         );
 
-        // Only apply autostart on the very first launch
         if (!autostartInitialized) {
           const autostartEnabled = customizable?.autostart?.isEnabled ?? true;
 
@@ -385,7 +343,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             await disable();
           }
 
-          // Mark as initialized so this never runs again
           safeLocalStorage.setItem(STORAGE_KEYS.AUTOSTART_INITIALIZED, "true");
         }
       } catch (error) {
@@ -396,39 +353,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     initializeAutostart();
   }, []);
 
-  // Listen for app icon hide/show events when window is toggled
-  useEffect(() => {
-    const handleAppIconVisibility = async (isVisible: boolean) => {
-      try {
-        await invoke("set_app_icon_visibility", { visible: isVisible });
-      } catch (error) {
-        console.error("Failed to set app icon visibility:", error);
-      }
-    };
-
-    const unlistenHide = listen("handle-app-icon-on-hide", async () => {
-      const currentState = getCustomizableState();
-      // Only hide app icon if user has set it to hide mode
-      if (!currentState.appIcon.isVisible) {
-        await handleAppIconVisibility(false);
-      }
-    });
-
-    const unlistenShow = listen("handle-app-icon-on-show", async () => {
-      // Always show app icon when window is shown, regardless of user setting
-      await handleAppIconVisibility(true);
-    });
-
-    return () => {
-      unlistenHide.then((fn) => fn());
-      unlistenShow.then((fn) => fn());
-    };
-  }, []);
-
   // Listen to storage events for real-time sync (e.g., multi-tab)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      // Sync supportsImages across windows
       if (e.key === STORAGE_KEYS.SUPPORTS_IMAGES && e.newValue !== null) {
         setSupportsImagesState(e.newValue === "true");
       }
@@ -436,6 +363,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       if (
         e.key === STORAGE_KEYS.CUSTOM_AI_PROVIDERS ||
         e.key === STORAGE_KEYS.SELECTED_AI_PROVIDER ||
+        e.key === STORAGE_KEYS.CURRENT_AI_MODE ||
         e.key === STORAGE_KEYS.CUSTOM_SPEECH_PROVIDERS ||
         e.key === STORAGE_KEYS.SELECTED_STT_PROVIDER ||
         e.key === STORAGE_KEYS.SYSTEM_PROMPT ||
@@ -452,41 +380,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Check if the current AI provider/model supports images
   useEffect(() => {
-    const checkImageSupport = async () => {
-      if (pluelyApiEnabled) {
-        // For Pluely API, check the selected model's modality
-        try {
-          const storage = await invoke<{
-            selected_pluely_model?: string;
-          }>("secure_storage_get");
-
-          if (storage.selected_pluely_model) {
-            const model = JSON.parse(storage.selected_pluely_model);
-            const hasImageSupport = model.modality?.includes("image") ?? false;
-            setSupportsImages(hasImageSupport);
-          } else {
-            // No model selected, assume no image support
-            setSupportsImages(false);
-          }
-        } catch (error) {
-          setSupportsImages(false);
-        }
+    const checkImageSupport = () => {
+      const provider = allAiProviders.find(
+        (p) => p.id === selectedAIProvider.provider
+      );
+      if (provider) {
+        const hasImageSupport = provider.curl?.includes("{{IMAGE}}") ?? false;
+        setSupportsImages(hasImageSupport);
       } else {
-        // For custom AI providers, check if curl contains {{IMAGE}}
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (provider) {
-          const hasImageSupport = provider.curl?.includes("{{IMAGE}}") ?? false;
-          setSupportsImages(hasImageSupport);
-        } else {
-          setSupportsImages(true);
-        }
+        setSupportsImages(true);
       }
     };
 
     checkImageSupport();
-  }, [pluelyApiEnabled, selectedAIProvider.provider]);
+  }, [selectedAIProvider.provider]);
 
   // Sync selected AI to localStorage
   useEffect(() => {
@@ -497,6 +404,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       );
     }
   }, [selectedAIProvider]);
+
+  useEffect(() => {
+    safeLocalStorage.setItem(STORAGE_KEYS.CURRENT_AI_MODE, currentAIMode);
+  }, [currentAIMode]);
 
   // Sync selected STT to localStorage
   useEffect(() => {
@@ -532,16 +443,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       return;
     }
 
-    // Update supportsImages immediately when provider changes
-    if (!pluelyApiEnabled) {
-      const selectedProvider = allAiProviders.find((p) => p.id === provider);
-      if (selectedProvider) {
-        const hasImageSupport =
-          selectedProvider.curl?.includes("{{IMAGE}}") ?? false;
-        setSupportsImages(hasImageSupport);
-      } else {
-        setSupportsImages(true);
-      }
+    const selectedProvider = allAiProviders.find((p) => p.id === provider);
+    if (selectedProvider) {
+      const hasImageSupport =
+        selectedProvider.curl?.includes("{{IMAGE}}") ?? false;
+      setSupportsImages(hasImageSupport);
+    } else {
+      setSupportsImages(true);
     }
 
     setSelectedAIProvider((prev) => ({
@@ -549,6 +457,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       provider,
       variables,
     }));
+  };
+
+  const setCurrentAIMode = (mode: "D" | "P") => {
+    setCurrentAIModeState(mode === "P" ? "P" : "D");
   };
 
   // Setter for selected STT with validation
@@ -614,52 +526,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     loadData();
   };
 
-  const setPluelyApiEnabled = async (enabled: boolean) => {
-    setPluelyApiEnabledState(enabled);
-    safeLocalStorage.setItem(STORAGE_KEYS.PLUELY_API_ENABLED, String(enabled));
-
-    if (enabled) {
-      try {
-        const storage = await invoke<{
-          selected_pluely_model?: string;
-        }>("secure_storage_get");
-
-        if (storage.selected_pluely_model) {
-          const model = JSON.parse(storage.selected_pluely_model);
-          const hasImageSupport = model.modality?.includes("image") ?? false;
-          setSupportsImages(hasImageSupport);
-        } else {
-          // No model selected, assume no image support
-          setSupportsImages(false);
-        }
-      } catch (error) {
-        console.debug("Failed to check Pluely model image support:", error);
-        setSupportsImages(false);
-      }
-    } else {
-      // Switching to regular provider - check if curl contains {{IMAGE}}
-      const provider = allAiProviders.find(
-        (p) => p.id === selectedAIProvider.provider
-      );
-      if (provider) {
-        const hasImageSupport = provider.curl?.includes("{{IMAGE}}") ?? false;
-        setSupportsImages(hasImageSupport);
-      } else {
-        setSupportsImages(true);
-      }
-    }
-
-    loadData();
-  };
-
-  // Create the context value (extend IContextType accordingly)
+  // Create the context value
   const value: IContextType = {
     systemPrompt,
     setSystemPrompt,
     allAiProviders,
     customAiProviders,
     selectedAIProvider,
+    currentAIMode,
     onSetSelectedAIProvider,
+    setCurrentAIMode,
     allSttProviders,
     customSttProviders,
     selectedSttProvider,
@@ -671,11 +547,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     toggleAlwaysOnTop,
     toggleAutostart,
     loadData,
-    pluelyApiEnabled,
-    setPluelyApiEnabled,
-    hasActiveLicense,
-    setHasActiveLicense,
-    getActiveLicenseStatus,
     selectedAudioDevices,
     setSelectedAudioDevices,
     setCursorType,
