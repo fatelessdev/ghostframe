@@ -51,7 +51,6 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
     // Try different possible window labels
     let window = app
         .get_webview_window("main")
-        .
         .or_else(|| {
             // Get the first window if specific labels don't work
             app.webview_windows().values().next().cloned()
@@ -60,17 +59,10 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
 
     position_window_top_center(&window, TOP_OFFSET)?;
 
-    // Set window as non-focusable on Windows to prevent focus detection
-    // This prevents the window from being detected as active when switching between apps
-    #[cfg(target_os = "windows")]
-    {
-        // Attempt to set window as non-focusable using Tauri's API
-        let _ = window.set_focusable(false);
-    }
-
     sync_main_window(&app.handle()).map_err(std::io::Error::other)?;
 
-    // Reassert topmost on blur instead of forcing the window visible again.
+    // Reassert topmost and visibility on blur so the overlay stays on screen
+    // even when the user switches apps, clicks the desktop, or presses Win+D.
     let app_handle = app.handle().clone();
     let window_clone = window.clone();
     window.on_window_event(move |event| {
@@ -79,6 +71,13 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
         match event {
             WindowEvent::Focused(false) => {
                 let _ = sync_window_topmost(&app_handle, &window_clone);
+
+                if app_handle
+                    .state::<WindowPreferencesState>()
+                    .main_window_visible()
+                {
+                    let _ = show_main_window(&app_handle, false);
+                }
             }
             _ => {}
         }
@@ -94,12 +93,17 @@ pub fn sync_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
 
     let state = app.state::<WindowPreferencesState>();
     let always_on_top = state.always_on_top();
+    let click_through = state.click_through();
     #[cfg(not(target_os = "windows"))]
     let app_icon_visible = state.app_icon_visible();
 
     window
         .set_always_on_top(always_on_top)
         .map_err(|e| format!("Failed to set always on top: {}", e))?;
+
+    window
+        .set_ignore_cursor_events(click_through)
+        .map_err(|e| format!("Failed to sync click-through state: {}", e))?;
 
     #[cfg(target_os = "windows")]
     {
@@ -126,6 +130,9 @@ pub fn hide_main_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
+    app.state::<WindowPreferencesState>()
+        .set_main_window_visible(false);
+
     #[cfg(target_os = "windows")]
     {
         let hwnd = window.hwnd().map_err(|e| format!("Failed to get HWND: {}", e))?;
@@ -151,6 +158,9 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>, focus_input: bool) -> Re
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
+
+    app.state::<WindowPreferencesState>()
+        .set_main_window_visible(true);
 
     // Apply taskbar / Alt+Tab stealth before making the window visible so
     // Windows does not recreate an app-switcher entry during restore.
@@ -400,6 +410,11 @@ pub fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn open_quick_settings(app: tauri::AppHandle) -> Result<(), String> {
+    show_quick_settings_window(&app)
+}
+
+#[tauri::command]
 pub fn toggle_dashboard(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(dashboard_window) = app.get_webview_window("dashboard") {
         match dashboard_window.is_visible() {
@@ -478,8 +493,6 @@ pub fn create_dashboard_window<R: Runtime>(
         .decorations(true)
         .inner_size(800.0, 600.0)
         .min_inner_size(800.0, 600.0)
-        .content_protected(true)
-        .skip_taskbar(true)
         .visible(false);
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
@@ -489,7 +502,6 @@ pub fn create_dashboard_window<R: Runtime>(
         .decorations(true)
         .inner_size(800.0, 600.0)
         .min_inner_size(800.0, 600.0)
-        .content_protected(true)
         .visible(false);
 
     let window = base_builder.build()?;
@@ -499,6 +511,51 @@ pub fn create_dashboard_window<R: Runtime>(
     }
 
     // Set up close event handler - hide window instead of destroying it
+    setup_dashboard_close_handler(&window);
+
+    Ok(window)
+}
+
+pub fn create_quick_settings_window<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<WebviewWindow<R>, tauri::Error> {
+    let base_builder = WebviewWindowBuilder::new(
+        app,
+        "quick-settings",
+        tauri::WebviewUrl::App("/quick-settings".into()),
+    );
+
+    #[cfg(target_os = "macos")]
+    let base_builder = base_builder
+        .title("Ghostframe Quick Settings")
+        .center()
+        .decorations(true)
+        .inner_size(520.0, 520.0)
+        .min_inner_size(460.0, 480.0)
+        .hidden_title(false)
+        .content_protected(true)
+        .visible(false);
+
+    #[cfg(target_os = "windows")]
+    let base_builder = base_builder
+        .title("Ghostframe Quick Settings")
+        .center()
+        .decorations(true)
+        .inner_size(520.0, 520.0)
+        .min_inner_size(460.0, 480.0)
+        .visible(false);
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let base_builder = base_builder
+        .title("Ghostframe Quick Settings")
+        .center()
+        .decorations(true)
+        .inner_size(520.0, 520.0)
+        .min_inner_size(460.0, 480.0)
+        .visible(false);
+
+    let window = base_builder.build()?;
+
     setup_dashboard_close_handler(&window);
 
     Ok(window)
@@ -545,14 +602,37 @@ pub fn show_dashboard_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), Strin
     Ok(())
 }
 
+pub fn show_quick_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("quick-settings") {
+        window
+            .show()
+            .map_err(|e| format!("Failed to show quick settings window: {}", e))?;
+        window
+            .set_focus()
+            .map_err(|e| format!("Failed to focus quick settings window: {}", e))?;
+    } else {
+        let window = create_quick_settings_window(app)
+            .map_err(|e| format!("Failed to create quick settings window: {}", e))?;
+        window
+            .show()
+            .map_err(|e| format!("Failed to show new quick settings window: {}", e))?;
+        window
+            .set_focus()
+            .map_err(|e| format!("Failed to focus new quick settings window: {}", e))?;
+    }
+
+    Ok(())
+}
+
 fn sync_dashboard_window<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        // Dashboard should be visible in taskbar and Alt+Tab so users can find it
         window
-            .set_skip_taskbar(true)
-            .map_err(|e| format!("Failed to keep dashboard hidden from taskbar: {}", e))?;
+            .set_skip_taskbar(false)
+            .map_err(|e| format!("Failed to set dashboard taskbar visibility: {}", e))?;
 
-        update_windows_alt_tab_visibility(window, true)?;
+        update_windows_alt_tab_visibility(window, false)?;
     }
 
     Ok(())
@@ -580,7 +660,7 @@ pub fn start_window_title_disguise<R: Runtime>(app: &AppHandle<R>) {
 
     let app_handle = app.clone();
 
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         // Seed with current time for pseudo-randomness (no external rand crate needed)
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -628,7 +708,7 @@ pub fn start_window_title_disguise<R: Runtime>(app: &AppHandle<R>) {
     });
 }
 
-/// Toggles content protection on the main (and dashboard) window at runtime.
+/// Toggles content protection on the main window at runtime.
 /// Returns the new protection state (`true` = protected).
 #[tauri::command]
 pub fn toggle_content_protection(app: tauri::AppHandle) -> Result<bool, String> {
@@ -638,11 +718,8 @@ pub fn toggle_content_protection(app: tauri::AppHandle) -> Result<bool, String> 
 
     if let Some(window) = app.get_webview_window("main") {
         window
-            .set_content_protection(new_state)
+            .set_content_protected(new_state)
             .map_err(|e| format!("Failed to set content protection on main window: {}", e))?;
-    }
-    if let Some(window) = app.get_webview_window("dashboard") {
-        let _ = window.set_content_protection(new_state);
     }
 
     app.emit("content-protection-changed", new_state)
@@ -655,6 +732,44 @@ pub fn toggle_content_protection(app: tauri::AppHandle) -> Result<bool, String> 
 #[tauri::command]
 pub fn get_content_protection(app: tauri::AppHandle) -> bool {
     app.state::<WindowPreferencesState>().content_protected()
+}
+
+/// Toggles click-through mode for the main window and emits the new state.
+#[tauri::command]
+pub fn toggle_click_through(app: tauri::AppHandle) -> Result<bool, String> {
+    toggle_click_through_state(&app)
+}
+
+/// Returns the current click-through state without modifying it.
+#[tauri::command]
+pub fn get_click_through(app: tauri::AppHandle) -> bool {
+    app.state::<WindowPreferencesState>().click_through()
+}
+
+/// Internal helper used by command and global shortcut.
+pub fn toggle_click_through_state<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
+    let state = app.state::<WindowPreferencesState>();
+    let new_state = !state.click_through();
+    state.set_click_through(new_state);
+
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            if !new_state {
+                let _ = window.set_focus();
+            }
+        }
+
+        window
+            .set_ignore_cursor_events(new_state)
+            .map_err(|e| format!("Failed to set click-through mode: {}", e))?;
+    }
+
+    if let Err(error) = app.emit("click-through-changed", new_state) {
+        eprintln!("Failed to emit click-through-changed: {}", error);
+    }
+
+    Ok(new_state)
 }
 
 /// Sets the active disguise preset for the window title rotation.

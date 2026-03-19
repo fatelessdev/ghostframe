@@ -266,7 +266,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
       const windowLabel = currentWindow.label;
 
-      if (windowLabel === "dashboard") {
+      if (windowLabel !== "main") {
         document.documentElement.style.setProperty("--cursor-type", "default");
         return;
       }

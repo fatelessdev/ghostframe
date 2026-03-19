@@ -7,7 +7,13 @@ import {
 } from "./components";
 import { useApp } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
-import { SparklesIcon, ShieldIcon, EyeIcon } from "lucide-react";
+import {
+  SparklesIcon,
+  ShieldIcon,
+  EyeIcon,
+  MousePointerClickIcon,
+  PointerOffIcon,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
@@ -16,6 +22,7 @@ import { getPlatform } from "@/lib";
 import { useState, useEffect } from "react";
 
 const CONTENT_PROTECTION_KEY = "content_protected";
+const CLICK_THROUGH_KEY = "click_through";
 
 const App = () => {
   const { systemAudio } = useApp();
@@ -23,6 +30,13 @@ const App = () => {
   const platform = getPlatform();
 
   const [contentProtected, setContentProtected] = useState<boolean>(true);
+  const [clickThrough, setClickThrough] = useState<boolean>(false);
+
+  const isSessionActive =
+    systemAudio?.capturing ||
+    systemAudio?.isProcessing ||
+    systemAudio?.isAIProcessing ||
+    false;
 
   useEffect(() => {
     // Read saved preference; if none saved, read current Rust state
@@ -51,11 +65,74 @@ const App = () => {
     };
   }, []);
 
+  useEffect(() => {
+    const saved = localStorage.getItem(CLICK_THROUGH_KEY);
+    if (saved !== null) {
+      const savedValue = saved === "true";
+      if (savedValue) {
+        invoke<boolean>("toggle_click_through").catch(() => {});
+      }
+      setClickThrough(savedValue);
+    } else {
+      invoke<boolean>("get_click_through")
+        .then((v) => setClickThrough(v))
+        .catch(() => {});
+    }
+
+    const unlisten = listen<boolean>("click-through-changed", (event) => {
+      const enabled = event.payload;
+      setClickThrough(enabled);
+      localStorage.setItem(CLICK_THROUGH_KEY, String(enabled));
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+
+    if (contentProtected) {
+      root.classList.add("content-protected-active");
+    } else {
+      root.classList.remove("content-protected-active");
+    }
+
+    if (clickThrough) {
+      root.classList.add("click-through-active");
+    } else {
+      root.classList.remove("click-through-active");
+    }
+
+    return () => {
+      root.classList.remove("content-protected-active");
+      root.classList.remove("click-through-active");
+    };
+  }, [clickThrough, contentProtected]);
+
+  useEffect(() => {
+    if (isSessionActive && !contentProtected) {
+      invoke<boolean>("toggle_content_protection")
+        .then((enabled) => {
+          setContentProtected(enabled);
+          localStorage.setItem(CONTENT_PROTECTION_KEY, String(enabled));
+        })
+        .catch((error) => {
+          console.error("Failed to auto-enable content protection:", error);
+        });
+    }
+  }, [contentProtected, isSessionActive]);
+
   const toggleAIMode = () => {
     setCurrentAIMode(currentAIMode === "D" ? "P" : "D");
   };
 
   const toggleContentProtection = async () => {
+    if (isSessionActive && contentProtected) {
+      return;
+    }
+
     try {
       const newState = await invoke<boolean>("toggle_content_protection");
       setContentProtected(newState);
@@ -73,6 +150,16 @@ const App = () => {
     }
   };
 
+  const toggleClickThrough = async () => {
+    try {
+      const newState = await invoke<boolean>("toggle_click_through");
+      setClickThrough(newState);
+      localStorage.setItem(CLICK_THROUGH_KEY, String(newState));
+    } catch (error) {
+      console.error("Failed to toggle click-through:", error);
+    }
+  };
+
   return (
     <ErrorBoundary
       fallbackRender={() => {
@@ -84,7 +171,7 @@ const App = () => {
       }}
     >
       <div className="w-screen h-screen flex overflow-hidden justify-center items-start">
-        <Card className="w-full flex flex-row items-center gap-2 p-2">
+        <Card className="glass-card w-full flex flex-row items-center gap-2 p-2">
           <SystemAudio {...systemAudio} />
           <Button
             size="icon"
@@ -104,17 +191,38 @@ const App = () => {
             size="icon"
             variant="ghost"
             title={
-              contentProtected
+              isSessionActive && contentProtected
+                ? "Content protection is locked while an active session is running"
+                : contentProtected
                 ? "Content protection ON — window hidden from screen capture. Click to disable."
                 : "Content protection OFF — window visible to screen capture. Click to enable."
             }
             onClick={toggleContentProtection}
+            disabled={isSessionActive && contentProtected}
             className={`shrink-0 ${contentProtected ? "text-red-400 hover:text-red-300" : "text-muted-foreground hover:text-foreground"}`}
           >
             {contentProtected ? (
               <ShieldIcon className="h-4 w-4" />
             ) : (
               <EyeIcon className="h-4 w-4" />
+            )}
+          </Button>
+
+          <Button
+            size="icon"
+            variant={clickThrough ? "default" : "ghost"}
+            title={
+              clickThrough
+                ? "Click-through ON — overlay acts as passive HUD"
+                : "Click-through OFF — overlay captures mouse input"
+            }
+            onClick={toggleClickThrough}
+            className="shrink-0"
+          >
+            {clickThrough ? (
+              <PointerOffIcon className="h-4 w-4" />
+            ) : (
+              <MousePointerClickIcon className="h-4 w-4" />
             )}
           </Button>
 

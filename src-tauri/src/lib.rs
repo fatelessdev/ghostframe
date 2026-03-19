@@ -31,6 +31,7 @@ fn get_app_version() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -50,15 +51,19 @@ pub fn run() {
     {
         builder = builder.plugin(tauri_nspanel::init());
     }
+    #[allow(unused_mut)]
     let mut builder = builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             window::set_window_height,
             window::open_dashboard,
+            window::open_quick_settings,
             window::toggle_dashboard,
             window::move_window,
             window::toggle_content_protection,
             window::get_content_protection,
+            window::toggle_click_through,
+            window::get_click_through,
             window::set_disguise_mode,
             window::get_disguise_mode,
             capture::capture_to_base64,
