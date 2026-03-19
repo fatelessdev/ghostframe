@@ -10,21 +10,29 @@ use tokio::time::{sleep, Duration};
 #[cfg(target_os = "macos")]
 use tauri_nspanel::ManagerExt;
 
-use crate::window::{hide_main_window, show_dashboard_window, show_main_window, sync_main_window};
+use crate::window::{
+    hide_main_window, show_dashboard_window, show_main_window, sync_main_window,
+    toggle_click_through_state,
+};
 
 pub struct WindowPreferencesState {
     always_on_top: AtomicBool,
     app_icon_visible: AtomicBool,
     content_protected: AtomicBool,
+    click_through: AtomicBool,
+    main_window_visible: AtomicBool,
 }
 
 impl Default for WindowPreferencesState {
     fn default() -> Self {
         Self {
-            always_on_top: AtomicBool::new(false),
+            // Matches the `alwaysOnTop: true` default in tauri.conf.json
+            always_on_top: AtomicBool::new(true),
             app_icon_visible: AtomicBool::new(true),
             // Matches the `contentProtected: true` default in tauri.conf.json
             content_protected: AtomicBool::new(true),
+            click_through: AtomicBool::new(false),
+            main_window_visible: AtomicBool::new(true),
         }
     }
 }
@@ -52,6 +60,22 @@ impl WindowPreferencesState {
 
     pub fn set_content_protected(&self, enabled: bool) {
         self.content_protected.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn click_through(&self) -> bool {
+        self.click_through.load(Ordering::Relaxed)
+    }
+
+    pub fn set_click_through(&self, enabled: bool) {
+        self.click_through.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn main_window_visible(&self) -> bool {
+        self.main_window_visible.load(Ordering::Relaxed)
+    }
+
+    pub fn set_main_window_visible(&self, visible: bool) {
+        self.main_window_visible.store(visible, Ordering::Relaxed);
     }
 }
 
@@ -122,6 +146,7 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
         "move_window_down" => handle_move_window(app, "down"),
         "move_window_left" => handle_move_window(app, "left"),
         "move_window_right" => handle_move_window(app, "right"),
+        "toggle_click_through" => handle_toggle_click_through(app),
         "audio_recording" => handle_audio_shortcut(app),
         "screenshot" => handle_screenshot_shortcut(app),
         "system_audio" => handle_system_audio_shortcut(app),
@@ -192,33 +217,35 @@ pub fn stop_all_move_windows<R: Runtime>(app: &AppHandle<R>) {
 
 /// Handle app toggle (hide/show) with input focus and app icon management
 fn handle_toggle_window<R: Runtime>(app: &AppHandle<R>) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    match window.is_visible() {
-        Ok(true) => {
-            if let Err(e) = hide_main_window(app) {
-                eprintln!("Failed to hide window: {}", e);
-            }
+    if app.state::<WindowPreferencesState>().main_window_visible() {
+        if let Err(e) = hide_main_window(app) {
+            eprintln!("Failed to hide window: {}", e);
         }
-        Ok(false) => {
-            if let Err(e) = show_main_window(app, false) {
-                eprintln!("Failed to show window: {}", e);
-            }
-        }
-        Err(e) => {
-            eprintln!("Failed to check window visibility: {}", e);
-        }
+    } else if let Err(e) = show_main_window(app, false) {
+        eprintln!("Failed to show window: {}", e);
     }
+}
+
+fn ensure_main_window_visible<R: Runtime>(app: &AppHandle<R>, focus_input: bool) -> bool {
+    if app.state::<WindowPreferencesState>().main_window_visible() {
+        return true;
+    }
+
+    if let Err(e) = show_main_window(app, focus_input) {
+        eprintln!("Failed to show window: {}", e);
+        return false;
+    }
+
+    true
 }
 
 /// Handle audio shortcut
 fn handle_audio_shortcut<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
-        if let Ok(false) = window.is_visible() {
-            if let Err(_e) = show_main_window(app, true) {
-                return;
-            }
+        if !app.state::<WindowPreferencesState>().main_window_visible()
+            && !ensure_main_window_visible(app, true)
+        {
+            return;
         }
 
         if let Err(e) = window.emit("start-audio-recording", json!({})) {
@@ -239,11 +266,10 @@ fn handle_screenshot_shortcut<R: Runtime>(app: &AppHandle<R>) {
 /// Handle system audio shortcut
 fn handle_system_audio_shortcut<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
-        if let Ok(false) = window.is_visible() {
-            if let Err(e) = show_main_window(app, true) {
-                eprintln!("Failed to show window: {}", e);
-                return;
-            }
+        if !app.state::<WindowPreferencesState>().main_window_visible()
+            && !ensure_main_window_visible(app, true)
+        {
+            return;
         }
 
         if let Err(e) = window.emit("toggle-system-audio", json!({})) {
@@ -552,6 +578,12 @@ fn handle_move_window<R: Runtime>(app: &AppHandle<R>, direction: &str) {
         }
     } else {
         eprintln!("Main window not found");
+    }
+}
+
+fn handle_toggle_click_through<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(error) = toggle_click_through_state(app) {
+        eprintln!("Failed to toggle click-through mode: {}", error);
     }
 }
 

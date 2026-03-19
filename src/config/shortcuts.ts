@@ -42,6 +42,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "toggle_click_through",
+    name: "Toggle Click-Through",
+    description: "Toggle passive HUD mode (clicks pass through overlay)",
+    defaultKey: {
+      macos: "cmd+shift+c",
+      windows: "ctrl+shift+c",
+      linux: "ctrl+shift+c",
+    },
+  },
+  {
     id: "system_audio",
     name: "System Audio",
     description: "Toggle system audio capture",
