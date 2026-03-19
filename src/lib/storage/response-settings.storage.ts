@@ -6,6 +6,7 @@ import {
   DEFAULT_RESPONSE_PANEL_HEIGHT,
   DEFAULT_RESPONSE_PANEL_WIDTH,
   DEFAULT_RESPONSE_TEXT_SIZE,
+  DEFAULT_HIGH_CONTRAST,
 } from "../response-settings.constants";
 
 export interface ResponseSettings {
@@ -15,6 +16,7 @@ export interface ResponseSettings {
   textSize: number;
   panelWidth: number;
   panelHeight: number;
+  highContrast: boolean;
 }
 
 export const DEFAULT_RESPONSE_SETTINGS: ResponseSettings = {
@@ -24,6 +26,7 @@ export const DEFAULT_RESPONSE_SETTINGS: ResponseSettings = {
   textSize: DEFAULT_RESPONSE_TEXT_SIZE,
   panelWidth: DEFAULT_RESPONSE_PANEL_WIDTH,
   panelHeight: DEFAULT_RESPONSE_PANEL_HEIGHT,
+  highContrast: DEFAULT_HIGH_CONTRAST,
 };
 
 const emitResponseSettingsChanged = (settings: ResponseSettings) => {
@@ -67,6 +70,10 @@ export const getResponseSettings = (): ResponseSettings => {
         typeof parsedSettings.panelHeight === "number"
           ? parsedSettings.panelHeight
           : DEFAULT_RESPONSE_SETTINGS.panelHeight,
+      highContrast:
+        parsedSettings.highContrast !== undefined
+          ? parsedSettings.highContrast
+          : DEFAULT_RESPONSE_SETTINGS.highContrast,
     };
   } catch (error) {
     console.error("Failed to get response settings:", error);
@@ -144,6 +151,16 @@ export const updateResponsePanelSize = (
     panelWidth,
     panelHeight,
   };
+  setResponseSettings(newSettings);
+  return newSettings;
+};
+
+/**
+ * Update high contrast mode.
+ */
+export const updateHighContrast = (highContrast: boolean): ResponseSettings => {
+  const currentSettings = getResponseSettings();
+  const newSettings = { ...currentSettings, highContrast };
   setResponseSettings(newSettings);
   return newSettings;
 };

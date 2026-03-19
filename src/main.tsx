@@ -1,13 +1,46 @@
-import React from "react";
+import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import Overlay from "./components/Overlay";
 import { AppProvider, ThemeProvider } from "./contexts";
 import "./global.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
+import { getResponseSettings } from "./lib/storage/response-settings.storage";
 
-const currentWindow = getCurrentWindow();
-const windowLabel = currentWindow.label;
+let windowLabel = "main";
+try {
+  const currentWindow = getCurrentWindow();
+  windowLabel = currentWindow.label;
+} catch {
+  // Tauri internals not yet available — default to "main"
+}
+
+function GlobalSettings({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    const applyHighContrast = () => {
+      const isHighContrast = getResponseSettings().highContrast;
+      if (isHighContrast) {
+        document.documentElement.classList.add("high-contrast");
+      } else {
+        document.documentElement.classList.remove("high-contrast");
+      }
+    };
+
+    const handleStorage = () => {
+      applyHighContrast();
+    };
+
+    applyHighContrast();
+    window.addEventListener("responseSettingsChanged", applyHighContrast);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("responseSettingsChanged", applyHighContrast);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
+  return <>{children}</>;
+}
 
 // Render different components based on window label
 if (windowLabel.startsWith("capture-overlay-")) {
@@ -15,17 +48,21 @@ if (windowLabel.startsWith("capture-overlay-")) {
   // Render overlay without providers
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <Overlay monitorIndex={monitorIndex} />
+      <GlobalSettings>
+        <Overlay monitorIndex={monitorIndex} />
+      </GlobalSettings>
     </React.StrictMode>
   );
 } else {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <ThemeProvider>
-        <AppProvider>
-          <AppRoutes />
-        </AppProvider>
-      </ThemeProvider>
+      <GlobalSettings>
+        <ThemeProvider>
+          <AppProvider>
+            <AppRoutes />
+          </AppProvider>
+        </ThemeProvider>
+      </GlobalSettings>
     </React.StrictMode>
   );
 }

@@ -9,6 +9,7 @@ import {
   Markdown,
   Switch,
   CopyButton,
+  ResizeGrabbers,
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
 import { MessageHistory } from "./MessageHistory";
@@ -17,7 +18,7 @@ import {
   getResponseSettings,
   updateResponsePanelSize,
 } from "@/lib/storage/response-settings.storage";
-import { useEffect, useRef, useState } from "react";
+import { CSSProperties, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
@@ -190,14 +191,14 @@ export const Input = ({
         {/* Response Panel */}
         <PopoverContent
           ref={panelRef}
-          align="end"
+          align="center"
           side="bottom"
-          className="p-0 border shadow-lg overflow-hidden min-w-[480px] min-h-[300px] max-h-[calc(100vh-5rem)]"
+          className="glass-card p-0 border shadow-lg overflow-hidden min-w-[480px] min-h-[300px] max-h-[calc(100vh-5rem)]"
           sideOffset={8}
           style={{
             width: `${Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth)}px`,
             height: `${Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight)}px`,
-            resize: "both",
+            resize: "none",
           }}
         >
           <div className="flex h-full min-h-0 flex-col bg-background">
@@ -210,7 +211,7 @@ export const Input = ({
                   (Use arrow keys to scroll)
                 </div>
                 <div className="text-[10px] text-muted-foreground/70 hidden sm:block">
-                  Drag bottom-right corner to resize
+                  Drag any edge to resize
                 </div>
               </div>
               <div className="flex items-center gap-2 select-none">
@@ -265,7 +266,15 @@ export const Input = ({
             </div>
 
             <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
-              <div className="p-4" style={{ fontSize: `${responseSettings.textSize}px` }}>
+              <div
+                className="p-4 response-text-root"
+                data-response-body
+                style={
+                  {
+                    "--response-text-size": `${responseSettings.textSize}px`,
+                  } as CSSProperties
+                }
+              >
                 {error && (
                   <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
                     <strong>Error:</strong> {error}
@@ -277,7 +286,11 @@ export const Input = ({
                     <span className="text-sm">Generating response...</span>
                   </div>
                 )}
-                {response && <Markdown>{response}</Markdown>}
+                {response && (
+                  <div className="response-markdown">
+                    <Markdown>{response}</Markdown>
+                  </div>
+                )}
 
                 {/* Conversation History - Separate scroll, no auto-scroll */}
                 {keepEngaged && conversationHistory.length > 1 && (
@@ -311,7 +324,9 @@ export const Input = ({
                                 )}
                               </span>
                             </div>
-                            <Markdown>{message.content}</Markdown>
+                            <div className="response-markdown">
+                              <Markdown>{message.content}</Markdown>
+                            </div>
                           </div>
                         );
                       })}
@@ -320,6 +335,11 @@ export const Input = ({
               </div>
             </ScrollArea>
           </div>
+          <ResizeGrabbers
+            panelRef={panelRef}
+            minWidth={MIN_PANEL_WIDTH}
+            minHeight={MIN_PANEL_HEIGHT}
+          />
         </PopoverContent>
       </Popover>
     </div>

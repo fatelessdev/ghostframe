@@ -221,3 +221,4 @@ export const DEFAULT_AUTO_SCROLL = true;
 export const DEFAULT_RESPONSE_TEXT_SIZE = 15;
 export const DEFAULT_RESPONSE_PANEL_WIDTH = 820;
 export const DEFAULT_RESPONSE_PANEL_HEIGHT = 520;
+export const DEFAULT_HIGH_CONTRAST = false;

@@ -80,7 +80,7 @@ export const ResultsSection = ({
                 </div>
               ) : (
                 <div
-                  className="prose prose-sm max-w-none dark:prose-invert"
+                  className="prose prose-sm max-w-none dark:prose-invert response-markdown"
                   style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
                 >
                   <Markdown>{lastAIResponse}</Markdown>
@@ -115,7 +115,7 @@ export const ResultsSection = ({
                 </div>
               ) : (
                 <div
-                  className="prose prose-sm max-w-none dark:prose-invert"
+                  className="prose prose-sm max-w-none dark:prose-invert response-markdown"
                   style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
                 >
                   <Markdown>{lastAIResponse}</Markdown>
@@ -166,7 +166,7 @@ export const ResultsSection = ({
                         {message.role === "user" ? "System" : "AI"}
                       </span>
                       <div
-                        className="text-muted-foreground leading-relaxed mt-0.5"
+                        className="text-muted-foreground leading-relaxed mt-0.5 response-markdown"
                         style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}
                       >
                         <Markdown>{message.content}</Markdown>

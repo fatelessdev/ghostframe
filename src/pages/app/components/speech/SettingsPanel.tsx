@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Label,
@@ -26,6 +26,7 @@ import {
   getPromptTemplateById,
 } from "@/lib/platform-instructions";
 import { cn } from "@/lib/utils";
+import { getResponseSettings, updateHighContrast } from "@/lib";
 
 // Sensitivity presets for simpler UX
 const SENSITIVITY_PRESETS = {
@@ -73,6 +74,37 @@ export const SettingsPanel = ({
   const [isOpen, setIsOpen] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [highContrast, setHighContrast] = useState(false);
+
+  useEffect(() => {
+    const sync = () => {
+      setHighContrast(getResponseSettings().highContrast);
+    };
+
+    const handleResponseSettingsChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ highContrast?: boolean }>;
+      if (typeof customEvent.detail?.highContrast === "boolean") {
+        setHighContrast(customEvent.detail.highContrast);
+        return;
+      }
+      sync();
+    };
+
+    sync();
+    window.addEventListener("storage", sync);
+    window.addEventListener(
+      "responseSettingsChanged",
+      handleResponseSettingsChanged as EventListener
+    );
+
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener(
+        "responseSettingsChanged",
+        handleResponseSettingsChanged as EventListener
+      );
+    };
+  }, []);
 
   // Determine current sensitivity preset based on values
   const getCurrentPreset = (): SensitivityPreset | "custom" => {
@@ -273,6 +305,29 @@ export const SettingsPanel = ({
                 />
               </div>
             )}
+          </div>
+
+          {/* Appearance Section */}
+          <div className="space-y-3 pt-3 border-t border-border/50">
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Appearance
+            </h4>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <Label className="text-xs font-medium">High Contrast</Label>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Increase contrast for better readability
+                </p>
+              </div>
+              <Switch
+                checked={highContrast}
+                onCheckedChange={(checked) => {
+                  setHighContrast(checked);
+                  updateHighContrast(checked);
+                }}
+              />
+            </div>
           </div>
 
           {/* Advanced Settings Toggle */}

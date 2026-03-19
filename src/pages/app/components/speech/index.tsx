@@ -5,6 +5,7 @@ import {
   PopoverTrigger,
   PopoverContent,
   ScrollArea,
+  ResizeGrabbers,
 } from "@/components";
 import {
   HeadphonesIcon,
@@ -299,14 +300,14 @@ export const SystemAudio = (props: useSystemAudioType) => {
       {(capturing || setupRequired || error) && (
         <PopoverContent
           ref={panelRef}
-          align="end"
+          align="center"
           side="bottom"
-          className="select-none p-0 border shadow-lg overflow-hidden border-input/50 min-w-[480px] min-h-[300px] max-h-[calc(100vh-4rem)]"
+          className="glass-card select-none p-0 border shadow-lg overflow-hidden border-input/50 min-w-[480px] min-h-[300px] max-h-[calc(100vh-4rem)]"
           sideOffset={8}
           style={{
             width: `${Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth)}px`,
             height: `${Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight)}px`,
-            resize: "both",
+            resize: "none",
           }}
         >
           <div className="flex flex-col h-full overflow-hidden bg-background">
@@ -332,7 +333,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                 {/* Action Buttons */}
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                   <span className="hidden sm:inline text-[10px] text-muted-foreground/70 mr-1">
-                    Drag bottom-right corner to resize
+                    Drag any edge to resize
                   </span>
                   {/* Screenshot Button */}
                   {!setupRequired && supportsImages && (
@@ -500,6 +501,11 @@ export const SystemAudio = (props: useSystemAudioType) => {
               </div>
             )}
           </div>
+          <ResizeGrabbers
+            panelRef={panelRef}
+            minWidth={MIN_PANEL_WIDTH}
+            minHeight={MIN_PANEL_HEIGHT}
+          />
         </PopoverContent>
       )}
     </Popover>

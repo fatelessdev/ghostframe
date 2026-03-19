@@ -3,6 +3,69 @@
 
 @source "node_modules/streamdown/dist/**/*.{js,ts,jsx,tsx}";
 
+/* Screen Protection Overlay */
+.screen-protection-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  z-index: -1; pointer-events: none;
+  will-change: transform; transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+/* Apply filter globally when content is protected */
+.content-protected-active {
+  filter: opacity(0.999);
+}
+
+.protected-content, .sensitive-data { 
+  user-select: none; 
+}
+
+/* 3.8 High Contrast Mode */
+.high-contrast {
+  filter: contrast(1.25) saturate(1.1);
+}
+
+/* 3.9 Glassmorphism Overlay Design (Readable Transparency) */
+.glass-card {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  /* Light mode uses .glass-card */
+  background-color: rgba(255, 255, 255, 0.7) !important; 
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: background-color 0.3s ease, backdrop-filter 0.3s ease, opacity 0.3s ease, color 0.3s ease;
+}
+
+/* When dark mode is forced via .dark, update the glass-card */
+.dark .glass-card {
+  background-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* Optional: If click-through mode is active, you can apply this to enhance text readability over busy backgrounds */
+.click-through-active * {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.click-through-active input,
+.click-through-active textarea {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+  text-shadow: none; /* Keep inputs clear */
+}
+
+.click-through-active [data-radix-popper-content-wrapper],
+.click-through-active [data-slot="popover-content"] {
+  pointer-events: none !important;
+}
+
+.click-through-active [data-tauri-drag-region],
+.click-through-active [data-slot="card"] > button:last-child {
+  pointer-events: auto !important;
+}
+
+.dark.click-through-active input,
+.dark.click-through-active textarea {
+  background-color: rgba(30, 30, 30, 0.9) !important;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -206,4 +269,24 @@ body {
   overflow-x: auto !important;
   word-wrap: break-word !important;
   white-space: pre-wrap !important;
+}
+
+.response-text-root {
+  font-size: var(--response-text-size, 15px);
+}
+
+.response-text-root p,
+.response-text-root li,
+.response-text-root blockquote,
+.response-text-root pre,
+.response-text-root code,
+.response-text-root table,
+.response-markdown,
+.response-markdown p,
+.response-markdown li,
+.response-markdown blockquote,
+.response-markdown pre,
+.response-markdown code,
+.response-markdown table {
+  font-size: inherit !important;
 }
