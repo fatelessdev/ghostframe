@@ -4,8 +4,15 @@ import { Files } from "./Files";
 import { Audio } from "./Audio";
 import { Input } from "./Input";
 
-export const Completion = () => {
-  const completion = useCompletion();
+export type CompletionHandle = ReturnType<typeof useCompletion>;
+
+interface CompletionProps {
+  completion?: CompletionHandle;
+}
+
+export const Completion = ({ completion: externalCompletion }: CompletionProps) => {
+  const internalCompletion = useCompletion();
+  const completion = externalCompletion ?? internalCompletion;
 
   return (
     <>

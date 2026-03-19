@@ -8,6 +8,8 @@ import {
   Markdown,
 } from "@/components";
 import { ChatMessage } from "@/types/completion";
+import { useEffect, useState } from "react";
+import { getResponseSettings } from "@/lib";
 
 interface MessageHistoryProps {
   conversationHistory: ChatMessage[];
@@ -23,6 +25,21 @@ export const MessageHistory = ({
   messageHistoryOpen,
   setMessageHistoryOpen,
 }: MessageHistoryProps) => {
+  const [textSize, setTextSize] = useState(14);
+
+  useEffect(() => {
+    setTextSize(getResponseSettings().textSize);
+    
+    const handleSettingsChange = () => {
+      setTextSize(getResponseSettings().textSize);
+    };
+
+    window.addEventListener("responseSettingsChanged", handleSettingsChange);
+    return () => {
+      window.removeEventListener("responseSettingsChanged", handleSettingsChange);
+    };
+  }, []);
+
   return (
     <Popover open={messageHistoryOpen} onOpenChange={setMessageHistoryOpen}>
       <PopoverTrigger asChild>
@@ -105,7 +122,9 @@ export const MessageHistory = ({
                       })}
                     </span>
                   </div>
-                  <Markdown>{message.content}</Markdown>
+                  <div className="response-markdown" style={{ fontSize: `${textSize}px` }}>
+                    <Markdown>{message.content}</Markdown>
+                  </div>
                 </div>
               ))}
           </div>

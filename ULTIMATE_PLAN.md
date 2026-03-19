@@ -64,14 +64,6 @@ What they do:
 - Fake environment variables: Sets SYSTEM_MONITOR_ID, AUDIO_SERVICE_PORT to look like a system service
 Why it matters: Proctoring tools (e.g., ExamSoft, ProctorU, HonorLock) inspect running processes, debug ports, and process trees. These countermeasures make Pluely look like a legitimate system service.
 Implementation in Pluely: Most of this goes into src-tauri/src/lib.rs at startup. Rust has direct access to env vars (std::env::set_var), process args, and can spawn decoy processes. Core dump disabling is straightforward with setrlimit on Unix.
----
-1.6 Click-Through Mode
-Source: Cheating Daddy (src/utils/window.js), Ghostframe (StealthWindowManager.ts), Ghostframe1, OpenCluely
-Pluely status: Missing
-What it does: setIgnoreMouseEvents(true, { forward: true }) makes the window transparent to clicks (they pass through to the app behind), while still forwarding mousemove events for hover states. Toggled via shortcut (Ctrl+M or Ctrl+Shift+C).
-Why it matters: During a coding interview, you need to type in the IDE while the overlay shows answers above. Without click-through, you must hide/show the overlay constantly. With it, you just type through it.
-Implementation in Pluely: Tauri v2 supports window.set_ignore_cursor_events(true). Add a command in window.rs and a shortcut binding. The forward option for hover detection may need platform-specific handling via set_cursor_events_passthrough on Win32.
----
 1.7 API Key Scrubbing on Quit
 Source: Natively (CredentialsManager.scrubMemory())
 Pluely status: Missing. Keys live in localStorage indefinitely.
@@ -159,13 +151,6 @@ Cheating Daddy approach: The live assistant view shrinks to 850x400 and position
 OpenCluely approach: The main bar is only 520x28px -- a thin horizontal strip. The AI response opens in a separate 840x480 window below it with a configurable gap. The bar contains: camera button, mic button, skill indicator, language dropdown, status dot. That's it.
 Why it matters: A 600x600 overlay is massive. It covers the interview question, the IDE, the video call. The goal is to show the answer while hiding as little of the underlying content as possible.
 Recommendation for Pluely: Reduce the expanded overlay height. Keep the input bar at 54px. Response popover should max at 300-350px height with scrolling. Total overlay: 600x~400px max. Or adopt the split-window approach (thin bar + separate response panel that can be positioned independently).
----
-3.4 Click-Through + View Mode
-Source: Cheating Daddy, Ghostframe, OpenCluely
-Pluely status: Missing.
-What it does: Toggle click-through so the overlay becomes a passive HUD. You can see the AI response but clicks go to the app behind. Combined with ~30-50% opacity, this lets you read answers while still interacting with your IDE or browser.
-Why it matters: Eliminates the constant show/hide cycle. The overlay becomes like a teleprompter -- always visible, never interfering with interaction.
----
 3.5 Response Navigation (Prev/Next)
 Source: Cheating Daddy (prev/next buttons with "1 of 5" counter, Ctrl+[/Ctrl+])
 Pluely status: Missing.
@@ -184,13 +169,6 @@ Source: Cheating Daddy (Ctrl+Shift+Up/Down)
 Pluely status: Missing.
 What it does: Global keyboard shortcuts that scroll the response content up/down without requiring mouse interaction or window focus.
 Why it matters: Moving the mouse to the overlay to scroll is: (a) visible to the interviewer via webcam, (b) takes your hand off the keyboard, (c) may require clicking (focus stealing). Keyboard scrolling is invisible to observers.
----
-3.8 High Contrast Mode
-Source: Ghostframe (CSS filter: contrast(1.25) saturate(1.1))
-Pluely status: Missing.
-What it does: A toggle that increases contrast and saturation, making text more readable on transparent backgrounds.
-Why it matters: When opacity is low (to be less visible), text becomes hard to read against busy backgrounds. High contrast mode compensates.
----
 4. QUALITY OF LIFE
 4.1 Profile/Preset System with Specialized Prompts
 Source: ALL reference projects (Cheating Daddy: 6 profiles, Ghostframe: 6 profiles, Glass: presets, Natively: 6 modes)
