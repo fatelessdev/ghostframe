@@ -57,7 +57,6 @@ pub fn run() {
             get_app_version,
             window::set_window_height,
             window::open_dashboard,
-            window::open_quick_settings,
             window::toggle_dashboard,
             window::move_window,
             window::toggle_content_protection,
@@ -95,6 +94,17 @@ pub fn run() {
 
             // Start background title rotation for process disguise
             window::start_window_title_disguise(app.handle());
+
+            let app_handle = app.handle().clone();
+            if app_handle.get_webview_window("dashboard").is_none() {
+                if let Err(error) = window::create_dashboard_window(&app_handle) {
+                    eprintln!(
+                        "Failed to pre-create dashboard window on startup: {}",
+                        error
+                    );
+                }
+            }
+
             #[cfg(target_os = "macos")]
             init(app.app_handle());
 

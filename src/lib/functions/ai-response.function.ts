@@ -8,7 +8,6 @@ import {
 import { Message, TYPE_PROVIDER } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
-import { CHUNK_POLL_INTERVAL_MS } from "../chat-constants";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
 import {
   AI_MODE_VARIABLE_KEYS,

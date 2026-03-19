@@ -46,9 +46,9 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     name: "Toggle Click-Through",
     description: "Toggle passive HUD mode (clicks pass through overlay)",
     defaultKey: {
-      macos: "cmd+shift+c",
-      windows: "ctrl+shift+c",
-      linux: "ctrl+shift+c",
+      macos: "cmd+m",
+      windows: "ctrl+m",
+      linux: "ctrl+m",
     },
   },
   {

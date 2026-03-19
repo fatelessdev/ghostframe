@@ -11,8 +11,6 @@ import {
   SparklesIcon,
   ShieldIcon,
   EyeIcon,
-  MousePointerClickIcon,
-  PointerOffIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -150,16 +148,6 @@ const App = () => {
     }
   };
 
-  const toggleClickThrough = async () => {
-    try {
-      const newState = await invoke<boolean>("toggle_click_through");
-      setClickThrough(newState);
-      localStorage.setItem(CLICK_THROUGH_KEY, String(newState));
-    } catch (error) {
-      console.error("Failed to toggle click-through:", error);
-    }
-  };
-
   return (
     <ErrorBoundary
       fallbackRender={() => {
@@ -205,24 +193,6 @@ const App = () => {
               <ShieldIcon className="h-4 w-4" />
             ) : (
               <EyeIcon className="h-4 w-4" />
-            )}
-          </Button>
-
-          <Button
-            size="icon"
-            variant={clickThrough ? "default" : "ghost"}
-            title={
-              clickThrough
-                ? "Click-through ON — overlay acts as passive HUD"
-                : "Click-through OFF — overlay captures mouse input"
-            }
-            onClick={toggleClickThrough}
-            className="shrink-0"
-          >
-            {clickThrough ? (
-              <PointerOffIcon className="h-4 w-4" />
-            ) : (
-              <MousePointerClickIcon className="h-4 w-4" />
             )}
           </Button>
 

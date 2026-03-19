@@ -46,10 +46,6 @@ impl WindowPreferencesState {
         self.always_on_top.store(enabled, Ordering::Relaxed);
     }
 
-    pub fn app_icon_visible(&self) -> bool {
-        self.app_icon_visible.load(Ordering::Relaxed)
-    }
-
     pub fn set_app_icon_visible(&self, visible: bool) {
         self.app_icon_visible.store(visible, Ordering::Relaxed);
     }

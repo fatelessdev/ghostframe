@@ -405,17 +405,12 @@ pub fn set_window_height(
 }
 
 #[tauri::command]
-pub fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
     show_dashboard_window(&app)
 }
 
 #[tauri::command]
-pub fn open_quick_settings(app: tauri::AppHandle) -> Result<(), String> {
-    show_quick_settings_window(&app)
-}
-
-#[tauri::command]
-pub fn toggle_dashboard(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn toggle_dashboard(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(dashboard_window) = app.get_webview_window("dashboard") {
         match dashboard_window.is_visible() {
             Ok(true) => {
@@ -516,51 +511,6 @@ pub fn create_dashboard_window<R: Runtime>(
     Ok(window)
 }
 
-pub fn create_quick_settings_window<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<WebviewWindow<R>, tauri::Error> {
-    let base_builder = WebviewWindowBuilder::new(
-        app,
-        "quick-settings",
-        tauri::WebviewUrl::App("/quick-settings".into()),
-    );
-
-    #[cfg(target_os = "macos")]
-    let base_builder = base_builder
-        .title("Ghostframe Quick Settings")
-        .center()
-        .decorations(true)
-        .inner_size(520.0, 520.0)
-        .min_inner_size(460.0, 480.0)
-        .hidden_title(false)
-        .content_protected(true)
-        .visible(false);
-
-    #[cfg(target_os = "windows")]
-    let base_builder = base_builder
-        .title("Ghostframe Quick Settings")
-        .center()
-        .decorations(true)
-        .inner_size(520.0, 520.0)
-        .min_inner_size(460.0, 480.0)
-        .visible(false);
-
-    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
-    let base_builder = base_builder
-        .title("Ghostframe Quick Settings")
-        .center()
-        .decorations(true)
-        .inner_size(520.0, 520.0)
-        .min_inner_size(460.0, 480.0)
-        .visible(false);
-
-    let window = base_builder.build()?;
-
-    setup_dashboard_close_handler(&window);
-
-    Ok(window)
-}
-
 /// Sets up the close event handler for the dashboard window
 fn setup_dashboard_close_handler<R: Runtime>(window: &WebviewWindow<R>) {
     let window_clone = window.clone();
@@ -599,28 +549,6 @@ pub fn show_dashboard_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), Strin
             .set_focus()
             .map_err(|e| format!("Failed to focus new dashboard window: {}", e))?;
     }
-    Ok(())
-}
-
-pub fn show_quick_settings_window<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("quick-settings") {
-        window
-            .show()
-            .map_err(|e| format!("Failed to show quick settings window: {}", e))?;
-        window
-            .set_focus()
-            .map_err(|e| format!("Failed to focus quick settings window: {}", e))?;
-    } else {
-        let window = create_quick_settings_window(app)
-            .map_err(|e| format!("Failed to create quick settings window: {}", e))?;
-        window
-            .show()
-            .map_err(|e| format!("Failed to show new quick settings window: {}", e))?;
-        window
-            .set_focus()
-            .map_err(|e| format!("Failed to focus new quick settings window: {}", e))?;
-    }
-
     Ok(())
 }
 
