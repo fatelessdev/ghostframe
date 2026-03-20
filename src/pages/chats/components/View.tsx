@@ -25,6 +25,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { PageLayout } from "@/layouts";
 import { useHistory, useChatCompletion } from "@/hooks";
 import { useApp } from "@/contexts";
+import { getResponseSettings } from "@/lib";
 import {
   DeleteConfirmationDialog,
   ChatAudio,
@@ -38,6 +39,20 @@ const View = () => {
   const { supportsImages } = useApp();
   const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatConversation | null>(null);
+  const [textSize, setTextSize] = useState(14);
+
+  useEffect(() => {
+    setTextSize(getResponseSettings().textSize);
+    
+    const handleSettingsChange = () => {
+      setTextSize(getResponseSettings().textSize);
+    };
+
+    window.addEventListener("responseSettingsChanged", handleSettingsChange);
+    return () => {
+      window.removeEventListener("responseSettingsChanged", handleSettingsChange);
+    };
+  }, []);
 
   const {
     handleDeleteConfirm,
@@ -190,13 +205,15 @@ const View = () => {
                     }`}
                   >
                     <Card
-                      className={`p-3 text-xs lg:text-sm transition-all shadow-none ${
+                      className={`p-3 transition-all shadow-none ${
                         isUser
                           ? "!bg-primary text-primary-foreground !border-primary rounded-tr-sm"
                           : "!bg-muted/50 dark:!bg-muted/30 rounded-tl-sm"
                       }`}
                     >
-                      <Markdown>{message.content}</Markdown>
+                      <div className="response-markdown" style={{ fontSize: `${textSize}px` }}>
+                        <Markdown>{message.content}</Markdown>
+                      </div>
                     </Card>
                     <Badge
                       variant="outline"

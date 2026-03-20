@@ -5,7 +5,7 @@ import {
   AudioVisualizer,
   StatusIndicator,
 } from "./components";
-import { useApp } from "@/hooks";
+import { useApp, useCompletion } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
 import {
   SparklesIcon,
@@ -24,6 +24,7 @@ const CLICK_THROUGH_KEY = "click_through";
 
 const App = () => {
   const { systemAudio } = useApp();
+  const completion = useCompletion();
   const { customizable, currentAIMode, setCurrentAIMode } = useAppContext();
   const platform = getPlatform();
 
@@ -34,6 +35,8 @@ const App = () => {
     systemAudio?.capturing ||
     systemAudio?.isProcessing ||
     systemAudio?.isAIProcessing ||
+    completion.isLoading ||
+    completion.isScreenshotLoading ||
     false;
 
   useEffect(() => {
@@ -220,7 +223,7 @@ const App = () => {
                 : "w-full flex flex-row gap-2 items-center"
             }`}
           >
-            <Completion />
+            <Completion completion={completion} />
             <Button
               size={"icon"}
               className="cursor-pointer"

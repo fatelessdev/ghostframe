@@ -3,8 +3,9 @@
 
 @source "node_modules/streamdown/dist/**/*.{js,ts,jsx,tsx}";
 
-/* Screen Protection Overlay */
-.screen-protection-overlay {
+/* Screen Protection Overlay — applied as a pseudo-element when content protection is active */
+.content-protected-active::before {
+  content: "";
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   z-index: -1; pointer-events: none;
   will-change: transform; transform: translateZ(0);
@@ -14,6 +15,13 @@
 /* Apply filter globally when content is protected */
 .content-protected-active {
   filter: opacity(0.999);
+  user-select: none !important;
+  -webkit-user-select: none !important;
+}
+
+.content-protected-active * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 .protected-content, .sensitive-data { 
