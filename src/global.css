@@ -298,3 +298,33 @@ body {
 .response-markdown table {
   font-size: inherit !important;
 }
+
+@keyframes rolling-transcript-marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.rolling-transcript-line {
+  white-space: nowrap;
+  display: inline-block;
+  min-width: 100%;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 8%,
+    black 92%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 8%,
+    black 92%,
+    transparent 100%
+  );
+  animation: rolling-transcript-marquee 14s linear infinite;
+}

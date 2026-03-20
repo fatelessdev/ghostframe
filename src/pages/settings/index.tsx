@@ -4,6 +4,7 @@ import {
   AppIconToggle,
   AutostartToggle,
   DisguiseMode,
+  SystemAudioInterviewSettings,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -24,6 +25,9 @@ const Settings = () => {
 
       {/* Window Disguise */}
       <DisguiseMode />
+
+      {/* System Audio Interview */}
+      <SystemAudioInterviewSettings />
     </PageLayout>
   );
 };

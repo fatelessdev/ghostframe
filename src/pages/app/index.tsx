@@ -3,7 +3,6 @@ import {
   SystemAudio,
   Completion,
   AudioVisualizer,
-  StatusIndicator,
 } from "./components";
 import { useApp, useCompletion } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
@@ -205,13 +204,13 @@ const App = () => {
                 <AudioVisualizer isRecording={systemAudio?.capturing} />
               </div>
               <div className="flex !w-fit items-center gap-2">
-                <StatusIndicator
-                  setupRequired={systemAudio.setupRequired}
-                  error={systemAudio.error}
-                  isProcessing={systemAudio.isProcessing}
-                  isAIProcessing={systemAudio.isAIProcessing}
-                  capturing={systemAudio.capturing}
-                />
+                {systemAudio.isAIProcessing ? (
+                  <span className="text-xs text-muted-foreground">Responding...</span>
+                ) : systemAudio.isProcessing ? (
+                  <span className="text-xs text-muted-foreground">Preparing send...</span>
+                ) : (
+                  <span className="text-xs text-emerald-600">Live</span>
+                )}
               </div>
             </div>
           ) : null}

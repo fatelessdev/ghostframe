@@ -72,6 +72,17 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "answer_trigger",
+    name: "Send Interview Context",
+    description:
+      "In System Audio mode, send current transcript and screenshots to AI",
+    defaultKey: {
+      macos: "cmd+enter",
+      windows: "ctrl+enter",
+      linux: "ctrl+enter",
+    },
+  },
+  {
     id: "audio_recording",
     name: "Voice Input",
     description: "Start voice recording",

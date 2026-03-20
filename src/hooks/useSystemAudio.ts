@@ -1,28 +1,21 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   CommitStrategy,
   RealtimeConnection,
   RealtimeEvents,
   Scribe,
 } from "@elevenlabs/client";
-import { useWindowResize, useGlobalShortcuts } from ".";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
+import { useGlobalShortcuts, useWindowResize } from ".";
 import {
-  fetchSTT,
   fetchAIResponse,
   fetchElevenLabsRealtimeToken,
   getElevenLabsAudioFormat,
   getElevenLabsRealtimeConfig,
-  isElevenLabsRealtimeProvider,
-} from "@/lib/functions";
-import {
-  DEFAULT_QUICK_ACTIONS,
-  DEFAULT_SYSTEM_PROMPT,
-  STORAGE_KEYS,
-} from "@/config";
-import {
+  getSystemAudioInterviewSettings,
+  updateSystemAudioInterviewSettings,
   safeLocalStorage,
   generateConversationTitle,
   saveConversation,
@@ -30,55 +23,206 @@ import {
   generateConversationId,
   generateMessageId,
 } from "@/lib";
+import { DEFAULT_SYSTEM_PROMPT } from "@/config";
+import {
+  type SystemAudioInterviewSettings,
+  type TranscriptSegment,
+  type TranscriptSource,
+} from "@/types";
 import { normalizeTranscription } from "@/lib/utils";
-import { Message } from "@/types/completion";
 
-// VAD Configuration interface matching Rust
-export interface VadConfig {
-  enabled: boolean;
-  hop_size: number;
-  sensitivity_rms: number;
-  peak_threshold: number;
-  silence_chunks: number;
-  min_speech_chunks: number;
-  pre_speech_chunks: number;
-  noise_gate_threshold: number;
-  max_recording_duration_secs: number;
-}
-
-// OPTIMIZED VAD defaults - matches backend exactly for perfect performance
-const DEFAULT_VAD_CONFIG: VadConfig = {
-  enabled: true,
-  hop_size: 1024,
-  sensitivity_rms: 0.012, // Much less sensitive - only real speech
-  peak_threshold: 0.035, // Higher threshold - filters clicks/noise
-  silence_chunks: 24, // ~0.55s of required silence
-  min_speech_chunks: 7, // ~0.16s - captures short answers
-  pre_speech_chunks: 8, // ~0.18s - enough to catch word start
-  noise_gate_threshold: 0.003, // Stronger noise filtering
-  max_recording_duration_secs: 180, // 3 minutes default
-};
-
-// Chat message interface (reusing from useCompletion)
-interface ChatMessage {
+type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   timestamp: number;
-}
+};
 
-// Conversation interface (reusing from useCompletion)
-export interface ChatConversation {
+type ChatConversation = {
   id: string;
   title: string;
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
-}
+};
 
-interface RealtimeAudioChunkEvent {
+type RealtimeAudioChunkEvent = {
   sample_rate: number;
   audio_base64: string;
+};
+
+type RealtimeHandle = {
+  connection: RealtimeConnection | null;
+  ready: boolean;
+  shouldReconnect: boolean;
+  reconnecting: boolean;
+  queue: RealtimeAudioChunkEvent[];
+};
+
+type ManualScreenshot = {
+  id: string;
+  base64: string;
+  timestamp: number;
+};
+
+type PendingCommitEcho = {
+  partialText: string;
+  timestamp: number;
+};
+
+const SYSTEM_AUDIO_SCREENSHOT_INTERVAL_MS = 2000;
+const MIC_SAMPLE_RATE = 16000;
+const MIC_FRAME_SIZE = 1536;
+const MIC_PREBUFFER_LIMIT = 12;
+const MAX_TRANSCRIPT_SEGMENTS = 300;
+const PENDING_COMMIT_ECHO_TTL_MS = 5000;
+
+const initialConversation = (): ChatConversation => ({
+  id: generateConversationId("sysaudio"),
+  title: "",
+  messages: [],
+  createdAt: 0,
+  updatedAt: 0,
+});
+
+function float32ToPcm16Base64(frame: Float32Array): string {
+  const buffer = new ArrayBuffer(frame.length * 2);
+  const view = new DataView(buffer);
+
+  for (let i = 0; i < frame.length; i++) {
+    const sample = Math.max(-1, Math.min(1, frame[i] ?? 0));
+    const pcm =
+      sample < 0 ? Math.round(sample * 0x8000) : Math.round(sample * 0x7fff);
+    view.setInt16(i * 2, pcm, true);
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+function createSegment(
+  source: TranscriptSource,
+  text: string,
+  isLive: boolean = false
+): TranscriptSegment {
+  return {
+    id: `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    source,
+    text,
+    timestamp: Date.now(),
+    isLive,
+  };
+}
+
+function trimSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
+  if (segments.length <= MAX_TRANSCRIPT_SEGMENTS) {
+    return segments;
+  }
+  return segments.slice(segments.length - MAX_TRANSCRIPT_SEGMENTS);
+}
+
+function replaceLiveSegment(
+  segments: TranscriptSegment[],
+  source: TranscriptSource,
+  text: string
+): TranscriptSegment[] {
+  const normalizedText = normalizeTranscription(text).trim();
+  if (!normalizedText) {
+    return segments;
+  }
+
+  const next = [...segments];
+  const liveIndex = next.findIndex((item) => item.source === source && item.isLive);
+  if (liveIndex >= 0) {
+    next[liveIndex] = {
+      ...next[liveIndex],
+      text: normalizedText,
+      timestamp: Date.now(),
+    };
+  } else {
+    next.push(createSegment(source, normalizedText, true));
+  }
+
+  return trimSegments(next);
+}
+
+function commitSegment(
+  segments: TranscriptSegment[],
+  source: TranscriptSource,
+  text: string
+): TranscriptSegment[] {
+  const normalizedText = normalizeTranscription(text).trim();
+
+  let next = segments.filter(
+    (item) => !(item.source === source && item.isLive)
+  );
+
+  if (!normalizedText) {
+    return trimSegments(next);
+  }
+
+  const committed = createSegment(source, normalizedText, false);
+  next = [...next, committed].sort((a, b) => a.timestamp - b.timestamp);
+  return trimSegments(next);
+}
+
+function replaceLatestCommittedSegment(
+  segments: TranscriptSegment[],
+  source: TranscriptSource,
+  previousText: string,
+  nextText: string
+): TranscriptSegment[] | null {
+  const normalizedPrevious = normalizeTranscription(previousText).trim();
+  const normalizedNext = normalizeTranscription(nextText).trim();
+  if (!normalizedNext) {
+    return null;
+  }
+
+  const next = [...segments];
+  for (let i = next.length - 1; i >= 0; i--) {
+    const segment = next[i];
+    if (segment.source !== source || segment.isLive) {
+      continue;
+    }
+
+    if (!normalizedPrevious || segment.text === normalizedPrevious) {
+      next[i] = {
+        ...segment,
+        text: normalizedNext,
+      };
+      return trimSegments(next);
+    }
+  }
+
+  return null;
+}
+
+function mergeTranscriptForPrompt(
+  segments: TranscriptSegment[],
+  cutoffAt?: number
+): string {
+  return segments
+    .filter((item) => !item.isLive)
+    .filter((item) => (typeof cutoffAt === "number" ? item.timestamp <= cutoffAt : true))
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((item) => {
+      const label = item.source === "interviewer" ? "Interviewer" : "User";
+      return `${label}: "${item.text}"`;
+    })
+    .join("\n");
+}
+
+function retainUnsentSegments(
+  segments: TranscriptSegment[],
+  cutoffAt: number
+): TranscriptSegment[] {
+  return trimSegments(
+    segments.filter((item) => item.isLive || item.timestamp > cutoffAt)
+  );
 }
 
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
@@ -86,786 +230,754 @@ export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 export function useSystemAudio() {
   const { resizeWindow } = useWindowResize();
   const globalShortcuts = useGlobalShortcuts();
+  const {
+    selectedSttProvider,
+    selectedAIProvider,
+    allAiProviders,
+    currentAIMode,
+    systemPrompt,
+    selectedAudioDevices,
+  } = useApp();
+
+  const [settings, setSettings] = useState<SystemAudioInterviewSettings>(() =>
+    getSystemAudioInterviewSettings()
+  );
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
-  const [lastTranscription, setLastTranscription] = useState<string>("");
-  const [lastAIResponse, setLastAIResponse] = useState<string>("");
-  const [error, setError] = useState<string>("");
-  const [setupRequired, setSetupRequired] = useState<boolean>(false);
-  const [quickActions, setQuickActions] = useState<string[]>([]);
-  const [isManagingQuickActions, setIsManagingQuickActions] =
-    useState<boolean>(false);
-  const [showQuickActions, setShowQuickActions] = useState<boolean>(true);
-  const [vadConfig, setVadConfig] = useState<VadConfig>(DEFAULT_VAD_CONFIG);
-  const [recordingProgress, setRecordingProgress] = useState<number>(0); // For continuous mode
-  const [isContinuousMode, setIsContinuousMode] = useState<boolean>(false);
-  const [isRecordingInContinuousMode, setIsRecordingInContinuousMode] =
-    useState<boolean>(false);
+  const [setupRequired, setSetupRequired] = useState(false);
+  const [error, setError] = useState("");
+  const [lastAIResponse, setLastAIResponse] = useState("");
+  const [segments, setSegments] = useState<TranscriptSegment[]>([]);
+  const [manualScreenshots, setManualScreenshots] = useState<ManualScreenshot[]>(
+    []
+  );
+  const [cachedScreenshotPreview, setCachedScreenshotPreview] = useState<
+    string | null
+  >(null);
+  const [cacheUpdatedAt, setCacheUpdatedAt] = useState<number | null>(null);
+  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
 
-  const [conversation, setConversation] = useState<ChatConversation>({
-    id: "",
-    title: "",
-    messages: [],
-    createdAt: 0,
-    updatedAt: 0,
+  const [conversation, setConversation] = useState<ChatConversation>(
+    initialConversation
+  );
+
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const captureRef = useRef(false);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isSavingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const answerTriggerInFlightRef = useRef(false);
+  const segmentsRef = useRef<TranscriptSegment[]>([]);
+  const latestPartialInterviewerRef = useRef<string>("");
+  const latestPartialUserRef = useRef<string>("");
+  const pendingCommitEchoRef = useRef<
+    Partial<Record<TranscriptSource, PendingCommitEcho>>
+  >({});
+
+  const cachedScreenshotRef = useRef<string | null>(null);
+  const periodicScreenshotIntervalRef = useRef<number | null>(null);
+  const periodicScreenshotInFlightRef = useRef(false);
+  const manualScreenshotsRef = useRef<ManualScreenshot[]>([]);
+
+  const interviewerRealtimeRef = useRef<RealtimeHandle>({
+    connection: null,
+    ready: false,
+    shouldReconnect: false,
+    reconnecting: false,
+    queue: [],
   });
 
-  // Context management states
-  const [useSystemPrompt, setUseSystemPrompt] = useState<boolean>(true);
-  const [contextContent, setContextContent] = useState<string>("");
+  const userRealtimeRef = useRef<RealtimeHandle>({
+    connection: null,
+    ready: false,
+    shouldReconnect: false,
+    reconnecting: false,
+    queue: [],
+  });
 
-  const {
-    selectedSttProvider,
-    allSttProviders,
-    selectedAIProvider,
-    currentAIMode,
-    allAiProviders,
-    systemPrompt,
-    selectedAudioDevices,
-  } = useApp();
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isSavingRef = useRef<boolean>(false);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const realtimeConnectionRef = useRef<RealtimeConnection | null>(null);
-  const realtimeConnectionReadyRef = useRef<boolean>(false);
-  const realtimeQueuedChunksRef = useRef<RealtimeAudioChunkEvent[]>([]);
-  const realtimeCommitPendingRef = useRef<boolean>(false);
-  const realtimeReconnectInFlightRef = useRef<boolean>(false);
-  const shouldReconnectRealtimeRef = useRef<boolean>(false);
-  const capturingRef = useRef<boolean>(false);
-  const processWithAIRef = useRef(
-    async (
-      _transcription: string,
-      _prompt: string,
-      _previousMessages: Message[]
-    ) => {}
-  );
-  const getEffectiveSystemPromptRef = useRef<() => string>(
-    () => DEFAULT_SYSTEM_PROMPT
-  );
-  const getPreviousMessagesRef = useRef<() => Message[]>(() => []);
-  const isRealtimeSttProvider = isElevenLabsRealtimeProvider(
-    selectedSttProvider.provider
-  );
+  const micMediaStreamRef = useRef<MediaStream | null>(null);
+  const micAudioContextRef = useRef<AudioContext | null>(null);
+  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const micSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micPreBufferRef = useRef<string[]>([]);
+  const micFrameBufferRef = useRef<Float32Array>(new Float32Array(0));
+  const userSpeechLikelyRef = useRef(false);
 
-  useEffect(() => {
-    capturingRef.current = capturing;
-  }, [capturing]);
+  const liveTranscript = useMemo(() => {
+    return segments
+      .slice()
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .slice(-12);
+  }, [segments]);
 
-  // Load context settings and VAD config from localStorage on mount
-  useEffect(() => {
-    const savedContext = safeLocalStorage.getItem(
-      STORAGE_KEYS.SYSTEM_AUDIO_CONTEXT
-    );
-    if (savedContext) {
-      try {
-        const parsed = JSON.parse(savedContext);
-        setUseSystemPrompt(parsed.useSystemPrompt ?? true);
-        setContextContent(parsed.contextContent ?? "");
-      } catch (error) {
-        console.error("Failed to load system audio context:", error);
-      }
-    }
+  const lastCommittedPrompt = useMemo(() => {
+    return mergeTranscriptForPrompt(segments);
+  }, [segments]);
 
-    // Load VAD config
-    const savedVadConfig = safeLocalStorage.getItem("vad_config");
-    if (savedVadConfig) {
-      try {
-        const parsed = JSON.parse(savedVadConfig);
-        setVadConfig(parsed);
-      } catch (error) {
-        console.error("Failed to load VAD config:", error);
-      }
-    }
-  }, []);
+  const quickActions = settings.quickActions;
+  const useSystemPrompt = settings.useSystemPrompt;
+  const contextContent = settings.contextContent;
+  const vadConfig = settings.vadConfig;
+  const maxManualScreenshots = settings.maxManualScreenshots;
 
-  // Load quick actions from localStorage on mount
-  useEffect(() => {
-    const savedActions = safeLocalStorage.getItem(
-      STORAGE_KEYS.SYSTEM_AUDIO_QUICK_ACTIONS
-    );
-    if (savedActions) {
-      try {
-        const parsed = JSON.parse(savedActions);
-        setQuickActions(parsed);
-      } catch (error) {
-        console.error("Failed to load quick actions:", error);
-        setQuickActions(DEFAULT_QUICK_ACTIONS);
-      }
-    } else {
-      setQuickActions(DEFAULT_QUICK_ACTIONS);
-    }
-  }, []);
-
-  const getEffectiveSystemPrompt = useCallback(() => {
-    return useSystemPrompt
-      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-      : contextContent || DEFAULT_SYSTEM_PROMPT;
-  }, [contextContent, systemPrompt, useSystemPrompt]);
-
-  const getPreviousMessages = useCallback(() => {
-    return conversation.messages.map((msg) => {
-      return { role: msg.role, content: msg.content };
-    });
-  }, [conversation.messages]);
-
-  // Handle continuous recording progress events AND error events
-  useEffect(() => {
-    let progressUnlisten: (() => void) | undefined;
-    let startUnlisten: (() => void) | undefined;
-    let stopUnlisten: (() => void) | undefined;
-    let errorUnlisten: (() => void) | undefined;
-    let discardedUnlisten: (() => void) | undefined;
-
-    const setupContinuousListeners = async () => {
-      try {
-        // Progress updates (every second)
-        progressUnlisten = await listen("recording-progress", (event) => {
-          const seconds = event.payload as number;
-          setRecordingProgress(seconds);
-        });
-
-        // Recording started
-        startUnlisten = await listen("continuous-recording-start", () => {
-          setRecordingProgress(0);
-          setIsRecordingInContinuousMode(true);
-        });
-
-        // Recording stopped
-        stopUnlisten = await listen("continuous-recording-stopped", () => {
-          setRecordingProgress(0);
-          setIsRecordingInContinuousMode(false);
-        });
-
-        // Audio encoding errors
-        errorUnlisten = await listen("audio-encoding-error", (event) => {
-          const errorMsg = event.payload as string;
-          console.error("Audio encoding error:", errorMsg);
-          setError(`Failed to process audio: ${errorMsg}`);
-          setIsProcessing(false);
-          setIsAIProcessing(false);
-          setIsRecordingInContinuousMode(false);
-        });
-
-        // Speech discarded (too short)
-        discardedUnlisten = await listen("speech-discarded", (event) => {
-          const reason = event.payload as string;
-          console.log("Speech discarded:", reason);
-          // Don't show error - this is expected behavior
-        });
-      } catch (err) {
-        console.error("Failed to setup continuous recording listeners:", err);
-      }
-    };
-
-    setupContinuousListeners();
-
-    return () => {
-      if (progressUnlisten) progressUnlisten();
-      if (startUnlisten) startUnlisten();
-      if (stopUnlisten) stopUnlisten();
-      if (errorUnlisten) errorUnlisten();
-      if (discardedUnlisten) discardedUnlisten();
-    };
-  }, []);
-
-  // Handle single speech detection event (both VAD and continuous modes)
-  useEffect(() => {
-    let speechUnlisten: (() => void) | undefined;
-
-    const setupEventListener = async () => {
-      try {
-        speechUnlisten = await listen("speech-detected", async (event) => {
-          try {
-            if (!capturing || isRealtimeSttProvider) return;
-
-            const base64Audio = event.payload as string;
-            // Convert to blob
-            const binaryString = atob(base64Audio);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
-            }
-            const audioBlob = new Blob([bytes], { type: "audio/wav" });
-
-            
-            if (!selectedSttProvider.provider) {
-              setError("No speech provider selected.");
-              return;
-            }
-
-            const providerConfig = allSttProviders.find(
-              (p) => p.id === selectedSttProvider.provider
-            );
-
-            if (!providerConfig) {
-              setError("Speech provider config not found.");
-              return;
-            }
-
-            setIsProcessing(true);
-
-            // Add timeout wrapper for STT request (30 seconds)
-            const sttPromise = fetchSTT({
-              provider: providerConfig,
-              selectedProvider: selectedSttProvider,
-              audio: audioBlob,
-            });
-
-            const timeoutPromise = new Promise<string>((_, reject) => {
-              setTimeout(
-                () => reject(new Error("Speech transcription timed out (30s)")),
-                30000
-              );
-            });
-
-            try {
-              const transcription = await Promise.race([
-                sttPromise,
-                timeoutPromise,
-              ]);
-              const normalizedTranscription = normalizeTranscription(
-                transcription
-              ).trim();
-
-              if (normalizedTranscription) {
-                setLastTranscription(normalizedTranscription);
-                setError("");
-
-                await processWithAI(
-                  normalizedTranscription,
-                  getEffectiveSystemPrompt(),
-                  getPreviousMessages()
-                );
-              } else {
-                setError("Received empty transcription");
-              }
-            } catch (sttError: any) {
-              console.error("STT Error:", sttError);
-              setError(sttError.message || "Failed to transcribe audio");
-              setIsPopoverOpen(true);
-            }
-          } catch (err) {
-            setError("Failed to process speech");
-          } finally {
-            setIsProcessing(false);
-          }
-        });
-      } catch (err) {
-        setError("Failed to setup speech listener");
-      }
-    };
-
-    setupEventListener();
-
-    return () => {
-      if (speechUnlisten) speechUnlisten();
-    };
-  }, [
-    capturing,
-    getEffectiveSystemPrompt,
-    getPreviousMessages,
-    isRealtimeSttProvider,
-    selectedSttProvider,
-    allSttProviders,
-  ]);
-
-  useEffect(() => {
-    let realtimeChunkUnlisten: (() => void) | undefined;
-    let realtimeSegmentEndUnlisten: (() => void) | undefined;
-
-    const setupRealtimeListeners = async () => {
-      if (!isRealtimeSttProvider) {
-        return;
-      }
-
-      try {
-        realtimeChunkUnlisten = await listen(
-          "speech-realtime-chunk",
-          (event) => {
-            if (!capturing) {
-              return;
-            }
-
-            try {
-              sendRealtimeAudioChunk(event.payload as RealtimeAudioChunkEvent);
-            } catch (error) {
-              console.error("Failed to send realtime audio chunk:", error);
-              setIsProcessing(false);
-              setError("Failed to stream audio to ElevenLabs realtime STT.");
-            }
-          }
-        );
-
-        realtimeSegmentEndUnlisten = await listen("speech-segment-ended", () => {
-          if (!capturing) {
-            return;
-          }
-
-          try {
-            commitRealtimeSegment();
-          } catch (error) {
-            console.error("Failed to commit realtime transcript:", error);
-            setIsProcessing(false);
-            setError("Failed to finalize ElevenLabs realtime transcription.");
-          }
-        });
-      } catch (error) {
-        console.error("Failed to setup realtime audio listeners:", error);
-        setError("Failed to start ElevenLabs realtime speech listener.");
-      }
-    };
-
-    setupRealtimeListeners();
-
-    return () => {
-      if (realtimeChunkUnlisten) realtimeChunkUnlisten();
-      if (realtimeSegmentEndUnlisten) realtimeSegmentEndUnlisten();
-    };
-  }, [
-    capturing,
-    isRealtimeSttProvider,
-  ]);
-
-  // Context management functions
-  const saveContextSettings = useCallback(
-    (usePrompt: boolean, content: string) => {
-      try {
-        const contextSettings = {
-          useSystemPrompt: usePrompt,
-          contextContent: content,
-        };
-        safeLocalStorage.setItem(
-          STORAGE_KEYS.SYSTEM_AUDIO_CONTEXT,
-          JSON.stringify(contextSettings)
-        );
-      } catch (error) {
-        console.error("Failed to save context settings:", error);
-      }
+  const updateSettings = useCallback(
+    (updates: Partial<SystemAudioInterviewSettings>) => {
+      const next = updateSystemAudioInterviewSettings(updates);
+      setSettings(next);
+      return next;
     },
     []
   );
 
-  const updateUseSystemPrompt = useCallback(
+  const setUseSystemPrompt = useCallback(
     (value: boolean) => {
-      setUseSystemPrompt(value);
-      saveContextSettings(value, contextContent);
+      updateSettings({ useSystemPrompt: value });
     },
-    [contextContent, saveContextSettings]
+    [updateSettings]
   );
 
-  const updateContextContent = useCallback(
-    (content: string) => {
-      setContextContent(content);
-      saveContextSettings(useSystemPrompt, content);
+  const setContextContent = useCallback(
+    (value: string) => {
+      updateSettings({ contextContent: value });
     },
-    [useSystemPrompt, saveContextSettings]
+    [updateSettings]
   );
-
-  // Quick actions management
-  const saveQuickActions = useCallback((actions: string[]) => {
-    try {
-      safeLocalStorage.setItem(
-        STORAGE_KEYS.SYSTEM_AUDIO_QUICK_ACTIONS,
-        JSON.stringify(actions)
-      );
-    } catch (error) {
-      console.error("Failed to save quick actions:", error);
-    }
-  }, []);
 
   const addQuickAction = useCallback(
     (action: string) => {
-      if (action && !quickActions.includes(action)) {
-        const newActions = [...quickActions, action];
-        setQuickActions(newActions);
-        saveQuickActions(newActions);
+      const value = action.trim();
+      if (!value || settings.quickActions.includes(value)) {
+        return;
       }
+      updateSettings({ quickActions: [...settings.quickActions, value] });
     },
-    [quickActions, saveQuickActions]
+    [settings.quickActions, updateSettings]
   );
 
   const removeQuickAction = useCallback(
     (action: string) => {
-      const newActions = quickActions.filter((a) => a !== action);
-      setQuickActions(newActions);
-      saveQuickActions(newActions);
-    },
-    [quickActions, saveQuickActions]
-  );
-
-  const handleQuickActionClick = async (action: string) => {
-    setError("");
-
-    const effectiveSystemPrompt = useSystemPrompt
-      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
-      : contextContent || DEFAULT_SYSTEM_PROMPT;
-
-    // Include the most recent transcription in conversation history if it exists
-    let updatedMessages = [...conversation.messages];
-
-    if (lastTranscription && lastTranscription.trim()) {
-      const lastMessage = updatedMessages[updatedMessages.length - 1];
-      // Only add if it's not already the last message
-      if (!lastMessage || lastMessage.content !== lastTranscription) {
-        const timestamp = Date.now();
-        const userMessage = {
-          id: generateMessageId("user", timestamp),
-          role: "user" as const,
-          content: lastTranscription,
-          timestamp,
-        };
-        updatedMessages.push(userMessage);
-
-        // Update conversation state with the latest transcription
-        setConversation((prev) => ({
-          ...prev,
-          messages: [userMessage, ...prev.messages],
-          updatedAt: timestamp,
-          title: prev.title || generateConversationTitle(lastTranscription),
-        }));
-      }
-    }
-
-    const previousMessages = updatedMessages.map((msg) => {
-      return { role: msg.role, content: msg.content };
-    });
-
-    await processWithAI(action, effectiveSystemPrompt, previousMessages);
-  };
-
-  // Start continuous recording manually
-  const startContinuousRecording = useCallback(async () => {
-    try {
-      if (isRealtimeSttProvider) {
-        setError("ElevenLabs realtime STT requires VAD mode. Enable VAD to use it.");
-        setIsPopoverOpen(true);
-        return;
-      }
-
-      setRecordingProgress(0);
-      setError("");
-
-      const deviceId =
-        selectedAudioDevices.output.id !== "default"
-          ? selectedAudioDevices.output.id
-          : null;
-
-      // Start a new continuous recording session
-      await invoke<string>("start_system_audio_capture", {
-        vadConfig: vadConfig,
-        deviceId: deviceId,
+      updateSettings({
+        quickActions: settings.quickActions.filter((item) => item !== action),
       });
-    } catch (err) {
-      console.error("Failed to start continuous recording:", err);
-      setError(`Failed to start recording: ${err}`);
-    }
-  }, [isRealtimeSttProvider, vadConfig, selectedAudioDevices.output.id]);
+    },
+    [settings.quickActions, updateSettings]
+  );
 
-  // Ignore current recording (stop without transcription)
-  const ignoreContinuousRecording = useCallback(async () => {
-    try {
-      if (!isContinuousMode || !isRecordingInContinuousMode) return;
-
-      // Stop the capture without processing
-      await invoke<string>("stop_system_audio_capture");
-
-      // Reset states
-      setRecordingProgress(0);
-      setIsProcessing(false);
-      setIsRecordingInContinuousMode(false);
-    } catch (err) {
-      console.error("Failed to ignore recording:", err);
-      setError(`Failed to ignore recording: ${err}`);
-    }
-  }, [isContinuousMode, isRecordingInContinuousMode]);
-
-  // AI Processing function
-  const processWithAI = useCallback(
-    async (
-      transcription: string,
-      prompt: string,
-      previousMessages: Message[]
-    ) => {
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-
-      abortControllerRef.current = new AbortController();
-
+  const updateVadConfiguration = useCallback(
+    async (config: SystemAudioInterviewSettings["vadConfig"]) => {
+      updateSettings({ vadConfig: config });
+      safeLocalStorage.setItem("vad_config", JSON.stringify(config));
       try {
-        setIsAIProcessing(true);
-        setLastAIResponse("");
-        setError("");
-
-        let fullResponse = "";
-
-        
-        if (!selectedAIProvider.provider) {
-          setError("No AI provider selected.");
-          return;
-        }
-
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (!provider) {
-          setError("AI provider config not found.");
-          return;
-        }
-
-        try {
-          for await (const chunk of fetchAIResponse({
-            provider: provider,
-            selectedProvider: selectedAIProvider,
-            systemPrompt: prompt,
-            history: previousMessages,
-            userMessage: transcription,
-            imagesBase64: [],
-            aiMode: currentAIMode,
-          })) {
-            fullResponse += chunk;
-            setLastAIResponse((prev) => prev + chunk);
-          }
-        } catch (aiError: any) {
-          setError(aiError.message || "Failed to get AI response");
-        }
-
-        if (fullResponse) {
-          const timestamp = Date.now();
-          setConversation((prev) => ({
-            ...prev,
-            messages: [
-              {
-                id: generateMessageId("user", timestamp),
-                role: "user" as const,
-                content: transcription,
-                timestamp,
-              },
-              {
-                id: generateMessageId("assistant", timestamp + 1),
-                role: "assistant" as const,
-                content: fullResponse,
-                timestamp: timestamp + 1,
-              },
-              ...prev.messages,
-            ],
-            updatedAt: timestamp,
-            title: prev.title || generateConversationTitle(transcription),
-          }));
-        }
-      } catch (err) {
-        setError("Failed to get AI response");
-      } finally {
-        setIsAIProcessing(false);
-        // No auto-restart - user manually controls when to start next recording
+        await invoke("update_vad_config", { config });
+      } catch (updateError) {
+        console.warn("Failed to sync VAD config with backend:", updateError);
       }
     },
-    [selectedAIProvider, currentAIMode, allAiProviders, conversation.messages]
+    [updateSettings]
   );
+
+  const updateMaxManualScreenshots = useCallback(
+    (value: number) => {
+      const next = Math.max(1, Math.min(8, Math.round(value)));
+      updateSettings({ maxManualScreenshots: next });
+      setManualScreenshots((previous) => {
+        const trimmed = previous.slice(-next);
+        manualScreenshotsRef.current = trimmed;
+        return trimmed;
+      });
+    },
+    [updateSettings]
+  );
+
+  const getEffectiveSystemPrompt = useCallback(() => {
+    if (useSystemPrompt) {
+      return systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    }
+    return contextContent.trim() || DEFAULT_SYSTEM_PROMPT;
+  }, [contextContent, systemPrompt, useSystemPrompt]);
+
+  const getPreviousMessages = useCallback(() => {
+    return conversation.messages.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+  }, [conversation.messages]);
 
   useEffect(() => {
-    processWithAIRef.current = processWithAI;
-    getEffectiveSystemPromptRef.current = getEffectiveSystemPrompt;
-    getPreviousMessagesRef.current = () =>
-      getPreviousMessages() as Message[];
-  }, [processWithAI, getEffectiveSystemPrompt, getPreviousMessages]);
+    captureRef.current = capturing;
+  }, [capturing]);
 
-  const closeRealtimeSession = useCallback(() => {
-    realtimeConnectionReadyRef.current = false;
-    realtimeQueuedChunksRef.current = [];
-    realtimeCommitPendingRef.current = false;
-    realtimeReconnectInFlightRef.current = false;
-
-    const connection = realtimeConnectionRef.current;
-    realtimeConnectionRef.current = null;
-
-    if (connection) {
-      try {
-        connection.close();
-      } catch (error) {
-        console.error("Failed to close ElevenLabs realtime session:", error);
-      }
-    }
-  }, []);
-
-  const sendRealtimeAudioChunk = useCallback((chunk: RealtimeAudioChunkEvent) => {
-    const connection = realtimeConnectionRef.current;
-
-    if (!connection || !realtimeConnectionReadyRef.current) {
-      realtimeQueuedChunksRef.current.push(chunk);
-      return;
-    }
-
-    connection.send({
-      audioBase64: chunk.audio_base64,
-      sampleRate: chunk.sample_rate,
-    });
-  }, []);
-
-  const commitRealtimeSegment = useCallback(() => {
-    const connection = realtimeConnectionRef.current;
-
-    if (!connection || !realtimeConnectionReadyRef.current) {
-      realtimeCommitPendingRef.current = true;
-      return;
-    }
-
-    setIsProcessing(true);
-    connection.commit();
-  }, []);
-
-  const flushRealtimeQueue = useCallback(() => {
-    const connection = realtimeConnectionRef.current;
-
-    if (!connection || !realtimeConnectionReadyRef.current) {
-      return;
-    }
-
-    while (realtimeQueuedChunksRef.current.length > 0) {
-      const chunk = realtimeQueuedChunksRef.current.shift();
-      if (!chunk) {
-        break;
-      }
-
-      connection.send({
-        audioBase64: chunk.audio_base64,
-        sampleRate: chunk.sample_rate,
-      });
-    }
-
-    if (realtimeCommitPendingRef.current) {
-      realtimeCommitPendingRef.current = false;
-      setIsProcessing(true);
-      connection.commit();
-    }
-  }, []);
-
-  const handleRealtimeCommittedTranscript = useCallback(
-    async (transcription: string) => {
-      const trimmedTranscription = normalizeTranscription(transcription).trim();
-      setIsProcessing(false);
-
-      if (!trimmedTranscription) {
-        return;
-      }
-
-      setLastTranscription(trimmedTranscription);
-      setError("");
-
-      await processWithAIRef.current(
-        trimmedTranscription,
-        getEffectiveSystemPromptRef.current(),
-        getPreviousMessagesRef.current()
-      );
+  const applySegmentUpdate = useCallback(
+    (updater: (current: TranscriptSegment[]) => TranscriptSegment[]) => {
+      const next = updater(segmentsRef.current);
+      segmentsRef.current = next;
+      setSegments(next);
+      return next;
     },
     []
   );
 
-  const scheduleRealtimeReconnect = useCallback(() => {
-    if (
-      realtimeReconnectInFlightRef.current ||
-      !shouldReconnectRealtimeRef.current ||
-      !capturingRef.current ||
-      !isRealtimeSttProvider
-    ) {
+  const clearPendingRealtimeState = useCallback(() => {
+    latestPartialInterviewerRef.current = "";
+    latestPartialUserRef.current = "";
+    pendingCommitEchoRef.current = {};
+  }, []);
+
+  const resetInterviewState = useCallback(() => {
+    applySegmentUpdate(() => []);
+    clearPendingRealtimeState();
+  }, [applySegmentUpdate, clearPendingRealtimeState]);
+
+  const appendLiveTranscript = useCallback(
+    (source: TranscriptSource, text: string) => {
+      applySegmentUpdate((previous) => replaceLiveSegment(previous, source, text));
+    },
+    [applySegmentUpdate]
+  );
+
+  const appendCommittedTranscript = useCallback(
+    (source: TranscriptSource, text: string) => {
+      applySegmentUpdate((previous) => commitSegment(previous, source, text));
+    },
+    [applySegmentUpdate]
+  );
+
+  const flushRealtimeQueue = useCallback((handle: RealtimeHandle) => {
+    if (!handle.connection || !handle.ready) {
       return;
     }
 
-    realtimeReconnectInFlightRef.current = true;
+    while (handle.queue.length > 0) {
+      const chunk = handle.queue.shift();
+      if (!chunk) {
+        break;
+      }
 
-    window.setTimeout(() => {
-      void startRealtimeSession()
-        .catch((error) => {
-          console.error("Failed to restart ElevenLabs realtime session:", error);
-          if (capturingRef.current && shouldReconnectRealtimeRef.current) {
-            setError(
-              error instanceof Error
-                ? error.message
-                : "Failed to restart ElevenLabs realtime transcription."
-            );
-          }
-        })
-        .finally(() => {
-          realtimeReconnectInFlightRef.current = false;
-        });
-    }, 0);
-  }, [isRealtimeSttProvider]);
+      handle.connection.send({
+        audioBase64: chunk.audio_base64,
+        sampleRate: chunk.sample_rate,
+      });
+    }
+  }, []);
 
-  const startRealtimeSession = useCallback(async () => {
-    closeRealtimeSession();
-
-    const { apiKey, model } = getElevenLabsRealtimeConfig(selectedSttProvider);
-    const deviceId =
-      selectedAudioDevices.output.id !== "default"
-        ? selectedAudioDevices.output.id
-        : null;
-
-    const sampleRate = await invoke<number>("get_audio_sample_rate", {
-      deviceId,
-    });
-    const token = await fetchElevenLabsRealtimeToken(apiKey);
-
-    const connection = Scribe.connect({
-      token,
-      modelId: model,
-      commitStrategy: CommitStrategy.MANUAL,
-      audioFormat: getElevenLabsAudioFormat(sampleRate),
-      sampleRate,
-    });
-
-    realtimeConnectionRef.current = connection;
-    realtimeConnectionReadyRef.current = false;
-    realtimeQueuedChunksRef.current = [];
-    realtimeCommitPendingRef.current = false;
-
-    connection.on(RealtimeEvents.OPEN, () => {
-      realtimeConnectionReadyRef.current = true;
-      flushRealtimeQueue();
-    });
-
-    connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
-      const normalizedPartialTranscript = normalizeTranscription(data.text).trim();
-      if (!normalizedPartialTranscript) {
+  const sendRealtimeChunk = useCallback(
+    (handle: RealtimeHandle, chunk: RealtimeAudioChunkEvent) => {
+      if (!handle.connection || !handle.ready) {
+        handle.queue.push(chunk);
         return;
       }
 
-      setLastTranscription(normalizedPartialTranscript);
-      setError("");
-    });
+      handle.connection.send({
+        audioBase64: chunk.audio_base64,
+        sampleRate: chunk.sample_rate,
+      });
+    },
+    []
+  );
 
-    connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
-      void handleRealtimeCommittedTranscript(data.text);
-    });
+  const closeRealtimeHandle = useCallback((handle: RealtimeHandle) => {
+    handle.ready = false;
+    handle.queue = [];
+    handle.shouldReconnect = false;
+    handle.reconnecting = false;
+    if (handle.connection) {
+      try {
+        handle.connection.close();
+      } catch (closeError) {
+        console.warn("Failed to close realtime connection:", closeError);
+      }
+    }
+    handle.connection = null;
+  }, []);
 
-    connection.on(RealtimeEvents.ERROR, (data) => {
-      console.error("ElevenLabs realtime STT error:", data);
+  const stopMicCapture = useCallback(() => {
+    if (micProcessorRef.current) {
+      micProcessorRef.current.disconnect();
+      micProcessorRef.current.onaudioprocess = null;
+      micProcessorRef.current = null;
+    }
+
+    if (micSourceNodeRef.current) {
+      micSourceNodeRef.current.disconnect();
+      micSourceNodeRef.current = null;
+    }
+
+    if (micAudioContextRef.current) {
+      void micAudioContextRef.current.close();
+      micAudioContextRef.current = null;
+    }
+
+    if (micMediaStreamRef.current) {
+      micMediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      micMediaStreamRef.current = null;
+    }
+
+    micPreBufferRef.current = [];
+    micFrameBufferRef.current = new Float32Array(0);
+    userSpeechLikelyRef.current = false;
+  }, []);
+
+  const schedulePeriodicScreenshotCapture = useCallback(() => {
+    if (periodicScreenshotIntervalRef.current !== null) {
+      return;
+    }
+
+    periodicScreenshotIntervalRef.current = window.setInterval(async () => {
+      if (!captureRef.current || periodicScreenshotInFlightRef.current) {
+        return;
+      }
+
+      periodicScreenshotInFlightRef.current = true;
+      try {
+        const base64 = (await invoke("capture_to_base64")) as string;
+        cachedScreenshotRef.current = base64;
+        setCachedScreenshotPreview(base64);
+        setCacheUpdatedAt(Date.now());
+      } catch (captureError) {
+        console.warn("Periodic screenshot capture failed:", captureError);
+      } finally {
+        periodicScreenshotInFlightRef.current = false;
+      }
+    }, SYSTEM_AUDIO_SCREENSHOT_INTERVAL_MS);
+  }, []);
+
+  const stopPeriodicScreenshotCapture = useCallback(() => {
+    if (periodicScreenshotIntervalRef.current !== null) {
+      window.clearInterval(periodicScreenshotIntervalRef.current);
+      periodicScreenshotIntervalRef.current = null;
+    }
+  }, []);
+
+  const handleCaptureScreenshot = useCallback(async () => {
+    if (isCapturingScreenshot) {
+      return;
+    }
+
+    setIsCapturingScreenshot(true);
+    try {
+      const base64 = (await invoke("capture_to_base64")) as string;
+
+      const manual: ManualScreenshot = {
+        id: `manual-ss-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        base64,
+        timestamp: Date.now(),
+      };
+
+      setManualScreenshots((previous) => {
+        const next = [...previous, manual].slice(-maxManualScreenshots);
+        manualScreenshotsRef.current = next;
+        return next;
+      });
+    } catch (captureError) {
+      console.error("Manual screenshot capture failed:", captureError);
+      setError("Failed to capture screenshot");
+    } finally {
+      setIsCapturingScreenshot(false);
+    }
+  }, [isCapturingScreenshot, maxManualScreenshots]);
+
+  const removeManualScreenshot = useCallback((id: string) => {
+    setManualScreenshots((previous) => {
+      const next = previous.filter((item) => item.id !== id);
+      manualScreenshotsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const buildImagesPayload = useCallback((): string[] => {
+    const images: string[] = [];
+
+    if (cachedScreenshotRef.current) {
+      images.push(cachedScreenshotRef.current);
+    }
+
+    for (const screenshot of manualScreenshotsRef.current) {
+      images.push(screenshot.base64);
+    }
+
+    return images;
+  }, []);
+
+  const saveConversationDebounced = useCallback(
+    (nextConversation: ChatConversation) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+
+      if (
+        !nextConversation.id ||
+        nextConversation.updatedAt === 0 ||
+        nextConversation.messages.length === 0
+      ) {
+        return;
+      }
+
+      saveTimeoutRef.current = setTimeout(async () => {
+        if (isSavingRef.current) {
+          return;
+        }
+
+        try {
+          isSavingRef.current = true;
+          await saveConversation(nextConversation);
+        } catch (saveError) {
+          console.error("Failed to save system audio conversation:", saveError);
+        } finally {
+          isSavingRef.current = false;
+        }
+      }, CONVERSATION_SAVE_DEBOUNCE_MS);
+    },
+    []
+  );
+
+  useEffect(() => {
+    saveConversationDebounced(conversation);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [conversation, saveConversationDebounced]);
+
+  const runAI = useCallback(
+    async (userMessage: string, imagesBase64: string[]): Promise<boolean> => {
+      if (!selectedAIProvider.provider) {
+        setError("No AI provider selected.");
+        return false;
+      }
+
+      const provider = allAiProviders.find(
+        (entry) => entry.id === selectedAIProvider.provider
+      );
+      if (!provider) {
+        setError("AI provider config not found.");
+        return false;
+      }
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      setIsAIProcessing(true);
       setIsProcessing(false);
-      setError(data.error || "ElevenLabs realtime STT failed.");
-    });
+      setError("");
+      setLastAIResponse("");
 
-    connection.on(RealtimeEvents.CLOSE, () => {
-      realtimeConnectionReadyRef.current = false;
+      const timestamp = Date.now();
+      const previousMessages = getPreviousMessages();
+      const fullPrompt = userMessage.trim();
 
-      if (realtimeConnectionRef.current === connection) {
-        realtimeConnectionRef.current = null;
+      if (!fullPrompt) {
+        setIsAIProcessing(false);
+        return false;
       }
 
-      if (shouldReconnectRealtimeRef.current && capturingRef.current) {
-        scheduleRealtimeReconnect();
+      const userChatMessage: ChatMessage = {
+        id: generateMessageId("user", timestamp),
+        role: "user",
+        content: fullPrompt,
+        timestamp,
+      };
+
+      setConversation((previous) => {
+        const nextMessages = [userChatMessage, ...previous.messages];
+        return {
+          ...previous,
+          messages: nextMessages,
+          updatedAt: timestamp,
+          createdAt: previous.createdAt || timestamp,
+          title: previous.title || generateConversationTitle(fullPrompt),
+        };
+      });
+
+      let fullResponse = "";
+      try {
+        for await (const chunk of fetchAIResponse({
+          provider,
+          selectedProvider: selectedAIProvider,
+          systemPrompt: getEffectiveSystemPrompt(),
+          history: previousMessages,
+          userMessage: fullPrompt,
+          imagesBase64,
+          aiMode: currentAIMode,
+          signal: controller.signal,
+        })) {
+          fullResponse += chunk;
+          setLastAIResponse((previous) => previous + chunk);
+        }
+
+        if (fullResponse.trim()) {
+          const assistantMessage: ChatMessage = {
+            id: generateMessageId("assistant", timestamp + 1),
+            role: "assistant",
+            content: fullResponse,
+            timestamp: timestamp + 1,
+          };
+
+          setConversation((previous) => ({
+            ...previous,
+            messages: [assistantMessage, ...previous.messages],
+            updatedAt: Date.now(),
+          }));
+        }
+
+        setManualScreenshots([]);
+        manualScreenshotsRef.current = [];
+        return true;
+      } catch (aiError) {
+        if (!controller.signal.aborted) {
+          setError(
+            aiError instanceof Error
+              ? aiError.message
+              : "Failed to generate AI response"
+          );
+        }
+        return false;
+      } finally {
+        setIsAIProcessing(false);
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
       }
-    });
+    },
+    [
+      allAiProviders,
+      currentAIMode,
+      getEffectiveSystemPrompt,
+      getPreviousMessages,
+      selectedAIProvider,
+    ]
+  );
+
+  const processPendingAnswer = useCallback(async () => {
+    if (!capturing || answerTriggerInFlightRef.current) {
+      return;
+    }
+
+    answerTriggerInFlightRef.current = true;
+    setIsProcessing(true);
+    setError("");
+
+    try {
+      const triggerTs = Date.now();
+      const mergedPrompt = mergeTranscriptForPrompt(segmentsRef.current, triggerTs);
+      const prompt = mergedPrompt.trim();
+
+      if (!prompt) {
+        setIsProcessing(false);
+        setError("No transcript available yet. Keep speaking and try again.");
+        return;
+      }
+
+      const imagesBase64 = buildImagesPayload();
+      const sent = await runAI(prompt, imagesBase64);
+      if (sent) {
+        applySegmentUpdate((previous) => retainUnsentSegments(previous, triggerTs));
+        clearPendingRealtimeState();
+      }
+    } finally {
+      answerTriggerInFlightRef.current = false;
+      setIsProcessing(false);
+    }
   }, [
-    closeRealtimeSession,
-    flushRealtimeQueue,
-    handleRealtimeCommittedTranscript,
-    scheduleRealtimeReconnect,
-    selectedAudioDevices.output.id,
-    selectedSttProvider,
+    applySegmentUpdate,
+    buildImagesPayload,
+    capturing,
+    clearPendingRealtimeState,
+    runAI,
   ]);
+
+  const closeRealtimeSystems = useCallback(() => {
+    closeRealtimeHandle(interviewerRealtimeRef.current);
+    closeRealtimeHandle(userRealtimeRef.current);
+    stopMicCapture();
+  }, [closeRealtimeHandle, stopMicCapture]);
+
+  const startMicCapture = useCallback(async () => {
+    stopMicCapture();
+
+    const constraints: MediaStreamConstraints = {
+      audio: selectedAudioDevices.input.id
+        ? {
+            deviceId:
+              selectedAudioDevices.input.id === "default"
+                ? undefined
+                : { exact: selectedAudioDevices.input.id },
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+          }
+        : true,
+      video: false,
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    micMediaStreamRef.current = stream;
+
+    const context = new AudioContext({ sampleRate: MIC_SAMPLE_RATE });
+    micAudioContextRef.current = context;
+
+    const sourceNode = context.createMediaStreamSource(stream);
+    micSourceNodeRef.current = sourceNode;
+
+    const processor = context.createScriptProcessor(MIC_FRAME_SIZE, 1, 1);
+    micProcessorRef.current = processor;
+
+    processor.onaudioprocess = (event) => {
+      if (!captureRef.current) {
+        return;
+      }
+
+      const input = event.inputBuffer.getChannelData(0);
+      const copy = new Float32Array(input.length);
+      copy.set(input);
+
+      let merged = new Float32Array(micFrameBufferRef.current.length + copy.length);
+      merged.set(micFrameBufferRef.current, 0);
+      merged.set(copy, micFrameBufferRef.current.length);
+
+      while (merged.length >= MIC_FRAME_SIZE) {
+        const frame = merged.slice(0, MIC_FRAME_SIZE);
+        merged = merged.slice(MIC_FRAME_SIZE);
+
+        const rms = Math.sqrt(
+          frame.reduce((acc, sample) => acc + sample * sample, 0) / frame.length
+        );
+
+        const frameBase64 = float32ToPcm16Base64(frame);
+
+        if (rms > 0.01) {
+          userSpeechLikelyRef.current = true;
+          sendRealtimeChunk(userRealtimeRef.current, {
+            sample_rate: MIC_SAMPLE_RATE,
+            audio_base64: frameBase64,
+          });
+        } else if (userSpeechLikelyRef.current) {
+          micPreBufferRef.current.push(frameBase64);
+          if (micPreBufferRef.current.length > MIC_PREBUFFER_LIMIT) {
+            micPreBufferRef.current.shift();
+          }
+
+          for (const buffered of micPreBufferRef.current) {
+            sendRealtimeChunk(userRealtimeRef.current, {
+              sample_rate: MIC_SAMPLE_RATE,
+              audio_base64: buffered,
+            });
+          }
+          micPreBufferRef.current = [];
+          userSpeechLikelyRef.current = false;
+        }
+      }
+
+      micFrameBufferRef.current = merged;
+    };
+
+    sourceNode.connect(processor);
+    processor.connect(context.destination);
+  }, [selectedAudioDevices.input.id, sendRealtimeChunk, stopMicCapture]);
+
+  const connectRealtime = useCallback(
+    async (
+      handle: RealtimeHandle,
+      source: TranscriptSource,
+      sampleRate: number
+    ) => {
+      const { apiKey, model } = getElevenLabsRealtimeConfig(selectedSttProvider);
+      const token = await fetchElevenLabsRealtimeToken(apiKey);
+
+      const connection = Scribe.connect({
+        token,
+        modelId: model,
+        commitStrategy: CommitStrategy.MANUAL,
+        audioFormat: getElevenLabsAudioFormat(sampleRate),
+        sampleRate,
+      });
+
+      handle.connection = connection;
+      handle.ready = false;
+      handle.shouldReconnect = true;
+      handle.queue = [];
+
+      connection.on(RealtimeEvents.OPEN, () => {
+        handle.ready = true;
+        flushRealtimeQueue(handle);
+      });
+
+      connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
+        const text = normalizeTranscription(data.text).trim();
+        if (!text) {
+          return;
+        }
+
+        if (source === "interviewer") {
+          latestPartialInterviewerRef.current = text;
+        } else {
+          latestPartialUserRef.current = text;
+        }
+
+        appendLiveTranscript(source, text);
+      });
+
+      connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+        const text = normalizeTranscription(data.text).trim();
+        if (!text) {
+          return;
+        }
+
+        const pending = pendingCommitEchoRef.current[source];
+        if (pending) {
+          const age = Date.now() - pending.timestamp;
+          if (age > PENDING_COMMIT_ECHO_TTL_MS) {
+            pendingCommitEchoRef.current[source] = undefined;
+            return;
+          } else if (pending.partialText === text) {
+            pendingCommitEchoRef.current[source] = undefined;
+            return;
+          } else {
+            const replaced = replaceLatestCommittedSegment(
+              segmentsRef.current,
+              source,
+              pending.partialText,
+              text
+            );
+            if (replaced) {
+              applySegmentUpdate(() => replaced);
+            }
+            pendingCommitEchoRef.current[source] = undefined;
+            return;
+          }
+        }
+
+        appendCommittedTranscript(source, text);
+      });
+
+      connection.on(RealtimeEvents.ERROR, (event) => {
+        console.error(`ElevenLabs ${source} realtime error:`, event);
+        setError(event.error || "Realtime transcription failed.");
+      });
+
+      connection.on(RealtimeEvents.CLOSE, () => {
+        handle.ready = false;
+        if (handle.connection === connection) {
+          handle.connection = null;
+        }
+      });
+    },
+    [
+      applySegmentUpdate,
+      appendCommittedTranscript,
+      appendLiveTranscript,
+      flushRealtimeQueue,
+      selectedSttProvider,
+    ]
+  );
 
   const startCapture = useCallback(async () => {
     try {
@@ -878,362 +990,305 @@ export function useSystemAudio() {
         return;
       }
 
-      const isContinuous = !vadConfig.enabled;
-
-      if (isContinuous && isRealtimeSttProvider) {
-        setError("ElevenLabs realtime STT requires VAD mode. Enable VAD to use it.");
-        setIsPopoverOpen(true);
-        return;
-      }
-
-      // Set up conversation
-      const conversationId = generateConversationId("sysaudio");
-      setConversation({
-        id: conversationId,
-        title: "",
-        messages: [],
-        createdAt: 0,
-        updatedAt: 0,
-      });
-
-      setCapturing(true);
-      capturingRef.current = true;
-      shouldReconnectRealtimeRef.current = true;
-      setIsPopoverOpen(true);
-      setIsContinuousMode(isContinuous);
-      setRecordingProgress(0);
-
-      // If continuous mode
-      if (isContinuous) {
-        setIsRecordingInContinuousMode(false);
-        return;
-      }
-
-      // VAD mode: Start recording immediately
-      // Stop any existing capture
-      await invoke<string>("stop_system_audio_capture");
-
-      if (isRealtimeSttProvider) {
-        await startRealtimeSession();
-      }
-
       const deviceId =
         selectedAudioDevices.output.id !== "default"
           ? selectedAudioDevices.output.id
           : null;
 
-      // Start capture with VAD config
-      await invoke<string>("start_system_audio_capture", {
-        vadConfig: vadConfig,
-        deviceId: deviceId,
+      const sampleRate = await invoke<number>("get_audio_sample_rate", {
+        deviceId,
       });
-    } catch (err) {
-      shouldReconnectRealtimeRef.current = false;
-      capturingRef.current = false;
-      closeRealtimeSession();
-      setCapturing(false);
-      setIsContinuousMode(false);
-      setIsRecordingInContinuousMode(false);
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      setError(errorMessage);
+
+      setConversation(initialConversation());
+      resetInterviewState();
+      setLastAIResponse("");
+      setManualScreenshots([]);
+      manualScreenshotsRef.current = [];
+      setSetupRequired(false);
       setIsPopoverOpen(true);
+      setCapturing(true);
+
+      interviewerRealtimeRef.current.shouldReconnect = true;
+      userRealtimeRef.current.shouldReconnect = true;
+
+      await connectRealtime(interviewerRealtimeRef.current, "interviewer", sampleRate);
+      await connectRealtime(userRealtimeRef.current, "user", MIC_SAMPLE_RATE);
+
+      await startMicCapture();
+      schedulePeriodicScreenshotCapture();
+
+      await invoke<string>("stop_system_audio_capture");
+      await invoke<string>("start_system_audio_capture", {
+        vadConfig,
+        deviceId,
+      });
+    } catch (startError) {
+      closeRealtimeSystems();
+      stopPeriodicScreenshotCapture();
+      setCapturing(false);
+      setIsPopoverOpen(true);
+      setError(
+        startError instanceof Error
+          ? startError.message
+          : "Failed to start system audio capture"
+      );
     }
   }, [
-    closeRealtimeSession,
-    isRealtimeSttProvider,
+    closeRealtimeSystems,
+    connectRealtime,
+    resetInterviewState,
+    schedulePeriodicScreenshotCapture,
     selectedAudioDevices.output.id,
-    startRealtimeSession,
+    startMicCapture,
+    stopPeriodicScreenshotCapture,
     vadConfig,
   ]);
 
   const stopCapture = useCallback(async () => {
     try {
-      shouldReconnectRealtimeRef.current = false;
-      capturingRef.current = false;
+      closeRealtimeSystems();
+      stopPeriodicScreenshotCapture();
 
-      // Abort any ongoing AI requests
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
       }
 
-      closeRealtimeSession();
-
-      // Stop the audio capture
       await invoke<string>("stop_system_audio_capture");
 
-      // Reset ALL states
       setCapturing(false);
       setIsProcessing(false);
       setIsAIProcessing(false);
-      setIsContinuousMode(false);
-      setIsRecordingInContinuousMode(false);
-      setRecordingProgress(0);
-      setLastTranscription("");
-      setLastAIResponse("");
-      setError("");
       setIsPopoverOpen(false);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      setError(`Failed to stop capture: ${errorMessage}`);
-      console.error("Stop capture error:", err);
+      setError("");
+      setCacheUpdatedAt(null);
+      setCachedScreenshotPreview(null);
+      cachedScreenshotRef.current = null;
+      resetInterviewState();
+    } catch (stopError) {
+      setError(
+        stopError instanceof Error
+          ? stopError.message
+          : "Failed to stop capture"
+      );
     }
-  }, [closeRealtimeSession]);
+  }, [closeRealtimeSystems, resetInterviewState, stopPeriodicScreenshotCapture]);
 
-  // Manual stop for continuous recording
-  const manualStopAndSend = useCallback(async () => {
-    try {
-      if (!isContinuousMode) {
-        console.warn("Not in continuous mode");
+  const commitBothStreams = useCallback(() => {
+    const interviewer = interviewerRealtimeRef.current;
+    const user = userRealtimeRef.current;
+
+    if (interviewer.connection && interviewer.ready) {
+      interviewer.connection.commit();
+      const preview = latestPartialInterviewerRef.current.trim();
+      if (preview) {
+        pendingCommitEchoRef.current.interviewer = {
+          partialText: preview,
+          timestamp: Date.now(),
+        };
+      }
+    }
+
+    if (user.connection && user.ready) {
+      user.connection.commit();
+      const preview = latestPartialUserRef.current.trim();
+      if (preview) {
+        pendingCommitEchoRef.current.user = {
+          partialText: preview,
+          timestamp: Date.now(),
+        };
+      }
+    }
+  }, []);
+
+  const onAnswerTrigger = useCallback(async () => {
+    if (!capturing) {
+      return;
+    }
+
+    commitBothStreams();
+
+    const partialInterviewer = latestPartialInterviewerRef.current;
+    if (partialInterviewer) {
+      appendCommittedTranscript("interviewer", partialInterviewer);
+      pendingCommitEchoRef.current.interviewer = {
+        partialText: partialInterviewer,
+        timestamp: Date.now(),
+      };
+      latestPartialInterviewerRef.current = "";
+    }
+
+    const partialUser = latestPartialUserRef.current;
+    if (partialUser) {
+      appendCommittedTranscript("user", partialUser);
+      pendingCommitEchoRef.current.user = {
+        partialText: partialUser,
+        timestamp: Date.now(),
+      };
+      latestPartialUserRef.current = "";
+    }
+
+    await processPendingAnswer();
+  }, [
+    appendCommittedTranscript,
+    capturing,
+    commitBothStreams,
+    processPendingAnswer,
+  ]);
+
+  const handleQuickActionClick = useCallback(
+    async (action: string) => {
+      const transcriptText = mergeTranscriptForPrompt(segmentsRef.current);
+      const composed = transcriptText
+        ? `${transcriptText}\n\nInstruction: ${action}`
+        : action;
+      await runAI(composed, buildImagesPayload());
+    },
+    [buildImagesPayload, runAI]
+  );
+
+  useEffect(() => {
+    globalShortcuts.registerSystemAudioCallback(async () => {
+      if (captureRef.current) {
+        await stopCapture();
+      } else {
+        await startCapture();
+      }
+    });
+
+    globalShortcuts.registerAnswerTriggerCallback(async () => {
+      await onAnswerTrigger();
+    });
+  }, [globalShortcuts, onAnswerTrigger, startCapture, stopCapture]);
+
+  useEffect(() => {
+    let unlistenRealtimeChunk: (() => void) | undefined;
+
+    const setup = async () => {
+      unlistenRealtimeChunk = await listen("speech-realtime-chunk", (event) => {
+        if (!captureRef.current) {
+          return;
+        }
+
+        try {
+          sendRealtimeChunk(
+            interviewerRealtimeRef.current,
+            event.payload as RealtimeAudioChunkEvent
+          );
+        } catch (chunkError) {
+          console.error("Failed to send system audio realtime chunk:", chunkError);
+          setError("Failed to stream system audio to realtime transcription.");
+        }
+      });
+    };
+
+    void setup();
+
+    return () => {
+      if (unlistenRealtimeChunk) {
+        unlistenRealtimeChunk();
+      }
+    };
+  }, [sendRealtimeChunk]);
+
+  useEffect(() => {
+    const shouldOpenPopover =
+      capturing || setupRequired || !!error || isAIProcessing || !!lastAIResponse;
+    setIsPopoverOpen(shouldOpenPopover);
+    void resizeWindow(shouldOpenPopover);
+  }, [capturing, setupRequired, error, isAIProcessing, lastAIResponse, resizeWindow]);
+
+  useEffect(() => {
+    const onSettingsChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<SystemAudioInterviewSettings>;
+      if (!customEvent.detail) {
         return;
       }
+      setSettings(customEvent.detail);
+    };
 
-      // Show processing state immediately
-      setIsProcessing(true);
+    window.addEventListener(
+      "systemAudioInterviewSettingsChanged",
+      onSettingsChanged as EventListener
+    );
 
-      // Trigger manual stop event
-      await invoke("manual_stop_continuous");
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      setError(`Failed to manually stop: ${errorMessage}`);
-      setIsProcessing(false); // Clear processing state on error
-      console.error("Manual stop error:", err);
-    }
-  }, [isContinuousMode]);
+    return () => {
+      window.removeEventListener(
+        "systemAudioInterviewSettingsChanged",
+        onSettingsChanged as EventListener
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      closeRealtimeSystems();
+      stopPeriodicScreenshotCapture();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      void invoke("stop_system_audio_capture").catch(() => {
+        // no-op
+      });
+    };
+  }, [closeRealtimeSystems, stopPeriodicScreenshotCapture]);
 
   const handleSetup = useCallback(async () => {
     try {
       const platform = navigator.platform.toLowerCase();
-
       if (platform.includes("mac") || platform.includes("win")) {
         await invoke("request_system_audio_access");
       }
 
-      // Delay to give the user time to grant permissions in the system dialog.
       await new Promise((resolve) => setTimeout(resolve, 3000));
-
       const hasAccess = await invoke<boolean>("check_system_audio_access");
       if (hasAccess) {
         setSetupRequired(false);
         await startCapture();
       } else {
         setSetupRequired(true);
-        setError("Permission not granted. Please try the manual steps.");
+        setError("Permission not granted. Please follow the setup steps.");
       }
-    } catch (err) {
-      setError("Failed to request access. Please try the manual steps below.");
+    } catch {
       setSetupRequired(true);
+      setError("Failed to request permission.");
     }
   }, [startCapture]);
 
-  useEffect(() => {
-    const shouldOpenPopover =
-      capturing ||
-      setupRequired ||
-      isAIProcessing ||
-      !!lastAIResponse ||
-      !!error;
-    setIsPopoverOpen(shouldOpenPopover);
-    resizeWindow(shouldOpenPopover);
-  }, [
-    capturing,
-    setupRequired,
-    isAIProcessing,
-    lastAIResponse,
-    error,
-    resizeWindow,
-  ]);
-
-  useEffect(() => {
-    globalShortcuts.registerSystemAudioCallback(async () => {
-      if (capturing) {
-        await stopCapture();
-      } else {
-        await startCapture();
-      }
-    });
-  }, [startCapture, stopCapture]);
-
-  useEffect(() => {
-    return () => {
-      shouldReconnectRealtimeRef.current = false;
-      capturingRef.current = false;
-
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      closeRealtimeSession();
-      invoke("stop_system_audio_capture").catch(() => {});
-    };
-  }, [closeRealtimeSession]);
-
-  // Debounced save to prevent race conditions and improve performance
-  useEffect(() => {
-    // Clear any pending save
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    // Only debounce if there are messages to save
-    if (
-      !conversation.id ||
-      conversation.updatedAt === 0 ||
-      conversation.messages.length === 0
-    ) {
-      return;
-    }
-
-    // Debounce saves (only save 500ms after last change)
-    saveTimeoutRef.current = setTimeout(async () => {
-      // Don't save if already saving (prevent concurrent saves)
-      if (isSavingRef.current) {
-        return;
-      }
-
-      try {
-        isSavingRef.current = true;
-        await saveConversation(conversation);
-      } catch (error) {
-        console.error("Failed to save system audio conversation:", error);
-      } finally {
-        isSavingRef.current = false;
-      }
-    }, CONVERSATION_SAVE_DEBOUNCE_MS);
-
-    // Cleanup on unmount or dependency change
-    return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
-    };
-  }, [
-    conversation.messages.length,
-    conversation.title,
-    conversation.id,
-    conversation.updatedAt,
-  ]);
-
   const startNewConversation = useCallback(() => {
-    setConversation({
-      id: generateConversationId("sysaudio"),
-      title: "",
-      messages: [],
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    setLastTranscription("");
+    setConversation(initialConversation());
+    resetInterviewState();
     setLastAIResponse("");
     setError("");
     setSetupRequired(false);
     setIsProcessing(false);
     setIsAIProcessing(false);
-    setIsPopoverOpen(false);
-    setUseSystemPrompt(true);
-  }, []);
+    setManualScreenshots([]);
+    manualScreenshotsRef.current = [];
+  }, [resetInterviewState]);
 
-  // Update VAD configuration
-  const updateVadConfiguration = useCallback(async (config: VadConfig) => {
-    try {
-      setVadConfig(config);
-      safeLocalStorage.setItem("vad_config", JSON.stringify(config));
-      await invoke("update_vad_config", { config });
-    } catch (error) {
-      console.error("Failed to update VAD config:", error);
+  const cacheAgeLabel = useMemo(() => {
+    if (!cacheUpdatedAt) {
+      return "No cache yet";
     }
-  }, []);
 
-  useEffect(() => {
-    if (capturing) {
-      setIsContinuousMode(!vadConfig.enabled);
-
-      if (!vadConfig.enabled) {
-        setIsRecordingInContinuousMode(false);
-      }
+    const age = Date.now() - cacheUpdatedAt;
+    if (age < 2000) {
+      return "Fresh (<2s)";
     }
-  }, [vadConfig.enabled, capturing]);
-
-  // Keyboard arrow key support for scrolling (local shortcut)
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isPopoverOpen) return;
-
-      const scrollElement = scrollAreaRef.current?.querySelector(
-        "[data-radix-scroll-area-viewport]"
-      ) as HTMLElement;
-
-      if (!scrollElement) return;
-
-      const scrollAmount = 100; // pixels to scroll
-
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        scrollElement.scrollBy({ top: scrollAmount, behavior: "smooth" });
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        scrollElement.scrollBy({ top: -scrollAmount, behavior: "smooth" });
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPopoverOpen]);
-
-  // Keyboard shortcuts for continuous mode recording (local shortcuts)
-  useEffect(() => {
-    const handleRecordingShortcuts = (e: KeyboardEvent) => {
-      if (!isPopoverOpen || !isContinuousMode) return;
-      if (isProcessing || isAIProcessing) return;
-
-      // Enter: Start recording (when not recording) or Stop & Send (when recording)
-      if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault();
-        if (!isRecordingInContinuousMode) {
-          startContinuousRecording();
-        } else {
-          manualStopAndSend();
-        }
-      }
-
-      // Escape: Ignore recording (when recording)
-      if (e.key === "Escape" && isRecordingInContinuousMode) {
-        e.preventDefault();
-        ignoreContinuousRecording();
-      }
-
-      // Space: Start recording (when not recording) - only if not typing in input
-      if (
-        e.key === " " &&
-        !isRecordingInContinuousMode &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
-      ) {
-        e.preventDefault();
-        startContinuousRecording();
-      }
-    };
-
-    window.addEventListener("keydown", handleRecordingShortcuts);
-    return () =>
-      window.removeEventListener("keydown", handleRecordingShortcuts);
-  }, [
-    isPopoverOpen,
-    isContinuousMode,
-    isRecordingInContinuousMode,
-    isProcessing,
-    isAIProcessing,
-    startContinuousRecording,
-    manualStopAndSend,
-    ignoreContinuousRecording,
-  ]);
+    if (age < 6000) {
+      return "Warm (<6s)";
+    }
+    return "Stale";
+  }, [cacheUpdatedAt]);
 
   return {
     capturing,
     isProcessing,
     isAIProcessing,
-    lastTranscription,
-    lastAIResponse,
     error,
     setupRequired,
     startCapture,
@@ -1241,38 +1296,34 @@ export function useSystemAudio() {
     handleSetup,
     isPopoverOpen,
     setIsPopoverOpen,
-    // Conversation management
     conversation,
     setConversation,
-    // AI processing
-    processWithAI,
-    // Context management
+    processWithAI: runAI,
     useSystemPrompt,
-    setUseSystemPrompt: updateUseSystemPrompt,
+    setUseSystemPrompt,
     contextContent,
-    setContextContent: updateContextContent,
+    setContextContent,
     startNewConversation,
-    // Window resize
     resizeWindow,
     quickActions,
     addQuickAction,
     removeQuickAction,
-    isManagingQuickActions,
-    setIsManagingQuickActions,
-    showQuickActions,
-    setShowQuickActions,
     handleQuickActionClick,
-    // VAD configuration
     vadConfig,
     updateVadConfiguration,
-    // Continuous recording
-    isContinuousMode,
-    isRecordingInContinuousMode,
-    recordingProgress,
-    manualStopAndSend,
-    startContinuousRecording,
-    ignoreContinuousRecording,
-    // Scroll area ref for keyboard navigation
+    lastAIResponse,
+    lastTranscription: lastCommittedPrompt,
+    transcriptSegments: liveTranscript,
+    manualScreenshots,
+    removeManualScreenshot,
+    cachedScreenshotPreview,
+    cacheAgeLabel,
+    isCapturingScreenshot,
+    handleCaptureScreenshot,
+    onAnswerTrigger,
     scrollAreaRef,
+    maxManualScreenshots,
+    updateMaxManualScreenshots,
+    screenshotIntervalMs: SYSTEM_AUDIO_SCREENSHOT_INTERVAL_MS,
   };
 }

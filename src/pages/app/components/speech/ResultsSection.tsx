@@ -1,179 +1,145 @@
-import { ChatConversation } from "@/types";
-import { Markdown, Switch, CopyButton } from "@/components";
-import { BotIcon, HeadphonesIcon, Loader2, SparklesIcon } from "lucide-react";
+import { CopyButton, Markdown } from "@/components";
+import { Loader2, SparklesIcon } from "lucide-react";
+import { TranscriptSegment } from "@/types";
 import { cn } from "@/lib/utils";
 
 type Props = {
-  lastTranscription: string;
+  transcriptSegments: TranscriptSegment[];
   lastAIResponse: string;
   isAIProcessing: boolean;
-  conversation: ChatConversation;
-  conversationMode: boolean;
-  setConversationMode: (mode: boolean) => void;
   textSize: number;
 };
 
+function formatSpeaker(source: TranscriptSegment["source"]): string {
+  return source === "interviewer" ? "Interviewer" : "User";
+}
+
 export const ResultsSection = ({
-  lastTranscription,
+  transcriptSegments,
   lastAIResponse,
   isAIProcessing,
-  conversation,
-  conversationMode,
-  setConversationMode,
   textSize,
 }: Props) => {
-  const hasResponse = lastAIResponse || isAIProcessing;
-  const hasHistory = conversation.messages.length > 2;
+  const committed = transcriptSegments
+    .filter((segment) => !segment.isLive)
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp);
 
-  if (!hasResponse && !lastTranscription) {
+  const live = transcriptSegments
+    .filter((segment) => segment.isLive)
+    .slice()
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  const hasTranscript = committed.length > 0 || live.length > 0;
+  const hasResponse = !!lastAIResponse || isAIProcessing;
+
+  if (!hasTranscript && !hasResponse) {
     return null;
   }
 
-  const isMac = navigator.platform.toLowerCase().includes("mac");
-  const modKey = isMac ? "⌘" : "Ctrl";
-
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
-      {/* Header with toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <SparklesIcon className="w-3.5 h-3.5 text-primary" />
-          <h4 className="text-xs font-medium">
-            {conversationMode ? "Conversation" : "AI Response"}
-          </h4>
+          <h4 className="text-xs font-medium">Live Transcript</h4>
         </div>
-        <div className="flex items-center gap-2 select-none">
-          <span className="text-[9px] text-muted-foreground/50 bg-muted/50 px-1 rounded">
-            {modKey}+K
-          </span>
-          <Switch
-            checked={conversationMode}
-            onCheckedChange={setConversationMode}
-            className="scale-75"
-          />
-          {lastAIResponse && <CopyButton content={lastAIResponse} />}
+        <div className="text-[10px] text-muted-foreground">
+          {committed.length} committed / {live.length} live
         </div>
       </div>
 
-      {/* RESPONSE MODE: System as text, then AI response */}
-      {!conversationMode && (
-        <div className="space-y-2">
-          {/* System Input - Just text with bold label */}
-          {lastTranscription && (
-            <p
-              className="text-muted-foreground"
-              style={{ fontSize: `${Math.max(11, textSize - 2)}px` }}
-            >
-              <span className="font-semibold">System:</span> {lastTranscription}
-            </p>
-          )}
+      {hasTranscript && (
+        <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+          {committed.map((segment) => {
+            const isUser = segment.source === "user";
 
-          {/* AI Response */}
-          {hasResponse && (
-            <div>
-              {isAIProcessing && !lastAIResponse ? (
-                <div className="flex items-center gap-2 py-2">
-                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span className="text-xs text-muted-foreground">
-                    Generating response...
+            return (
+              <div
+                key={segment.id}
+                className={cn(
+                  "max-w-[92%] rounded-xl px-3 py-2 text-xs border",
+                  isUser
+                    ? "ml-auto bg-emerald-500/10 border-emerald-400/30"
+                    : "mr-auto bg-blue-500/10 border-blue-400/30"
+                )}
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span
+                    className={cn(
+                      "text-[10px] font-semibold uppercase tracking-wide",
+                      isUser ? "text-emerald-700" : "text-blue-700"
+                    )}
+                  >
+                    {formatSpeaker(segment.source)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {new Date(segment.timestamp).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
                   </span>
                 </div>
-              ) : (
-                <div
-                  className="prose prose-sm max-w-none dark:prose-invert response-markdown"
-                  style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
-                >
-                  <Markdown>{lastAIResponse}</Markdown>
-                  {isAIProcessing && (
-                    <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
+                <p style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}>
+                  {segment.text}
+                </p>
+              </div>
+            );
+          })}
+
+          {live.map((segment) => {
+            const isUser = segment.source === "user";
+            return (
+              <div
+                key={segment.id}
+                className={cn(
+                  "max-w-[92%] rounded-xl px-3 py-2 text-xs border border-dashed animate-pulse",
+                  isUser
+                    ? "ml-auto bg-emerald-500/5 border-emerald-400/30"
+                    : "mr-auto bg-blue-500/5 border-blue-400/30"
+                )}
+              >
+                <span
+                  className={cn(
+                    "text-[10px] font-semibold uppercase tracking-wide",
+                    isUser ? "text-emerald-700" : "text-blue-700"
                   )}
-                </div>
-              )}
-            </div>
-          )}
+                >
+                  {formatSpeaker(segment.source)} (live)
+                </span>
+                <p className="mt-1" style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}>
+                  {segment.text}
+                </p>
+              </div>
+            );
+          })}
         </div>
       )}
 
-      {/* CONVERSATION MODE: AI on top, then System, then history */}
-      {conversationMode && (
-        <div className="space-y-2">
-          {/* AI Response - First (on top) */}
-          {hasResponse && (
-            <div className="rounded-md bg-background/50 p-2.5">
-              <div className="flex items-center gap-1.5 mb-1">
-                <BotIcon className="h-3 w-3 text-muted-foreground" />
-                <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wide">
-                  AI
-                </span>
-              </div>
-              {isAIProcessing && !lastAIResponse ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-                  <span className="text-[10px] text-muted-foreground">
-                    Generating...
-                  </span>
-                </div>
-              ) : (
-                <div
-                  className="prose prose-sm max-w-none dark:prose-invert response-markdown"
-                  style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
-                >
-                  <Markdown>{lastAIResponse}</Markdown>
-                  {isAIProcessing && (
-                    <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+      {(hasResponse || isAIProcessing) && (
+        <div className="rounded-md border border-border/60 bg-background/60 p-2.5">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              AI Response
+            </span>
+            {lastAIResponse ? <CopyButton content={lastAIResponse} /> : null}
+          </div>
 
-          {/* System Input - Second */}
-          {lastTranscription && (
-            <div className="rounded-md border-l-2 border-primary/50 bg-primary/5 p-2.5">
-              <div className="flex items-center gap-1.5 mb-1">
-                <HeadphonesIcon className="h-3 w-3 text-primary" />
-                <span className="text-[9px] font-medium text-primary uppercase tracking-wide">
-                  System
-                </span>
-              </div>
-              <p style={{ fontSize: `${Math.max(12, textSize)}px`, lineHeight: 1.45 }}>
-                {lastTranscription}
-              </p>
+          {isAIProcessing && !lastAIResponse ? (
+            <div className="flex items-center gap-2 py-1">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="text-xs text-muted-foreground">Generating...</span>
             </div>
-          )}
-
-          {/* Previous Messages */}
-          {hasHistory && (
-            <div className="space-y-2 pt-2 border-t border-border/50">
-              <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
-                Previous
-              </p>
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {conversation.messages
-                  .slice(2)
-                  .sort((a, b) => b.timestamp - a.timestamp)
-                  .map((message, index) => (
-                    <div
-                      key={message.id || index}
-                      className={cn(
-                        "p-2 rounded-md text-[11px]",
-                        message.role === "user"
-                          ? "bg-primary/5 border-l-2 border-primary/30"
-                          : "bg-background/50"
-                      )}
-                    >
-                      <span className="text-[8px] font-medium text-muted-foreground uppercase">
-                        {message.role === "user" ? "System" : "AI"}
-                      </span>
-                      <div
-                        className="text-muted-foreground leading-relaxed mt-0.5 response-markdown"
-                        style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}
-                      >
-                        <Markdown>{message.content}</Markdown>
-                      </div>
-                    </div>
-                  ))}
-              </div>
+          ) : (
+            <div
+              className="prose prose-sm max-w-none dark:prose-invert response-markdown"
+              style={{ fontSize: `${textSize}px`, lineHeight: 1.45 }}
+            >
+              <Markdown>{lastAIResponse}</Markdown>
+              {isAIProcessing ? (
+                <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
+              ) : null}
             </div>
           )}
         </div>

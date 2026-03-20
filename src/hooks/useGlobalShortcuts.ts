@@ -9,6 +9,7 @@ let globalEventListeners: {
   audio?: UnlistenFn;
   screenshot?: UnlistenFn;
   systemAudio?: UnlistenFn;
+  answerTrigger?: UnlistenFn;
   customShortcut?: UnlistenFn;
   registrationError?: UnlistenFn;
 } = {};
@@ -21,6 +22,7 @@ let globalInputRef: HTMLInputElement | null = null;
 let globalAudioCallback: (() => void) | null = null;
 let globalScreenshotCallback: (() => void | Promise<void>) | null = null;
 let globalSystemAudioCallback: (() => void) | null = null;
+let globalAnswerTriggerCallback: (() => void | Promise<void>) | null = null;
 let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 
 export const useGlobalShortcuts = () => {
@@ -28,6 +30,7 @@ export const useGlobalShortcuts = () => {
   const audioCallbackRef = useRef<(() => void) | null>(null);
   const screenshotCallbackRef = useRef<(() => void) | null>(null);
   const systemAudioCallbackRef = useRef<(() => void) | null>(null);
+  const answerTriggerCallbackRef = useRef<(() => void) | null>(null);
   const customShortcutCallbacksRef = useRef<Map<string, () => void>>(new Map());
 
   const checkShortcutsRegistered = useCallback(async (): Promise<boolean> => {
@@ -93,6 +96,14 @@ export const useGlobalShortcuts = () => {
     globalSystemAudioCallback = callback;
   }, []);
 
+  const registerAnswerTriggerCallback = useCallback(
+    (callback: () => void | Promise<void>) => {
+      answerTriggerCallbackRef.current = callback;
+      globalAnswerTriggerCallback = callback;
+    },
+    []
+  );
+
   // Register custom shortcut callback
   const registerCustomShortcutCallback = useCallback(
     (actionId: string, callback: () => void) => {
@@ -139,6 +150,13 @@ export const useGlobalShortcuts = () => {
             globalEventListeners.systemAudio();
           } catch (error) {
             console.warn("Error cleaning up system audio listener:", error);
+          }
+        }
+        if (globalEventListeners.answerTrigger) {
+          try {
+            globalEventListeners.answerTrigger();
+          } catch (error) {
+            console.warn("Error cleaning up answer trigger listener:", error);
           }
         }
         if (globalEventListeners.customShortcut) {
@@ -220,6 +238,22 @@ export const useGlobalShortcuts = () => {
         });
         globalEventListeners.systemAudio = unlistenSystemAudio;
 
+        const unlistenAnswerTrigger = await listen("trigger-answer", () => {
+          if (globalAnswerTriggerCallback) {
+            try {
+              Promise.resolve(globalAnswerTriggerCallback()).catch((error) => {
+                console.error("Answer trigger shortcut callback failed:", error);
+              });
+            } catch (error) {
+              console.error(
+                "Failed to run answer trigger shortcut callback:",
+                error
+              );
+            }
+          }
+        });
+        globalEventListeners.answerTrigger = unlistenAnswerTrigger;
+
         // Listen for custom shortcut events
         const unlistenCustomShortcut = await listen<{ action: string }>(
           "custom-shortcut-triggered",
@@ -263,6 +297,7 @@ export const useGlobalShortcuts = () => {
     registerAudioCallback,
     registerScreenshotCallback,
     registerSystemAudioCallback,
+    registerAnswerTriggerCallback,
     registerCustomShortcutCallback,
     unregisterCustomShortcutCallback,
   };

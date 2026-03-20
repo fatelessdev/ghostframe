@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Popover,
@@ -15,16 +15,15 @@ import {
   CameraIcon,
   PlusIcon,
   XIcon,
+  SendIcon,
+  TimerIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { ModeSwitcher } from "./ModeSwitcher";
-import { RecordingPanel } from "./RecordingPanel";
-import { ResultsSection } from "./ResultsSection";
-import { SettingsPanel } from "./SettingsPanel";
 import { PermissionFlow } from "./PermissionFlow";
-import { QuickActions } from "./QuickActions";
+import { ResultsSection } from "./ResultsSection";
 import { Warning } from "./Warning";
+import { RollingTranscript } from "./RollingTranscript";
 import { useSystemAudioType } from "@/hooks";
 import { useApp } from "@/contexts";
 import { cn } from "@/lib/utils";
@@ -35,14 +34,13 @@ import {
 } from "@/lib/storage/response-settings.storage";
 
 const MIN_PANEL_WIDTH = 480;
-const MIN_PANEL_HEIGHT = 300;
+const MIN_PANEL_HEIGHT = 320;
 
 export const SystemAudio = (props: useSystemAudioType) => {
   const {
     capturing,
     isProcessing,
     isAIProcessing,
-    lastTranscription,
     lastAIResponse,
     error,
     setupRequired,
@@ -50,46 +48,30 @@ export const SystemAudio = (props: useSystemAudioType) => {
     stopCapture,
     isPopoverOpen,
     setIsPopoverOpen,
-    useSystemPrompt,
-    setUseSystemPrompt,
-    contextContent,
-    setContextContent,
     startNewConversation,
-    conversation,
     resizeWindow,
     quickActions,
-    addQuickAction,
-    removeQuickAction,
-    isManagingQuickActions,
-    setIsManagingQuickActions,
-    showQuickActions,
-    setShowQuickActions,
     handleQuickActionClick,
-    vadConfig,
-    updateVadConfiguration,
-    isRecordingInContinuousMode,
-    recordingProgress,
-    manualStopAndSend,
-    startContinuousRecording,
-    ignoreContinuousRecording,
+    transcriptSegments,
+    manualScreenshots,
+    removeManualScreenshot,
+    cachedScreenshotPreview,
+    cacheAgeLabel,
+    isCapturingScreenshot,
+    handleCaptureScreenshot,
+    onAnswerTrigger,
     scrollAreaRef,
+    screenshotIntervalMs,
   } = props;
 
   const { supportsImages } = useApp();
-
-  // View mode toggle
-  const [conversationMode, setConversationMode] = useState(false);
   const [responseSettings, setResponseSettings] = useState(() =>
     getResponseSettings()
   );
+  const isMac = navigator.platform.toLowerCase().includes("mac");
+  const answerTriggerLabel = isMac ? "Cmd+Enter" : "Ctrl+Enter";
+
   const panelRef = useRef<HTMLDivElement | null>(null);
-
-  // Screenshot state
-  const [screenshotImage, setScreenshotImage] = useState<string | null>(null);
-  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
-
-  const isVadMode = vadConfig.enabled;
-  const hasResponse = lastAIResponse || isAIProcessing;
 
   useEffect(() => {
     const syncResponseSettings = () => {
@@ -121,22 +103,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     };
   }, []);
 
-  // Keyboard shortcut for Cmd+K to toggle view mode
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isPopoverOpen) return;
-
-      // Cmd+K or Ctrl+K to toggle view mode
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setConversationMode((prev) => !prev);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPopoverOpen]);
-
   useEffect(() => {
     const element = panelRef.current;
     if (!element || !isPopoverOpen) {
@@ -159,8 +125,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
         return;
       }
 
-      setResponseSettings((prev) => ({
-        ...prev,
+      setResponseSettings((previous) => ({
+        ...previous,
         panelWidth: nextWidth,
         panelHeight: nextHeight,
       }));
@@ -168,10 +134,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
     });
 
     observer.observe(element);
-
-    return () => {
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
 
   useEffect(() => {
@@ -186,20 +149,13 @@ export const SystemAudio = (props: useSystemAudioType) => {
           height: Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight),
           width: Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth),
         });
-      } catch (error) {
-        console.error("Failed to sync system audio panel size:", error);
+      } catch (syncError) {
+        console.error("Failed to sync panel size:", syncError);
       }
     };
 
     void syncWindowSize();
   }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
-
-  // Reset screenshot when processing starts (message is being sent)
-  useEffect(() => {
-    if (isProcessing && screenshotImage) {
-      setScreenshotImage(null);
-    }
-  }, [isProcessing, screenshotImage]);
 
   const handleToggleCapture = async () => {
     if (capturing) {
@@ -209,69 +165,39 @@ export const SystemAudio = (props: useSystemAudioType) => {
     }
   };
 
-  const handleModeChange = (vadEnabled: boolean) => {
-    updateVadConfiguration({
-      ...vadConfig,
-      enabled: vadEnabled,
-    });
-  };
-
-  // Capture screenshot functionality
-  const handleCaptureScreenshot = useCallback(async () => {
-    if (isCapturingScreenshot) return;
-
-    setIsCapturingScreenshot(true);
-    try {
-      // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac")) {
-        const {
-          checkScreenRecordingPermission,
-          requestScreenRecordingPermission,
-        } = await import("tauri-plugin-macos-permissions-api");
-
-        const hasPermission = await checkScreenRecordingPermission();
-        if (!hasPermission) {
-          await requestScreenRecordingPermission();
-          setIsCapturingScreenshot(false);
-          return;
-        }
-      }
-
-      // Capture screenshot
-      const base64: string = await invoke("capture_screenshot", {
-        screenId: null, // Use default screen
-      });
-
-      setScreenshotImage(base64);
-    } catch (err) {
-      console.error("Failed to capture screenshot:", err);
-    } finally {
-      setIsCapturingScreenshot(false);
-    }
-  }, [isCapturingScreenshot]);
-
-  const handleRemoveScreenshot = useCallback(() => {
-    setScreenshotImage(null);
-  }, []);
-
   const getButtonIcon = () => {
-    if (setupRequired) return <AlertCircleIcon className="text-orange-500" />;
-    if (error && !setupRequired)
+    if (setupRequired) {
+      return <AlertCircleIcon className="text-orange-500" />;
+    }
+    if (error && !setupRequired) {
       return <AlertCircleIcon className="text-red-500" />;
-    if (isProcessing) return <LoaderIcon className="animate-spin" />;
-    if (capturing)
-      return <AudioLinesIcon className="text-green-500 animate-pulse" />;
+    }
+    if (isProcessing || isAIProcessing) {
+      return <LoaderIcon className="animate-spin" />;
+    }
+    if (capturing) {
+      return <AudioLinesIcon className="text-emerald-500 animate-pulse" />;
+    }
     return <HeadphonesIcon />;
   };
 
   const getButtonTitle = () => {
-    if (setupRequired) return "Setup required - Click for instructions";
-    if (error && !setupRequired) return `Error: ${error}`;
-    if (isProcessing) return "Transcribing audio...";
-    if (capturing) return "Stop system audio capture";
+    if (setupRequired) {
+      return "Setup required - Click for instructions";
+    }
+    if (error && !setupRequired) {
+      return `Error: ${error}`;
+    }
+    if (isProcessing || isAIProcessing) {
+      return "Processing interview context...";
+    }
+    if (capturing) {
+      return "Stop system audio capture";
+    }
     return "Start system audio capture";
   };
+
+  const hasResponse = !!lastAIResponse || isAIProcessing;
 
   return (
     <Popover
@@ -289,7 +215,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
           title={getButtonTitle()}
           onClick={handleToggleCapture}
           className={cn(
-            capturing && "bg-green-50 hover:bg-green-100",
+            capturing && "bg-emerald-50 hover:bg-emerald-100",
             error && "bg-red-100 hover:bg-red-200"
           )}
         >
@@ -302,7 +228,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
           ref={panelRef}
           align="center"
           side="bottom"
-          className="glass-card select-none p-0 border shadow-lg overflow-hidden border-input/50 min-w-[480px] min-h-[300px] max-h-[calc(100vh-4rem)]"
+          className="glass-card select-none p-0 border shadow-lg overflow-hidden border-input/50 min-w-[480px] min-h-[320px] max-h-[calc(100vh-4rem)]"
           sideOffset={8}
           style={{
             width: `${Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth)}px`,
@@ -311,42 +237,48 @@ export const SystemAudio = (props: useSystemAudioType) => {
           }}
         >
           <div className="flex flex-col h-full overflow-hidden bg-background">
-            {/* Header - Mode Switcher + Actions */}
             <div className="flex-shrink-0 p-3 border-b border-border/50">
               <div className="flex items-center justify-between gap-2">
-                {/* Mode Switcher */}
-                {!setupRequired && (
-                  <ModeSwitcher
-                    isVadMode={isVadMode}
-                    onModeChange={handleModeChange}
-                    disabled={
-                      isRecordingInContinuousMode ||
-                      isProcessing ||
-                      isAIProcessing
-                    }
-                  />
-                )}
-                {setupRequired && (
+                {setupRequired ? (
                   <h2 className="font-semibold text-sm">Setup Required</h2>
+                ) : (
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-500/10 px-2 py-0.5 text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Dual STT Live
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+                      <TimerIcon className="w-3 h-3" />
+                      Screenshot cache {Math.round(screenshotIntervalMs / 1000)}s
+                    </span>
+                    <span className="inline-flex rounded-full border border-border px-2 py-0.5">
+                      {cacheAgeLabel}
+                    </span>
+                  </div>
                 )}
 
-                {/* Action Buttons */}
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <span className="hidden sm:inline text-[10px] text-muted-foreground/70 mr-1">
-                    Drag any edge to resize
-                  </span>
-                  {/* Screenshot Button */}
+                  {!setupRequired && (
+                    <Button
+                      size="sm"
+                      onClick={() => void onAnswerTrigger()}
+                      disabled={isProcessing || isAIProcessing}
+                      className="h-7 text-[10px] gap-1 px-2"
+                      title={`Send current transcript and screenshots (${answerTriggerLabel})`}
+                    >
+                      <SendIcon className="w-3 h-3" />
+                      {answerTriggerLabel} Send
+                    </Button>
+                  )}
+
                   {!setupRequired && supportsImages && (
                     <Button
                       size="sm"
-                      variant={screenshotImage ? "default" : "outline"}
-                      onClick={handleCaptureScreenshot}
+                      variant="outline"
+                      onClick={() => void handleCaptureScreenshot()}
                       disabled={isCapturingScreenshot}
-                      className={cn(
-                        "h-6 text-[10px] gap-1 px-2",
-                        screenshotImage && "bg-primary text-primary-foreground"
-                      )}
-                      title="Capture screenshot to include with transcription"
+                      className="h-7 text-[10px] gap-1 px-2"
+                      title="Attach manual screenshot"
                     >
                       {isCapturingScreenshot ? (
                         <LoaderIcon className="w-3 h-3 animate-spin" />
@@ -357,13 +289,12 @@ export const SystemAudio = (props: useSystemAudioType) => {
                     </Button>
                   )}
 
-                  {/* New Conversation Button */}
                   {!setupRequired && (
                     <Button
                       size="sm"
                       variant="ghost"
                       onClick={startNewConversation}
-                      className="h-6 text-[10px] gap-1 px-2"
+                      className="h-7 text-[10px] gap-1 px-2"
                       title="Start a new conversation"
                     >
                       <PlusIcon className="w-3 h-3" />
@@ -371,7 +302,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                     </Button>
                   )}
 
-                  {/* Close Button */}
                   {!capturing && (
                     <Button
                       size="icon"
@@ -380,7 +310,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       title="Close"
                       onClick={() => {
                         setIsPopoverOpen(false);
-                        resizeWindow(false);
+                        void resizeWindow(false);
                       }}
                     >
                       <XIcon className="h-3.5 w-3.5" />
@@ -392,112 +322,105 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
             <ScrollArea className="flex-1 min-h-0" ref={scrollAreaRef}>
               <div className="p-2 space-y-2">
-                {/* Screenshot Preview */}
-                {screenshotImage && (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-primary/5 border border-primary/20">
-                    <img
-                      src={`data:image/png;base64,${screenshotImage}`}
-                      alt="Screenshot"
-                      className="h-12 w-20 object-cover rounded"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-medium">
-                        Screenshot attached
-                      </p>
-                      <p className="text-[9px] text-muted-foreground">
-                        Will be sent with next transcription
-                      </p>
-                    </div>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="h-5 w-5"
-                      onClick={handleRemoveScreenshot}
-                    >
-                      <XIcon className="h-3 w-3" />
-                    </Button>
-                  </div>
-                )}
-
-                {/* Error Display */}
                 {error && !setupRequired && (
                   <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200">
                     <AlertCircleIcon className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-[10px] font-medium text-red-800">
-                        Error
-                      </p>
+                      <p className="text-[10px] font-medium text-red-800">Error</p>
                       <p className="text-[10px] text-red-700">{error}</p>
                     </div>
                   </div>
                 )}
 
-                {/* Setup Required - Permission Flow */}
                 {setupRequired ? (
                   <PermissionFlow
                     onPermissionGranted={() => {
-                      startCapture();
+                      void startCapture();
                     }}
                     onPermissionDenied={() => {
-                      // Keep showing setup instructions
+                      // no-op
                     }}
                   />
                 ) : (
                   <>
-                    {/* Recording Panel */}
-                    <RecordingPanel
-                      isVadMode={isVadMode}
-                      isRecording={isRecordingInContinuousMode}
-                      isProcessing={isProcessing}
-                      isAIProcessing={isAIProcessing}
-                      recordingProgress={recordingProgress}
-                      maxDuration={vadConfig.max_recording_duration_secs}
-                      onStartRecording={startContinuousRecording}
-                      onStopAndSend={manualStopAndSend}
-                      onIgnore={ignoreContinuousRecording}
-                    />
+                    <RollingTranscript transcriptSegments={transcriptSegments} />
 
-                    {/* AI Response */}
+                    {cachedScreenshotPreview ? (
+                      <div className="rounded-md border border-border/60 bg-muted/20 p-2 flex items-center gap-2">
+                        <img
+                          src={`data:image/png;base64,${cachedScreenshotPreview}`}
+                          alt="Latest cached screenshot"
+                          className="h-12 w-20 object-cover rounded"
+                        />
+                        <div className="text-[10px] text-muted-foreground">
+                          <p className="font-medium text-foreground">Auto screenshot cache</p>
+                          <p>{cacheAgeLabel}</p>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {manualScreenshots.length > 0 ? (
+                      <div className="rounded-md border border-border/60 bg-muted/10 p-2 space-y-2">
+                        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                          Manual screenshots ({manualScreenshots.length})
+                        </p>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {manualScreenshots.map((shot) => (
+                            <div
+                              key={shot.id}
+                              className="relative shrink-0 rounded border border-border/60"
+                            >
+                              <img
+                                src={`data:image/png;base64,${shot.base64}`}
+                                alt="Manual screenshot"
+                                className="h-16 w-28 object-cover rounded"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeManualScreenshot(shot.id)}
+                                className="absolute -top-1 -right-1 rounded-full bg-background border border-border h-5 w-5 text-[10px]"
+                                title="Remove screenshot"
+                              >
+                                x
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     <ResultsSection
-                      lastTranscription={lastTranscription}
+                      transcriptSegments={transcriptSegments}
                       lastAIResponse={lastAIResponse}
                       isAIProcessing={isAIProcessing}
-                      conversation={conversation}
-                      conversationMode={conversationMode}
-                      setConversationMode={setConversationMode}
                       textSize={responseSettings.textSize}
                     />
 
-                    {/* Settings Panel */}
-                    <SettingsPanel
-                      vadConfig={vadConfig}
-                      onUpdateVadConfig={updateVadConfiguration}
-                      useSystemPrompt={useSystemPrompt}
-                      setUseSystemPrompt={setUseSystemPrompt}
-                      contextContent={contextContent}
-                      setContextContent={setContextContent}
-                    />
-
-                    {/* Help/Keyboard Shortcuts */}
-                    <Warning isVadMode={isVadMode} />
+                    <Warning />
                   </>
                 )}
               </div>
             </ScrollArea>
 
-            {/* Quick Actions */}
-            {!setupRequired && hasResponse && (
+            {!setupRequired && hasResponse && quickActions.length > 0 && (
               <div className="flex-shrink-0 border-t border-border/50 p-2">
-                <QuickActions
-                  actions={quickActions}
-                  onActionClick={handleQuickActionClick}
-                  onAddAction={addQuickAction}
-                  onRemoveAction={removeQuickAction}
-                  isManaging={isManagingQuickActions}
-                  setIsManaging={setIsManagingQuickActions}
-                  show={showQuickActions}
-                  setShow={setShowQuickActions}
-                />
+                <div className="rounded-lg border border-border/50 bg-muted/20 p-2 space-y-2">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    Quick actions
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {quickActions.map((action) => (
+                      <button
+                        key={action}
+                        type="button"
+                        onClick={() => void handleQuickActionClick(action)}
+                        className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-1 text-xs hover:bg-muted"
+                      >
+                        {action}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
           </div>
