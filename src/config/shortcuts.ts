@@ -2,6 +2,16 @@ import { ShortcutAction } from "@/types";
 
 export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
   {
+    id: "emergency_erase",
+    name: "Emergency Erase",
+    description: "Panic shortcut to wipe data and quit immediately",
+    defaultKey: {
+      macos: "cmd+shift+e",
+      windows: "ctrl+shift+e",
+      linux: "ctrl+shift+e",
+    },
+  },
+  {
     id: "toggle_dashboard",
     name: "Toggle Dashboard",
     description: "Open/Close the dashboard window",

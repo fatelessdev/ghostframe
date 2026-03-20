@@ -75,6 +75,7 @@ pub fn run() {
             shortcuts::validate_shortcut_key,
             shortcuts::set_app_icon_visibility,
             shortcuts::set_always_on_top,
+            shortcuts::emergency_erase,
             shortcuts::exit_app,
             speaker::start_system_audio_capture,
             speaker::stop_system_audio_capture,
@@ -185,9 +186,15 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_macos_permissions::init());
     }
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            shortcuts::scrub_sensitive_data_on_quit(app_handle);
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]

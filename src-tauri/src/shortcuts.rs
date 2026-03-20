@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -25,6 +26,10 @@ const SENSITIVE_LOCAL_STORAGE_KEYS: &[&str] = &[
     "selected_system_prompt_id",
     "system_audio_context",
 ];
+
+const EMERGENCY_ERASE_ACTION_ID: &str = "emergency_erase";
+const EMERGENCY_ERASE_DATABASE_FILE: &str = "ghostframe.db";
+const EMERGENCY_ERASE_STORAGE_SCRIPT: &str = "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){console.error('Failed to clear web storage during emergency erase', e);}})();";
 
 pub struct WindowPreferencesState {
     always_on_top: AtomicBool,
@@ -131,13 +136,38 @@ pub fn setup_global_shortcuts<R: Runtime>(
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Let the frontend initialize from localStorage
     let state = app.state::<RegisteredShortcuts>();
-    let _registered = match state.shortcuts.lock() {
+    let mut registered = match state.shortcuts.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
             eprintln!("Mutex poisoned in setup, recovering...");
             poisoned.into_inner()
         }
     };
+
+    #[cfg(target_os = "macos")]
+    let emergency_shortcut = "Cmd+Shift+E";
+    #[cfg(not(target_os = "macos"))]
+    let emergency_shortcut = "Ctrl+Shift+E";
+
+    match emergency_shortcut.parse::<Shortcut>() {
+        Ok(shortcut) => {
+            if let Err(error) = app.global_shortcut().register(shortcut) {
+                eprintln!("Failed to register emergency erase shortcut: {}", error);
+            } else {
+                registered.insert(
+                    EMERGENCY_ERASE_ACTION_ID.to_string(),
+                    emergency_shortcut.to_string(),
+                );
+            }
+        }
+        Err(error) => {
+            eprintln!(
+                "Failed to parse emergency erase shortcut '{}': {}",
+                emergency_shortcut, error
+            );
+        }
+    }
+
     eprintln!("Global shortcuts state initialized, waiting for frontend config");
 
     Ok(())
@@ -162,6 +192,67 @@ pub fn scrub_sensitive_data_on_quit<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+fn clear_web_storage<R: Runtime>(app: &AppHandle<R>) {
+    for (label, window) in app.webview_windows() {
+        if let Err(error) = window.eval(EMERGENCY_ERASE_STORAGE_SCRIPT) {
+            eprintln!(
+                "Failed to clear web storage in '{}' window: {}",
+                label, error
+            );
+        }
+    }
+}
+
+fn clear_sqlite_database_files<R: Runtime>(app: &AppHandle<R>) {
+    let mut candidate_dirs = Vec::new();
+
+    if let Ok(dir) = app.path().app_data_dir() {
+        candidate_dirs.push(dir.clone());
+        candidate_dirs.push(dir.join("sqlite"));
+    }
+
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        candidate_dirs.push(dir.clone());
+        candidate_dirs.push(dir.join("sqlite"));
+    }
+
+    if let Ok(dir) = app.path().app_cache_dir() {
+        candidate_dirs.push(dir.clone());
+        candidate_dirs.push(dir.join("sqlite"));
+    }
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        candidate_dirs.push(current_dir.clone());
+        candidate_dirs.push(current_dir.join("src-tauri"));
+    }
+
+    for dir in candidate_dirs {
+        for suffix in ["", "-wal", "-shm"] {
+            let path = dir.join(format!("{}{}", EMERGENCY_ERASE_DATABASE_FILE, suffix));
+            if !path.exists() {
+                continue;
+            }
+
+            if let Err(error) = fs::remove_file(&path) {
+                eprintln!("Failed to remove database file '{}': {}", path.display(), error);
+            }
+        }
+    }
+}
+
+fn perform_emergency_erase<R: Runtime>(app: &AppHandle<R>) {
+    if let Err(error) = hide_main_window(app) {
+        eprintln!("Failed to hide main window during emergency erase: {}", error);
+    }
+
+    scrub_sensitive_data_on_quit(app);
+    clear_web_storage(app);
+    clear_sqlite_database_files(app);
+
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    std::process::exit(0);
+}
+
 /// Handle shortcut action based on action_id
 pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
     match action_id {
@@ -176,6 +267,7 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
         "audio_recording" => handle_audio_shortcut(app),
         "screenshot" => handle_screenshot_shortcut(app),
         "system_audio" => handle_system_audio_shortcut(app),
+        EMERGENCY_ERASE_ACTION_ID => perform_emergency_erase(app),
         custom_action => {
             // Emit custom action event for frontend to handle
             if let Some(window) = app.get_webview_window("main") {
@@ -331,6 +423,10 @@ pub fn update_shortcuts<R: Runtime>(
     let mut shortcuts_to_register = Vec::new();
 
     for (action_id, binding) in &config.bindings {
+        if action_id == EMERGENCY_ERASE_ACTION_ID {
+            continue;
+        }
+
         if binding.enabled && !binding.key.is_empty() {
             if action_id == "move_window" {
                 let modifiers = binding.key.trim();
@@ -406,7 +502,16 @@ pub fn update_shortcuts<R: Runtime>(
             }
         };
 
+        let emergency_shortcut = registered
+            .get(EMERGENCY_ERASE_ACTION_ID)
+            .cloned();
+
         registered.clear();
+
+        if let Some(shortcut) = emergency_shortcut {
+            registered.insert(EMERGENCY_ERASE_ACTION_ID.to_string(), shortcut);
+        }
+
         registered.extend(successfully_registered);
     }
 
@@ -443,6 +548,10 @@ fn unregister_all_shortcuts<R: Runtime>(app: &AppHandle<R>) -> Result<(), String
     };
 
     for (action_id, shortcut_str) in registered.iter() {
+        if action_id == EMERGENCY_ERASE_ACTION_ID {
+            continue;
+        }
+
         if let Ok(shortcut) = shortcut_str.parse::<Shortcut>() {
             match app.global_shortcut().unregister(shortcut) {
                 Ok(_) => {
@@ -611,6 +720,12 @@ fn handle_toggle_click_through<R: Runtime>(app: &AppHandle<R>) {
     if let Err(error) = toggle_click_through_state(app) {
         eprintln!("Failed to toggle click-through mode: {}", error);
     }
+}
+
+/// Tauri command to trigger emergency erase and immediate exit
+#[tauri::command]
+pub fn emergency_erase(app_handle: tauri::AppHandle) {
+    perform_emergency_erase(&app_handle);
 }
 
 /// Tauri command to exit the application
