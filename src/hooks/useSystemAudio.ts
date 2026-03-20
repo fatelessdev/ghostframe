@@ -30,6 +30,7 @@ import {
   generateConversationId,
   generateMessageId,
 } from "@/lib";
+import { normalizeTranscription } from "@/lib/utils";
 import { Message } from "@/types/completion";
 
 // VAD Configuration interface matching Rust
@@ -326,13 +327,16 @@ export function useSystemAudio() {
                 sttPromise,
                 timeoutPromise,
               ]);
+              const normalizedTranscription = normalizeTranscription(
+                transcription
+              ).trim();
 
-              if (transcription.trim()) {
-                setLastTranscription(transcription);
+              if (normalizedTranscription) {
+                setLastTranscription(normalizedTranscription);
                 setError("");
 
                 await processWithAI(
-                  transcription,
+                  normalizedTranscription,
                   getEffectiveSystemPrompt(),
                   getPreviousMessages()
                 );
@@ -742,7 +746,7 @@ export function useSystemAudio() {
 
   const handleRealtimeCommittedTranscript = useCallback(
     async (transcription: string) => {
-      const trimmedTranscription = transcription.trim();
+      const trimmedTranscription = normalizeTranscription(transcription).trim();
       setIsProcessing(false);
 
       if (!trimmedTranscription) {
@@ -824,11 +828,12 @@ export function useSystemAudio() {
     });
 
     connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
-      if (!data.text.trim()) {
+      const normalizedPartialTranscript = normalizeTranscription(data.text).trim();
+      if (!normalizedPartialTranscript) {
         return;
       }
 
-      setLastTranscription(data.text);
+      setLastTranscription(normalizedPartialTranscript);
       setError("");
     });
 
