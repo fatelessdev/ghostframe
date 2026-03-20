@@ -105,9 +105,9 @@ Why it matters: Without filtering, every "How are you?" and "Can you hear me?" t
 ---
 4.7 Session Auto-Reconnection with Context Replay
 Source: Cheating Daddy (gemini.js), Ghostframe (AIService.ts)
-Pluely status: Missing.
-What it does: When a Gemini Live WebSocket session times out (10-15 minute limit), auto-reconnects (up to 3 attempts, 2-second delay) and replays the last 20 conversation turns as text to restore context.
-Why it matters: Gemini Live sessions have hard time limits. Without auto-reconnection, the app silently stops working mid-interview and the user doesn't notice until their next question gets no answer.
+Pluely status: Implemented for system audio realtime streams.
+What it does: Reconnects dropped realtime transcription sessions with retry/backoff and keeps session state durable across normal websocket churn.
+Why it matters: Prevents silent session loss during long interviews and keeps transcription continuity resilient.
 ---
 Phase 2: Novel Recommendations
 2.5 Epoch Summarization (Prevent Context Overflow)
@@ -208,7 +208,7 @@ N8. Network Pre-flight & Provider Auto-Switch
 Problem: If your connection to OpenAI is slow (>2s TTFT) but Groq is fast (<300ms), you'd want to switch. No project does this automatically.
 Solution: On app startup and every 5 minutes, ping all configured providers with a trivial request ("Say 'ok'"). Measure TTFT. Auto-sort provider fallback order by latency. Show a network quality badge.
 If the primary provider's latency exceeds a threshold (configurable, default 3s), automatically switch to the fastest available provider for the next request.
-Implementation: Background task in useEffect that runs latency probes. Store results in state. Use as the sort key for the fallback chain from recommendation 2.4.
+Implementation: Background task in useEffect that runs latency probes. Store results in state. Use the measured latency to dynamically prioritize provider selection.
 ---
 N9. Confidence / Accuracy Indicator for Transcription
 Problem: Sometimes STT garbles the question. The AI then answers the wrong question. The user has no way to know the transcription was inaccurate.
@@ -232,11 +232,11 @@ Priority Matrix
 |---|---|---|---|
 | P0 - Critical | Gemini Live real-time audio w/ TEXT modality (2.1) | Eliminates 1-3s STT latency | High |
 | P0 - Critical | Profile/preset system (4.1) | Transforms answer quality | Low |
-| P0 - Critical | Click-through mode (1.6, 3.4) | Eliminates show/hide friction | Low |
+| P0 - Critical | Click-through mode (1.6, 3.4) | Eliminates show/hide friction | Implemented |
 | P1 - High | Gaze-optimized positioning (N1) | Prevents "looking away" detection | Low |
 | P1 - High | Speaker diarization (2.2) | AI answers correct questions | Medium |
 | P1 - High | Teleprompter mode (N2) | Eliminates manual scrolling | Medium |
-| P1 - High | Smart fallback chain (2.4) | Prevents dead-air from API failure | Medium |
+| P1 - High | Smart fallback chain (2.4) | Prevents dead-air from API failure | Implemented |
 | P1 - High | Resume/JD context (4.2) | Personalizes all answers | Low |
 | P1 - High | Keyboard response scrolling (3.7) | Invisible to webcam | Low |
 | P1 - High | Time-buying quick actions (N5) | Covers AI generation delay | Low |
@@ -262,10 +262,10 @@ Priority Matrix
 **6 reference projects** analyzed: Cheating Daddy, Ghostframe, Ghostframe1, Glass, Natively, OpenCluely.
 
 Phase 1 identified actionable features to port. Remaining to port, categorized as:
-- **Stealth**: Anti-analysis, click-through mode
-- **Performance**: Gemini Live real-time audio (with TEXT modality optimization), speaker diarization (Gemini Live config pending), cascading provider fallback, epoch summarization, acoustic echo cancellation
+- **Stealth**: Anti-analysis
+- **Performance**: Gemini Live real-time audio (with TEXT modality optimization), speaker diarization (Gemini Live config pending), epoch summarization, acoustic echo cancellation
 - **UI/UX**: compact overlay, click-through view mode, response navigation, split code layout, keyboard scrolling, high contrast mode
-- **QoL**: Profile/preset system, resume/JD context injection, verbosity toggle, intelligent transcript filtering, multi-monitor tracking, session auto-reconnection, local offline pipeline
+- **QoL**: Profile/preset system, resume/JD context injection, verbosity toggle, intelligent transcript filtering, multi-monitor tracking, local offline pipeline
 
 Phase 2 proposed **10 novel features** missing from all projects:
 - N1: Gaze-optimized webcam-anchored positioning
