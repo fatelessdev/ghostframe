@@ -18,13 +18,14 @@ export const useShortcuts = ({
   onSystemAudio,
   customShortcuts = {},
 }: UseShortcutsProps = {}) => {
+  const shortcuts = useGlobalShortcuts();
   const {
     registerAudioCallback,
     registerScreenshotCallback,
     registerSystemAudioCallback,
     registerCustomShortcutCallback,
     unregisterCustomShortcutCallback,
-  } = useGlobalShortcuts();
+  } = shortcuts;
 
   // Register standard callbacks
   useEffect(() => {
@@ -63,5 +64,5 @@ export const useShortcuts = ({
     unregisterCustomShortcutCallback,
   ]);
 
-  return useGlobalShortcuts();
+  return shortcuts;
 };

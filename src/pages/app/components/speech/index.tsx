@@ -159,9 +159,9 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
   const handleToggleCapture = async () => {
     if (capturing) {
-      await stopCapture();
+      await stopCapture("manual");
     } else {
-      await startCapture();
+      await startCapture("manual");
     }
   };
 
@@ -335,7 +335,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                 {setupRequired ? (
                   <PermissionFlow
                     onPermissionGranted={() => {
-                      void startCapture();
+                      void startCapture("setup");
                     }}
                     onPermissionDenied={() => {
                       // no-op

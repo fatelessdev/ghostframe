@@ -1,5 +1,6 @@
 import { useEffect } from "react";
-import { useTitles, useSystemAudio } from "@/hooks";
+import { useTitles } from "./useTitles";
+import { useSystemAudio } from "./useSystemAudio";
 import { safeLocalStorage, migrateLocalStorageToSQLite } from "@/lib";
 
 export const useApp = () => {
