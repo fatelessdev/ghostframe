@@ -15,6 +15,17 @@ use crate::window::{
     toggle_click_through_state,
 };
 
+const SENSITIVE_LOCAL_STORAGE_KEYS: &[&str] = &[
+    "ai_provider_config",
+    "curl_custom_ai_providers",
+    "curl_selected_ai_provider",
+    "curl_custom_speech_providers",
+    "curl_selected_stt_provider",
+    "system_prompt",
+    "selected_system_prompt_id",
+    "system_audio_context",
+];
+
 pub struct WindowPreferencesState {
     always_on_top: AtomicBool,
     app_icon_visible: AtomicBool,
@@ -130,6 +141,25 @@ pub fn setup_global_shortcuts<R: Runtime>(
     eprintln!("Global shortcuts state initialized, waiting for frontend config");
 
     Ok(())
+}
+
+pub fn scrub_sensitive_data_on_quit<R: Runtime>(app: &AppHandle<R>) {
+    let mut script = String::from("(function(){try{");
+    for key in SENSITIVE_LOCAL_STORAGE_KEYS {
+        script.push_str(&format!("localStorage.removeItem({});", json!(key)));
+    }
+    script.push_str(
+        "}catch(e){console.error('Failed to scrub sensitive localStorage keys', e);}})();",
+    );
+
+    for (label, window) in app.webview_windows() {
+        if let Err(error) = window.eval(&script) {
+            eprintln!(
+                "Failed to scrub sensitive localStorage keys in '{}' window: {}",
+                label, error
+            );
+        }
+    }
 }
 
 /// Handle shortcut action based on action_id
@@ -586,5 +616,6 @@ fn handle_toggle_click_through<R: Runtime>(app: &AppHandle<R>) {
 /// Tauri command to exit the application
 #[tauri::command]
 pub fn exit_app(app_handle: tauri::AppHandle) {
+    scrub_sensitive_data_on_quit(&app_handle);
     app_handle.exit(0);
 }
