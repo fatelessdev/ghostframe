@@ -28,6 +28,7 @@ const SENSITIVE_LOCAL_STORAGE_KEYS: &[&str] = &[
 ];
 
 const EMERGENCY_ERASE_ACTION_ID: &str = "emergency_erase";
+const TOGGLE_CLICK_THROUGH_ACTION_ID: &str = "toggle_click_through";
 const EMERGENCY_ERASE_DATABASE_FILE: &str = "ghostframe.db";
 const EMERGENCY_ERASE_STORAGE_SCRIPT: &str = "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){console.error('Failed to clear web storage during emergency erase', e);}})();";
 
@@ -164,6 +165,33 @@ pub fn setup_global_shortcuts<R: Runtime>(
             eprintln!(
                 "Failed to parse emergency erase shortcut '{}': {}",
                 emergency_shortcut, error
+            );
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    let click_through_shortcut = "Cmd+Shift+C";
+    #[cfg(not(target_os = "macos"))]
+    let click_through_shortcut = "Ctrl+Shift+C";
+
+    match click_through_shortcut.parse::<Shortcut>() {
+        Ok(shortcut) => {
+            if let Err(error) = app.global_shortcut().register(shortcut) {
+                eprintln!(
+                    "Failed to register click-through shortcut '{}': {}",
+                    click_through_shortcut, error
+                );
+            } else {
+                registered.insert(
+                    TOGGLE_CLICK_THROUGH_ACTION_ID.to_string(),
+                    click_through_shortcut.to_string(),
+                );
+            }
+        }
+        Err(error) => {
+            eprintln!(
+                "Failed to parse click-through shortcut '{}': {}",
+                click_through_shortcut, error
             );
         }
     }
