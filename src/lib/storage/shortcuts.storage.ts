@@ -246,70 +246,13 @@ export const formatShortcutKeyForDisplay = (key: string): string => {
 /**
  * Get all available actions (default + custom)
  */
-export const getAllShortcutActions = (
-  hasLicense: boolean
-): ShortcutAction[] => {
+export const getAllShortcutActions = (): ShortcutAction[] => {
   const config = getShortcutsConfig();
   const actions = [...DEFAULT_SHORTCUT_ACTIONS];
 
-  // Add custom actions if user has license
-  if (hasLicense && config.customActions) {
+  if (config.customActions) {
     actions.push(...config.customActions);
   }
 
   return actions;
-};
-
-/**
- * Add a custom shortcut action (license required)
- */
-export const addCustomShortcutAction = (
-  action: ShortcutAction
-): ShortcutsConfig => {
-  const config = getShortcutsConfig();
-
-  if (!config.customActions) {
-    config.customActions = [];
-  }
-
-  // Check if action already exists
-  const existingIndex = config.customActions.findIndex(
-    (a) => a.id === action.id
-  );
-  if (existingIndex >= 0) {
-    config.customActions[existingIndex] = action;
-  } else {
-    config.customActions.push(action);
-  }
-
-  // Add binding for the new action
-  config.bindings[action.id] = {
-    action: action.id,
-    key: getPlatformDefaultKey(action),
-    enabled: true,
-  };
-
-  setShortcutsConfig(config);
-  return config;
-};
-
-/**
- * Remove a custom shortcut action
- */
-export const removeCustomShortcutAction = (
-  actionId: string
-): ShortcutsConfig => {
-  const config = getShortcutsConfig();
-
-  if (config.customActions) {
-    config.customActions = config.customActions.filter(
-      (a) => a.id !== actionId
-    );
-  }
-
-  // Remove binding
-  delete config.bindings[actionId];
-
-  setShortcutsConfig(config);
-  return config;
 };

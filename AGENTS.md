@@ -2,7 +2,7 @@
 
 ## Purpose
 - This file guides agentic coding assistants working in `C:\Users\fateless\Documents\pluely`.
-- Pluely is a desktop AI assistant with a React + TypeScript frontend and a Tauri (Rust) shell.
+- Ghostframe is a desktop AI assistant with a React + TypeScript frontend and a Tauri (Rust) shell.
 - Preserve the app's lightweight overlay UX and avoid unnecessary architectural churn.
 
 ## Project Snapshot
