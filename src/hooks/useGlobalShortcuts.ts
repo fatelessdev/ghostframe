@@ -29,6 +29,9 @@ let globalResponseScrollUpCallback: (() => void) | null = null;
 let globalResponseScrollDownCallback: (() => void) | null = null;
 let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 
+// Global hook consumer count for singleton listener lifecycle
+let globalShortcutsConsumerCount = 0;
+
 const cleanupGlobalEventListeners = (): void => {
   const listenerCleanupMap: Array<{
     key: keyof typeof globalEventListeners;
@@ -198,6 +201,18 @@ export const useGlobalShortcuts = () => {
 
   // Setup event listeners using global singleton
   useEffect(() => {
+    globalShortcutsConsumerCount += 1;
+    const shouldSetupListeners = globalShortcutsConsumerCount === 1;
+
+    if (!shouldSetupListeners) {
+      return () => {
+        globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
+        if (globalShortcutsConsumerCount === 0) {
+          cleanupGlobalEventListeners();
+        }
+      };
+    }
+
     let isActive = true;
 
     const setupEventListeners = async () => {
@@ -370,8 +385,11 @@ export const useGlobalShortcuts = () => {
     setupEventListeners();
 
     return () => {
-      isActive = false;
-      cleanupGlobalEventListeners();
+      globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
+      if (globalShortcutsConsumerCount === 0) {
+        isActive = false;
+        cleanupGlobalEventListeners();
+      }
     };
   }, []);
 
