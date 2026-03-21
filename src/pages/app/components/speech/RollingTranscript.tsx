@@ -10,10 +10,7 @@ export const RollingTranscript = ({ transcriptSegments }: Props) => {
     .slice()
     .sort((a, b) => a.timestamp - b.timestamp)
     .slice(-8)
-    .map((segment) => {
-      const label = segment.source === "interviewer" ? "Interviewer" : "User";
-      return `${label}: ${segment.text}`;
-    })
+    .map((segment) => segment.text)
     .join("   •   ");
 
   if (!text) {

@@ -10,10 +10,6 @@ type Props = {
   textSize: number;
 };
 
-function formatSpeaker(source: TranscriptSegment["source"]): string {
-  return source === "interviewer" ? "Interviewer" : "User";
-}
-
 export const ResultsSection = ({
   transcriptSegments,
   lastAIResponse,
@@ -60,19 +56,11 @@ export const ResultsSection = ({
                 className={cn(
                   "max-w-[92%] rounded-xl px-3 py-2 text-xs border",
                   isUser
-                    ? "ml-auto bg-emerald-500/10 border-emerald-400/30"
-                    : "mr-auto bg-blue-500/10 border-blue-400/30"
+                    ? "ml-auto bg-amber-500/10 border-amber-400/30"
+                    : "mr-auto bg-background/60 border-border/70"
                 )}
               >
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span
-                    className={cn(
-                      "text-[10px] font-semibold uppercase tracking-wide",
-                      isUser ? "text-emerald-700" : "text-blue-700"
-                    )}
-                  >
-                    {formatSpeaker(segment.source)}
-                  </span>
+                <div className="mb-1 flex justify-end">
                   <span className="text-[10px] text-muted-foreground">
                     {new Date(segment.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -96,19 +84,11 @@ export const ResultsSection = ({
                 className={cn(
                   "max-w-[92%] rounded-xl px-3 py-2 text-xs border border-dashed animate-pulse",
                   isUser
-                    ? "ml-auto bg-emerald-500/5 border-emerald-400/30"
-                    : "mr-auto bg-blue-500/5 border-blue-400/30"
+                    ? "ml-auto bg-amber-500/5 border-amber-400/30"
+                    : "mr-auto bg-background/40 border-border/70"
                 )}
               >
-                <span
-                  className={cn(
-                    "text-[10px] font-semibold uppercase tracking-wide",
-                    isUser ? "text-emerald-700" : "text-blue-700"
-                  )}
-                >
-                  {formatSpeaker(segment.source)} (live)
-                </span>
-                <p className="mt-1" style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}>
+                <p style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}>
                   {segment.text}
                 </p>
               </div>

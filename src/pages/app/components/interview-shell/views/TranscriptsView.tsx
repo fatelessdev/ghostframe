@@ -6,7 +6,7 @@ interface TranscriptsViewProps {
 
 export const TranscriptsView = ({ children }: TranscriptsViewProps) => {
   return (
-    <div className="flex-1 overflow-auto p-3">
+    <div className="flex-1 overflow-auto p-3" aria-label="Transcript content">
       <div className="space-y-2">{children}</div>
     </div>
   );
