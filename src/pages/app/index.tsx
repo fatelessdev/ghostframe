@@ -28,24 +28,38 @@ const CONVERSATION_VIEWS: Array<"response" | "transcripts"> = [
   "transcripts",
 ];
 
+const VIEW_SHORTCUT_ACTIONS: Record<string, InterviewOverlayView> = {
+  overlay_view_response: "response",
+  overlay_view_transcripts: "transcripts",
+  overlay_view_settings: "settings",
+  view_response: "response",
+  view_transcripts: "transcripts",
+  view_settings: "settings",
+};
+
+const FALLBACK_ALT_VIEW_KEYS: Record<string, "response" | "transcripts"> = {
+  "1": "response",
+  "2": "transcripts",
+};
+
+const isEditableElement = (target: EventTarget | null): boolean => {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const tagName = target.tagName;
+  return (
+    tagName === "INPUT" ||
+    tagName === "TEXTAREA" ||
+    tagName === "SELECT" ||
+    target.isContentEditable
+  );
+};
+
 const resolveCustomShortcutView = (
   actionId: string
 ): InterviewOverlayView | null => {
-  const normalized = actionId.trim().toLowerCase();
-
-  if (normalized.includes("response")) {
-    return "response";
-  }
-
-  if (normalized.includes("transcript")) {
-    return "transcripts";
-  }
-
-  if (normalized.includes("setting")) {
-    return "settings";
-  }
-
-  return null;
+  return VIEW_SHORTCUT_ACTIONS[actionId.trim().toLowerCase()] ?? null;
 };
 
 const App = () => {
@@ -106,26 +120,33 @@ const App = () => {
       }
     );
 
-    const handleViewHotkeys = (event: KeyboardEvent) => {
+    const handleAltViewHotkeysFallback = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
       if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
         return;
       }
 
-      if (event.key === "1") {
-        event.preventDefault();
-        setActiveView("response");
+      if (isEditableElement(event.target)) {
+        return;
       }
 
-      if (event.key === "2") {
-        event.preventDefault();
-        setActiveView("transcripts");
+      const nextView = FALLBACK_ALT_VIEW_KEYS[event.key];
+      if (!nextView) {
+        return;
       }
+
+      // Fallback for Alt+1/Alt+2 when no custom shortcut action is configured.
+      event.preventDefault();
+      setActiveView(nextView);
     };
 
-    window.addEventListener("keydown", handleViewHotkeys);
+    window.addEventListener("keydown", handleAltViewHotkeysFallback);
 
     return () => {
-      window.removeEventListener("keydown", handleViewHotkeys);
+      window.removeEventListener("keydown", handleAltViewHotkeysFallback);
       unlistenAnswer.then((fn) => fn());
       unlistenCustom.then((fn) => fn());
     };
@@ -137,7 +158,19 @@ const App = () => {
     }
 
     const handleEscape = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) {
+        return;
+      }
+
       if (event.key !== "Escape") {
+        return;
+      }
+
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+        return;
+      }
+
+      if (isEditableElement(event.target)) {
         return;
       }
 
@@ -145,10 +178,10 @@ const App = () => {
       setActiveView(lastConversationView);
     };
 
-    window.addEventListener("keydown", handleEscape, true);
+    window.addEventListener("keydown", handleEscape);
 
     return () => {
-      window.removeEventListener("keydown", handleEscape, true);
+      window.removeEventListener("keydown", handleEscape);
     };
   }, [activeView, lastConversationView]);
 
