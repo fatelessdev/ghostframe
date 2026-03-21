@@ -45,7 +45,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
     isPopoverOpen,
     setIsPopoverOpen,
     startNewConversation,
-    resizeWindow,
     quickActions,
     handleQuickActionClick,
     transcriptSegments,
@@ -249,7 +248,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       title="Close"
                       onClick={() => {
                         setIsPopoverOpen(false);
-                        void resizeWindow(false);
                       }}
                     >
                       <XIcon className="h-3.5 w-3.5" />

@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useWindowResize } from "./useWindow";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
 import { MAX_FILES } from "@/config";
 import { useApp } from "@/contexts";
@@ -82,8 +81,6 @@ export const useCompletion = () => {
   const screenshotConfigRef = useRef(screenshotConfiguration);
   const hasCheckedPermissionRef = useRef(false);
   const screenshotInitiatedByThisContext = useRef(false);
-
-  const { resizeWindow } = useWindowResize();
 
   useEffect(() => {
     screenshotConfigRef.current = screenshotConfiguration;
@@ -768,18 +765,6 @@ export const useCompletion = () => {
     state.error !== null ||
     keepEngaged;
 
-  useEffect(() => {
-    resizeWindow(
-      isPopoverOpen || micOpen || messageHistoryOpen || isFilesPopoverOpen
-    );
-  }, [
-    isPopoverOpen,
-    micOpen,
-    messageHistoryOpen,
-    resizeWindow,
-    isFilesPopoverOpen,
-  ]);
-
   // Auto scroll to bottom when response updates
   useEffect(() => {
     const responseSettings = getResponseSettings();
@@ -1041,7 +1026,6 @@ export const useCompletion = () => {
     handlePaste,
     isPopoverOpen,
     scrollAreaRef,
-    resizeWindow,
     isFilesPopoverOpen,
     setIsFilesPopoverOpen,
     onRemoveAllFiles,

@@ -9,7 +9,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useApp } from "@/contexts";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
-import { useWindowResize } from "@/hooks/useWindow";
 import {
   ELEVENLABS_REALTIME_DEFAULT_BASE_URI,
   ELEVENLABS_REALTIME_FALLBACK_BASE_URIS,
@@ -299,7 +298,6 @@ function retainUnsentSegments(
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 
 export function useSystemAudio() {
-  const { resizeWindow } = useWindowResize();
   const globalShortcuts = useGlobalShortcuts();
   const {
     selectedSttProvider,
@@ -1927,8 +1925,7 @@ export function useSystemAudio() {
     const shouldOpenPopover =
       capturing || setupRequired || !!error || isAIProcessing || !!lastAIResponse;
     setIsPopoverOpen(shouldOpenPopover);
-    void resizeWindow(shouldOpenPopover);
-  }, [capturing, setupRequired, error, isAIProcessing, lastAIResponse, resizeWindow]);
+  }, [capturing, setupRequired, error, isAIProcessing, lastAIResponse]);
 
   useEffect(() => {
     const onSettingsChanged = (event: Event) => {
@@ -2036,7 +2033,6 @@ export function useSystemAudio() {
     contextContent,
     setContextContent,
     startNewConversation,
-    resizeWindow,
     quickActions,
     addQuickAction,
     removeQuickAction,
