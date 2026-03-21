@@ -763,6 +763,11 @@ pub fn start_cursor_event_monitor<R: tauri::Runtime>(app: &tauri::AppHandle<R>) 
             tokio::time::sleep(std::time::Duration::from_millis(16)).await;
             let state = app_handle.state::<CursorEventState>();
 
+            let main_visible = app_handle.state::<crate::shortcuts::WindowPreferencesState>().main_window_visible();
+            if !main_visible {
+                continue;
+            }
+
             let click_through = app_handle.state::<crate::shortcuts::WindowPreferencesState>().click_through();
 
             if let Some(window) = app_handle.get_webview_window("main") {

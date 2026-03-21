@@ -9,6 +9,7 @@ import {
 import { PermissionFlow } from "./components/speech/PermissionFlow";
 import { useApp, useClickableRects } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
+import Settings from "@/pages/settings";
 import { Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -22,6 +23,7 @@ const CONTENT_PROTECTION_KEY = "content_protected";
 const VIEW_SHORTCUT_ACTIONS: Record<string, InterviewOverlayView> = {
   view_response: "response",
   view_transcripts: "transcripts",
+  view_settings: "settings",
 };
 
 const isEditableElement = (target: EventTarget | null): boolean => {
@@ -256,7 +258,11 @@ const App = () => {
 
     const openSettingsPanel = async () => {
       try {
-        await invoke("open_dashboard_settings");
+        if (activeView === "settings") {
+          setActiveView(lastConversationView);
+        } else {
+          setActiveView("settings");
+        }
       } catch (error) {
         console.error("Failed to open dashboard settings:", error);
       }
@@ -275,6 +281,7 @@ const App = () => {
         <div className="w-screen h-screen flex overflow-hidden justify-center items-start px-4 pt-4 pointer-events-none">
         <OverlayPanel
           viewMode={activeView}
+          onSetViewMode={setActiveView}
           className="overlay-shell-width"
           topBar={
             <OverlayTopBar
@@ -287,12 +294,10 @@ const App = () => {
               contentProtectionEnabled={contentProtected}
               isCapturing={Boolean(systemAudio?.capturing)}
               onStartInterview={() => {
-                void handleStartInterview();
-              }}
-              onOpenSettings={() => {
-                void openSettingsPanel();
-              }}
-            />
+                  void handleStartInterview();
+                }}
+                onOpenSettings={() => { void openSettingsPanel(); }}
+              />
           }
         >
 
@@ -342,6 +347,12 @@ const App = () => {
 
           {activeView === "transcripts" ? (
             <TranscriptsView transcriptSegments={systemAudio?.transcriptSegments ?? []} />
+          ) : null}
+
+          {activeView === "settings" ? (
+            <div className="flex-1 w-full h-full flex overflow-hidden">
+              <Settings onClose={() => setActiveView(lastConversationView)} />
+            </div>
           ) : null}
         </OverlayPanel>
         {customizable.cursor.type === "invisible" && platform !== "linux" ? (

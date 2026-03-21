@@ -1,10 +1,8 @@
 import {
-  CameraIcon,
-  GripVerticalIcon,
-  SettingsIcon,
-  ShieldIcon,
+  PlayIcon,
+  SquareIcon,
+  SettingsIcon
 } from "lucide-react";
-import { Badge } from "@/components";
 
 interface OverlayTopBarProps {
   screenshotCount: number;
@@ -12,96 +10,64 @@ interface OverlayTopBarProps {
   contentProtectionEnabled: boolean;
   isCapturing: boolean;
   onStartInterview: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings?: () => void;
   onDragHandleClick?: () => void;
 }
 
-const getScreenshotBadgeLabel = (count: number): string => {
-  if (count > 99) {
-    return "99+";
-  }
-
-  return String(count);
-};
-
 export const OverlayTopBar = ({
-  screenshotCount,
-  mode,
-  contentProtectionEnabled,
   isCapturing,
   onStartInterview,
   onOpenSettings,
 }: OverlayTopBarProps) => {
-  const screenshotLabel =
-    screenshotCount > 0
-      ? `Screenshots captured: ${getScreenshotBadgeLabel(screenshotCount)}`
-      : "No screenshots captured";
-
-  const contentProtectionLabel = contentProtectionEnabled
-    ? "Content protection is enabled"
-    : "Content protection is disabled";
 
   return (
-    <header className="overlay-top-bar-glass flex items-center justify-between gap-2 px-3 py-2 pointer-events-none">
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          className="inline-flex h-8 items-center rounded-xl bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 pointer-events-auto"
-          onClick={onStartInterview}
-          aria-label={isCapturing ? "Stop Interview" : "Start Interview"}
-        >
-          {isCapturing ? "Stop Interview" : "Start Interview"}
-        </button>
-
-        <div
-          className="overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border text-muted-foreground pointer-events-auto cursor-grab active:cursor-grabbing"
-          aria-label="Drag handle"
-          data-tauri-drag-region
-        >
-          <GripVerticalIcon className="h-4 w-4 pointer-events-none" />
-        </div>
-
-        <button
-          type="button"
-          className="overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground pointer-events-auto"
-          onClick={onOpenSettings}
-          aria-label="Settings"
-        >
-          <SettingsIcon className="h-4 w-4" />
-        </button>
+    <header className="flex items-center justify-center gap-2 mb-4 pointer-events-none cursor-move" data-tauri-drag-region>
+      <div className="flex items-center bg-black/40 backdrop-blur-md rounded-full px-1.5 py-1 gap-1 border border-white/10 pointer-events-auto shadow-lg">
+        {isCapturing ? (
+          <button 
+            className="bg-[#ef4444]/90 text-white text-[11px] font-bold px-3 py-1 rounded-[10px] flex items-center gap-1.5 hover:bg-[#ef4444] transition-colors shadow-sm" 
+            onClick={onStartInterview}
+          >
+            Done <SquareIcon className="w-2 h-2 fill-current" />
+          </button>
+        ) : (
+          <button 
+            className="bg-[#d97706]/90 text-white text-[11px] font-bold px-3 py-1 rounded-[10px] flex items-center gap-1.5 hover:bg-[#d97706] transition-colors shadow-sm" 
+            onClick={onStartInterview}
+          >
+            <PlayIcon className="w-2.5 h-2.5 fill-current" /> Start Interview
+          </button>
+        )}
       </div>
-
-      <div className="flex items-center gap-2">
-        <div
-          className="overlay-top-bar-control relative inline-flex min-h-8 min-w-8 items-center justify-center overflow-visible rounded-xl border text-muted-foreground pointer-events-none"
-          role="status"
-          aria-label={screenshotLabel}
-        >
-          <CameraIcon className="h-4 w-4" aria-hidden="true" />
-          <span className="sr-only">{screenshotLabel}</span>
-          {screenshotCount > 0 ? (
-            <Badge
-              variant="outline"
-              className="absolute -right-1 -top-1 z-20 h-5 min-w-5 rounded-full border-border/60 bg-background/85 px-1 text-[10px] font-semibold leading-none text-foreground shadow-sm backdrop-blur-md"
-            >
-              {getScreenshotBadgeLabel(screenshotCount)}
-            </Badge>
-          ) : null}
+      
+      <div className="flex items-center bg-black/40 backdrop-blur-md rounded-full px-3 py-1.5 gap-4 border border-white/10 pointer-events-auto shadow-lg">
+        <div className="flex items-center text-[11px] text-white/80 gap-1.5 font-medium">
+          <span>Take Screenshot</span>
+          <div className="flex gap-0.5">
+            <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-sans border border-white/5 shadow-sm">Ctrl</kbd>
+            <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-sans border border-white/5 shadow-sm">S</kbd>
+          </div>
         </div>
-
-        <span className="overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border px-2 text-xs font-semibold text-muted-foreground pointer-events-none">
-          {mode}
-        </span>
-
-        <span
-          className={`overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border pointer-events-none ${
-            contentProtectionEnabled ? "text-red-400" : "text-muted-foreground"
-          }`}
-          aria-label={contentProtectionLabel}
+        <div className="flex items-center text-[11px] text-white/80 gap-1.5 font-medium">
+          <span>Solve</span>
+          <div className="flex gap-0.5">
+            <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-sans border border-white/5 shadow-sm">Ctrl</kbd>
+            <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-sans border border-white/5 shadow-sm">Enter</kbd>
+          </div>
+        </div>
+        <div className="flex items-center text-[11px] text-white/80 gap-1.5 font-medium">
+          <span>Show/Hide</span>
+          <div className="flex gap-0.5">
+            <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-sans border border-white/5 shadow-sm">Ctrl</kbd>
+            <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[9px] font-sans border border-white/5 shadow-sm">H</kbd>
+          </div>
+        </div>
+        <button
+          onClick={onOpenSettings}
+          className="text-white/60 hover:text-white transition-colors ml-1 p-0.5 rounded-full hover:bg-white/10"
         >
-          <ShieldIcon className="h-4 w-4" aria-hidden="true" />
-          <span className="sr-only">{contentProtectionLabel}</span>
-        </span>
+          <SettingsIcon className="w-3.5 h-3.5" />
+        </button>
       </div>
     </header>
   );
