@@ -155,6 +155,15 @@ export const useGlobalShortcuts = () => {
     []
   );
 
+  const unregisterScreenshotCallback = useCallback(() => {
+    const ownedCallback = screenshotCallbackRef.current;
+    screenshotCallbackRef.current = null;
+
+    if (ownedCallback && globalScreenshotCallback === ownedCallback) {
+      globalScreenshotCallback = null;
+    }
+  }, []);
+
   // Register system audio callback
   const registerSystemAudioCallback = useCallback((callback: () => void) => {
     systemAudioCallbackRef.current = callback;
@@ -441,6 +450,7 @@ export const useGlobalShortcuts = () => {
     registerInputRef,
     registerAudioCallback,
     registerScreenshotCallback,
+    unregisterScreenshotCallback,
     registerSystemAudioCallback,
     registerAnswerTriggerCallback,
     registerResponseScrollUpCallback,

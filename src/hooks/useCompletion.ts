@@ -60,6 +60,8 @@ export const useCompletion = () => {
     setScreenshotConfiguration,
   } = useApp();
   const globalShortcuts = useGlobalShortcuts();
+  const { registerAudioCallback, registerInputRef, registerScreenshotCallback } =
+    globalShortcuts;
 
   const [state, setState] = useState<CompletionState>({
     input: "",
@@ -1006,11 +1008,11 @@ export const useCompletion = () => {
 
   // register callbacks for global shortcuts
   useEffect(() => {
-    globalShortcuts.registerAudioCallback(toggleRecording);
-    globalShortcuts.registerInputRef(inputRef.current);
+    registerAudioCallback(toggleRecording);
+    registerInputRef(inputRef.current);
   }, [
-    globalShortcuts.registerAudioCallback,
-    globalShortcuts.registerInputRef,
+    registerAudioCallback,
+    registerInputRef,
     toggleRecording,
     inputRef,
   ]);
@@ -1020,11 +1022,11 @@ export const useCompletion = () => {
       return;
     }
 
-    globalShortcuts.registerScreenshotCallback(captureScreenshot);
+    registerScreenshotCallback(captureScreenshot);
   }, [
     captureScreenshot,
-    globalShortcuts.registerScreenshotCallback,
     isSystemAudioCapturing,
+    registerScreenshotCallback,
   ]);
 
   return {

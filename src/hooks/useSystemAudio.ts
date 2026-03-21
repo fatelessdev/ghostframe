@@ -300,6 +300,12 @@ export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 export function useSystemAudio() {
   const globalShortcuts = useGlobalShortcuts();
   const {
+    registerAnswerTriggerCallback,
+    registerScreenshotCallback,
+    registerSystemAudioCallback,
+    unregisterScreenshotCallback,
+  } = globalShortcuts;
+  const {
     selectedSttProvider,
     selectedAIProvider,
     allAiProviders,
@@ -1864,17 +1870,23 @@ export function useSystemAudio() {
   }, [capturing]);
 
   useEffect(() => {
-    if (!capturing) {
+    if (capturing) {
+      registerScreenshotCallback(async () => {
+        if (!captureRef.current) {
+          return;
+        }
+        await handleCaptureScreenshot();
+      });
       return;
     }
 
-    globalShortcuts.registerScreenshotCallback(async () => {
-      if (!captureRef.current) {
-        return;
-      }
-      await handleCaptureScreenshot();
-    });
-  }, [capturing, globalShortcuts, handleCaptureScreenshot]);
+    unregisterScreenshotCallback();
+  }, [
+    capturing,
+    handleCaptureScreenshot,
+    registerScreenshotCallback,
+    unregisterScreenshotCallback,
+  ]);
 
   const handleQuickActionClick = useCallback(
     async (action: string) => {
@@ -1888,7 +1900,7 @@ export function useSystemAudio() {
   );
 
   useEffect(() => {
-    globalShortcuts.registerSystemAudioCallback(async () => {
+    registerSystemAudioCallback(async () => {
       const now = Date.now();
       if (now - lastSystemAudioToggleAtRef.current < 900) {
         console.info("[SystemAudio] ignored duplicate system-audio toggle");
@@ -1912,10 +1924,16 @@ export function useSystemAudio() {
       }
     });
 
-    globalShortcuts.registerAnswerTriggerCallback(async () => {
+    registerAnswerTriggerCallback(async () => {
       await onAnswerTrigger();
     });
-  }, [globalShortcuts, onAnswerTrigger, startCapture, stopCapture]);
+  }, [
+    onAnswerTrigger,
+    registerAnswerTriggerCallback,
+    registerSystemAudioCallback,
+    startCapture,
+    stopCapture,
+  ]);
 
   useEffect(() => {
     let unlistenRealtimeChunk: (() => void) | undefined;
@@ -1977,6 +1995,16 @@ export function useSystemAudio() {
 
   useEffect(() => {
     return () => {
+      const globalWindow = window as Window & {
+        __ghostframeSystemAudioCapturing?: boolean;
+      };
+      globalWindow.__ghostframeSystemAudioCapturing = false;
+      window.dispatchEvent(
+        new CustomEvent("systemAudioCaptureStateChanged", {
+          detail: { capturing: false },
+        })
+      );
+      unregisterScreenshotCallback();
       closeRealtimeSystems("unmount");
       stopPeriodicScreenshotCapture();
       if (abortControllerRef.current) {
@@ -1989,7 +2017,11 @@ export function useSystemAudio() {
         // no-op
       });
     };
-  }, [closeRealtimeSystems, stopPeriodicScreenshotCapture]);
+  }, [
+    closeRealtimeSystems,
+    stopPeriodicScreenshotCapture,
+    unregisterScreenshotCallback,
+  ]);
 
   const handleSetup = useCallback(async () => {
     try {
