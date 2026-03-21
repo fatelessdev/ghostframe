@@ -1,19 +1,6 @@
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useCallback, useEffect } from "react";
 
-export const useWindowResize = () => {
-  const resizeWindow = useCallback(async (_expanded: boolean) => {
-    return;
-  }, []);
-
-  // Keep hook behavior for existing callers without runtime resize coupling.
-  useEffect(() => {
-    return () => {};
-  }, [resizeWindow]);
-
-  return { resizeWindow };
-};
-
 interface UseWindowFocusOptions {
   onFocusLost?: () => void;
   onFocusGained?: () => void;
