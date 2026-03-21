@@ -30,6 +30,15 @@ export const OverlayTopBar = ({
   onOpenSettings,
   onDragHandleClick,
 }: OverlayTopBarProps) => {
+  const screenshotLabel =
+    screenshotCount > 0
+      ? `Screenshots captured: ${getScreenshotBadgeLabel(screenshotCount)}`
+      : "No screenshots captured";
+
+  const contentProtectionLabel = contentProtectionEnabled
+    ? "Content protection is enabled"
+    : "Content protection is disabled";
+
   return (
     <header className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
       <div className="flex items-center gap-1.5">
@@ -42,17 +51,24 @@ export const OverlayTopBar = ({
           Start Interview
         </button>
 
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-          onClick={() => {
-            onDragHandleClick?.();
-          }}
-          aria-label="Drag handle"
-          data-tauri-drag-region
-        >
-          <GripVerticalIcon className="h-4 w-4" />
-        </button>
+        {onDragHandleClick ? (
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            onClick={onDragHandleClick}
+            aria-label="Drag handle"
+            data-tauri-drag-region
+          >
+            <GripVerticalIcon className="h-4 w-4" />
+          </button>
+        ) : (
+          <span
+            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground"
+            aria-hidden="true"
+          >
+            <GripVerticalIcon className="h-4 w-4" />
+          </span>
+        )}
 
         <button
           type="button"
@@ -65,8 +81,13 @@ export const OverlayTopBar = ({
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground">
-          <CameraIcon className="h-4 w-4" />
+        <div
+          className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground"
+          role="status"
+          aria-label={screenshotLabel}
+        >
+          <CameraIcon className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">{screenshotLabel}</span>
           {screenshotCount > 0 ? (
             <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
               {getScreenshotBadgeLabel(screenshotCount)}
@@ -82,18 +103,10 @@ export const OverlayTopBar = ({
           className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 ${
             contentProtectionEnabled ? "text-red-400" : "text-muted-foreground"
           }`}
-          aria-label={
-            contentProtectionEnabled
-              ? "Content protection enabled"
-              : "Content protection disabled"
-          }
-          title={
-            contentProtectionEnabled
-              ? "Content protection enabled"
-              : "Content protection disabled"
-          }
+          aria-label={contentProtectionLabel}
         >
-          <ShieldIcon className="h-4 w-4" />
+          <ShieldIcon className="h-4 w-4" aria-hidden="true" />
+          <span className="sr-only">{contentProtectionLabel}</span>
         </span>
       </div>
     </header>
