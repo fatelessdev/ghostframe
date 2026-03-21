@@ -60,7 +60,19 @@ export const ResultsSection = ({
                     : "mr-auto bg-background/60 border-border/70"
                 )}
               >
-                <div className="mb-1 flex justify-end">
+                <div
+                  className={cn(
+                    "mb-1 flex items-center gap-1.5",
+                    isUser ? "justify-end" : "justify-start"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-flex h-1.5 w-1.5 rounded-full",
+                      isUser ? "bg-amber-500/80" : "bg-slate-400/80"
+                    )}
+                    aria-hidden="true"
+                  />
                   <span className="text-[10px] text-muted-foreground">
                     {new Date(segment.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -88,6 +100,20 @@ export const ResultsSection = ({
                     : "mr-auto bg-background/40 border-border/70"
                 )}
               >
+                <div
+                  className={cn(
+                    "mb-1 flex items-center",
+                    isUser ? "justify-end" : "justify-start"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "inline-flex h-1.5 w-1.5 rounded-full",
+                      isUser ? "bg-amber-500/70" : "bg-slate-400/70"
+                    )}
+                    aria-hidden="true"
+                  />
+                </div>
                 <p style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}>
                   {segment.text}
                 </p>
