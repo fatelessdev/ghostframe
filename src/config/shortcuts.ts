@@ -83,6 +83,26 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "scroll_response_up",
+    name: "Scroll Response Up",
+    description: "Scroll the response view up",
+    defaultKey: {
+      macos: "cmd+shift+up",
+      windows: "ctrl+shift+up",
+      linux: "ctrl+shift+up",
+    },
+  },
+  {
+    id: "scroll_response_down",
+    name: "Scroll Response Down",
+    description: "Scroll the response view down",
+    defaultKey: {
+      macos: "cmd+shift+down",
+      windows: "ctrl+shift+down",
+      linux: "ctrl+shift+down",
+    },
+  },
+  {
     id: "audio_recording",
     name: "Voice Input",
     description: "Start voice recording",

@@ -296,6 +296,8 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
         "screenshot" => handle_screenshot_shortcut(app),
         "system_audio" => handle_system_audio_shortcut(app),
         "answer_trigger" => handle_answer_trigger_shortcut(app),
+        "scroll_response_up" => handle_scroll_response_shortcut(app, true),
+        "scroll_response_down" => handle_scroll_response_shortcut(app, false),
         EMERGENCY_ERASE_ACTION_ID => perform_emergency_erase(app),
         custom_action => {
             // Emit custom action event for frontend to handle
@@ -430,6 +432,20 @@ fn handle_answer_trigger_shortcut<R: Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         if let Err(e) = window.emit("trigger-answer", json!({})) {
             eprintln!("Failed to emit answer trigger event: {}", e);
+        }
+    }
+}
+
+fn handle_scroll_response_shortcut<R: Runtime>(app: &AppHandle<R>, upward: bool) {
+    if let Some(window) = app.get_webview_window("main") {
+        let event_name = if upward {
+            "scroll-response-up"
+        } else {
+            "scroll-response-down"
+        };
+
+        if let Err(e) = window.emit(event_name, json!({})) {
+            eprintln!("Failed to emit response scroll event '{}': {}", event_name, e);
         }
     }
 }

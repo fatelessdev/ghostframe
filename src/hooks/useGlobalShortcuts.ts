@@ -10,6 +10,8 @@ let globalEventListeners: {
   screenshot?: UnlistenFn;
   systemAudio?: UnlistenFn;
   answerTrigger?: UnlistenFn;
+  responseScrollUp?: UnlistenFn;
+  responseScrollDown?: UnlistenFn;
   customShortcut?: UnlistenFn;
   registrationError?: UnlistenFn;
 } = {};
@@ -23,6 +25,8 @@ let globalAudioCallback: (() => void) | null = null;
 let globalScreenshotCallback: (() => void | Promise<void>) | null = null;
 let globalSystemAudioCallback: (() => void) | null = null;
 let globalAnswerTriggerCallback: (() => void | Promise<void>) | null = null;
+let globalResponseScrollUpCallback: (() => void) | null = null;
+let globalResponseScrollDownCallback: (() => void) | null = null;
 let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 
 export const useGlobalShortcuts = () => {
@@ -31,6 +35,8 @@ export const useGlobalShortcuts = () => {
   const screenshotCallbackRef = useRef<(() => void) | null>(null);
   const systemAudioCallbackRef = useRef<(() => void) | null>(null);
   const answerTriggerCallbackRef = useRef<(() => void) | null>(null);
+  const responseScrollUpCallbackRef = useRef<(() => void) | null>(null);
+  const responseScrollDownCallbackRef = useRef<(() => void) | null>(null);
   const customShortcutCallbacksRef = useRef<Map<string, () => void>>(new Map());
 
   const checkShortcutsRegistered = useCallback(async (): Promise<boolean> => {
@@ -104,6 +110,26 @@ export const useGlobalShortcuts = () => {
     []
   );
 
+  const registerResponseScrollUpCallback = useCallback((callback: () => void) => {
+    responseScrollUpCallbackRef.current = callback;
+    globalResponseScrollUpCallback = callback;
+  }, []);
+
+  const registerResponseScrollDownCallback = useCallback((callback: () => void) => {
+    responseScrollDownCallbackRef.current = callback;
+    globalResponseScrollDownCallback = callback;
+  }, []);
+
+  const unregisterResponseScrollUpCallback = useCallback(() => {
+    responseScrollUpCallbackRef.current = null;
+    globalResponseScrollUpCallback = null;
+  }, []);
+
+  const unregisterResponseScrollDownCallback = useCallback(() => {
+    responseScrollDownCallbackRef.current = null;
+    globalResponseScrollDownCallback = null;
+  }, []);
+
   // Register custom shortcut callback
   const registerCustomShortcutCallback = useCallback(
     (actionId: string, callback: () => void) => {
@@ -157,6 +183,20 @@ export const useGlobalShortcuts = () => {
             globalEventListeners.answerTrigger();
           } catch (error) {
             console.warn("Error cleaning up answer trigger listener:", error);
+          }
+        }
+        if (globalEventListeners.responseScrollUp) {
+          try {
+            globalEventListeners.responseScrollUp();
+          } catch (error) {
+            console.warn("Error cleaning up response scroll up listener:", error);
+          }
+        }
+        if (globalEventListeners.responseScrollDown) {
+          try {
+            globalEventListeners.responseScrollDown();
+          } catch (error) {
+            console.warn("Error cleaning up response scroll down listener:", error);
           }
         }
         if (globalEventListeners.customShortcut) {
@@ -254,6 +294,23 @@ export const useGlobalShortcuts = () => {
         });
         globalEventListeners.answerTrigger = unlistenAnswerTrigger;
 
+        const unlistenResponseScrollUp = await listen("scroll-response-up", () => {
+          if (globalResponseScrollUpCallback) {
+            globalResponseScrollUpCallback();
+          }
+        });
+        globalEventListeners.responseScrollUp = unlistenResponseScrollUp;
+
+        const unlistenResponseScrollDown = await listen(
+          "scroll-response-down",
+          () => {
+            if (globalResponseScrollDownCallback) {
+              globalResponseScrollDownCallback();
+            }
+          }
+        );
+        globalEventListeners.responseScrollDown = unlistenResponseScrollDown;
+
         // Listen for custom shortcut events
         const unlistenCustomShortcut = await listen<{ action: string }>(
           "custom-shortcut-triggered",
@@ -298,6 +355,10 @@ export const useGlobalShortcuts = () => {
     registerScreenshotCallback,
     registerSystemAudioCallback,
     registerAnswerTriggerCallback,
+    registerResponseScrollUpCallback,
+    registerResponseScrollDownCallback,
+    unregisterResponseScrollUpCallback,
+    unregisterResponseScrollDownCallback,
     registerCustomShortcutCallback,
     unregisterCustomShortcutCallback,
   };
