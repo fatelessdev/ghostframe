@@ -29,6 +29,12 @@ let globalResponseScrollUpCallback: (() => void) | null = null;
 let globalResponseScrollDownCallback: (() => void) | null = null;
 let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 
+const ROUTE_HANDLED_CUSTOM_ACTIONS = new Set([
+  "view_response",
+  "view_transcripts",
+  "view_settings",
+]);
+
 // Global hook consumer count for singleton listener lifecycle
 let globalShortcutsConsumerCount = 0;
 let globalListenersReady = false;
@@ -373,7 +379,7 @@ export const useGlobalShortcuts = () => {
             const callback = globalCustomShortcutCallbacks.get(actionId);
             if (callback) {
               callback();
-            } else {
+            } else if (!ROUTE_HANDLED_CUSTOM_ACTIONS.has(actionId)) {
               console.warn(
                 `No callback registered for custom shortcut: ${actionId}`
               );

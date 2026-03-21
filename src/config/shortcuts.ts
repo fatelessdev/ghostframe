@@ -103,6 +103,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "view_settings",
+    name: "Show Settings View",
+    description: "Switch interview shell to the settings view",
+    defaultKey: {
+      macos: "alt+3",
+      windows: "alt+3",
+      linux: "alt+3",
+    },
+  },
+  {
     id: "scroll_response_up",
     name: "Scroll Response Up",
     description: "Scroll the response view up",
