@@ -213,7 +213,7 @@ fn size_main_window_to_overlay_bounds<R: Runtime>(window: &WebviewWindow<R>) -> 
         )
     {
         window
-            .set_size(Size::Physical(monitor.size()))
+            .set_size(Size::Physical(*monitor.size()))
             .map_err(|e| format!("Failed to set overlay size: {}", e))?;
         window
             .set_position(Position::Physical(PhysicalPosition { x: 0, y: 0 }))
