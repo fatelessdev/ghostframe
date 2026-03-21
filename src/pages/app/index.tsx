@@ -29,17 +29,9 @@ const CONVERSATION_VIEWS: Array<"response" | "transcripts"> = [
 ];
 
 const VIEW_SHORTCUT_ACTIONS: Record<string, InterviewOverlayView> = {
-  overlay_view_response: "response",
-  overlay_view_transcripts: "transcripts",
-  overlay_view_settings: "settings",
   view_response: "response",
   view_transcripts: "transcripts",
   view_settings: "settings",
-};
-
-const FALLBACK_ALT_VIEW_KEYS: Record<string, "response" | "transcripts"> = {
-  "1": "response",
-  "2": "transcripts",
 };
 
 const isEditableElement = (target: EventTarget | null): boolean => {
@@ -120,35 +112,13 @@ const App = () => {
       }
     );
 
-    const handleAltViewHotkeysFallback = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-        return;
-      }
-
-      if (isEditableElement(event.target)) {
-        return;
-      }
-
-      const nextView = FALLBACK_ALT_VIEW_KEYS[event.key];
-      if (!nextView) {
-        return;
-      }
-
-      // Fallback for Alt+1/Alt+2 when no custom shortcut action is configured.
-      event.preventDefault();
-      setActiveView(nextView);
-    };
-
-    window.addEventListener("keydown", handleAltViewHotkeysFallback);
-
     return () => {
-      window.removeEventListener("keydown", handleAltViewHotkeysFallback);
-      unlistenAnswer.then((fn) => fn());
-      unlistenCustom.then((fn) => fn());
+      unlistenAnswer
+        .then((fn) => fn())
+        .catch(() => {});
+      unlistenCustom
+        .then((fn) => fn())
+        .catch(() => {});
     };
   }, []);
 
@@ -208,7 +178,9 @@ const App = () => {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten
+        .then((fn) => fn())
+        .catch(() => {});
     };
   }, []);
 
@@ -233,7 +205,9 @@ const App = () => {
     });
 
     return () => {
-      unlisten.then((fn) => fn());
+      unlisten
+        .then((fn) => fn())
+        .catch(() => {});
     };
   }, []);
 
