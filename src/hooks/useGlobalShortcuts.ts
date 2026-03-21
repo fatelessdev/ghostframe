@@ -33,10 +33,18 @@ let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 let globalShortcutsConsumerCount = 0;
 let globalListenersReady = false;
 let globalListenersSetupInProgress = false;
+let globalListenersSetupGeneration = 0;
 
 const clearGlobalResponseScrollCallbacks = (): void => {
   globalResponseScrollUpCallback = null;
   globalResponseScrollDownCallback = null;
+};
+
+const isCurrentSetup = (setupGeneration: number): boolean => {
+  return (
+    setupGeneration === globalListenersSetupGeneration &&
+    globalShortcutsConsumerCount > 0
+  );
 };
 
 const cleanupGlobalEventListeners = (): void => {
@@ -217,6 +225,8 @@ export const useGlobalShortcuts = () => {
       return () => {
         globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
         if (globalShortcutsConsumerCount === 0) {
+          globalListenersSetupGeneration += 1;
+          globalListenersSetupInProgress = false;
           globalListenersReady = false;
           cleanupGlobalEventListeners();
           clearGlobalResponseScrollCallbacks();
@@ -225,6 +235,7 @@ export const useGlobalShortcuts = () => {
     }
 
     globalListenersSetupInProgress = true;
+    const setupGeneration = ++globalListenersSetupGeneration;
     let isActive = true;
 
     const setupEventListeners = async () => {
@@ -240,7 +251,7 @@ export const useGlobalShortcuts = () => {
             }
           }, 100);
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenFocus();
           return;
         }
@@ -252,7 +263,7 @@ export const useGlobalShortcuts = () => {
             globalAudioCallback();
           }
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenAudio();
           return;
         }
@@ -291,7 +302,7 @@ export const useGlobalShortcuts = () => {
             );
           }
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenScreenshot();
           return;
         }
@@ -303,7 +314,7 @@ export const useGlobalShortcuts = () => {
             globalSystemAudioCallback();
           }
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenSystemAudio();
           return;
         }
@@ -323,7 +334,7 @@ export const useGlobalShortcuts = () => {
             }
           }
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenAnswerTrigger();
           return;
         }
@@ -334,7 +345,7 @@ export const useGlobalShortcuts = () => {
             globalResponseScrollUpCallback();
           }
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenResponseScrollUp();
           return;
         }
@@ -348,7 +359,7 @@ export const useGlobalShortcuts = () => {
             }
           }
         );
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenResponseScrollDown();
           return;
         }
@@ -369,7 +380,7 @@ export const useGlobalShortcuts = () => {
             }
           }
         );
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenCustomShortcut();
           return;
         }
@@ -384,11 +395,14 @@ export const useGlobalShortcuts = () => {
             })
           );
         });
-        if (!isActive) {
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenRegistrationError();
           return;
         }
         globalEventListeners.registrationError = unlistenRegistrationError;
+        if (!isCurrentSetup(setupGeneration)) {
+          return;
+        }
         globalListenersReady = true;
       } catch (error) {
         cleanupGlobalEventListeners();
@@ -404,6 +418,8 @@ export const useGlobalShortcuts = () => {
     return () => {
       globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
       if (globalShortcutsConsumerCount === 0) {
+        globalListenersSetupGeneration += 1;
+        globalListenersSetupInProgress = false;
         globalListenersReady = false;
         isActive = false;
         cleanupGlobalEventListeners();
