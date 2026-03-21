@@ -31,6 +31,13 @@ let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 
 // Global hook consumer count for singleton listener lifecycle
 let globalShortcutsConsumerCount = 0;
+let globalListenersReady = false;
+let globalListenersSetupInProgress = false;
+
+const clearGlobalResponseScrollCallbacks = (): void => {
+  globalResponseScrollUpCallback = null;
+  globalResponseScrollDownCallback = null;
+};
 
 const cleanupGlobalEventListeners = (): void => {
   const listenerCleanupMap: Array<{
@@ -202,17 +209,22 @@ export const useGlobalShortcuts = () => {
   // Setup event listeners using global singleton
   useEffect(() => {
     globalShortcutsConsumerCount += 1;
-    const shouldSetupListeners = globalShortcutsConsumerCount === 1;
+    const shouldSetupListeners =
+      !globalListenersReady &&
+      !globalListenersSetupInProgress;
 
     if (!shouldSetupListeners) {
       return () => {
         globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
         if (globalShortcutsConsumerCount === 0) {
+          globalListenersReady = false;
           cleanupGlobalEventListeners();
+          clearGlobalResponseScrollCallbacks();
         }
       };
     }
 
+    globalListenersSetupInProgress = true;
     let isActive = true;
 
     const setupEventListeners = async () => {
@@ -377,8 +389,13 @@ export const useGlobalShortcuts = () => {
           return;
         }
         globalEventListeners.registrationError = unlistenRegistrationError;
+        globalListenersReady = true;
       } catch (error) {
+        cleanupGlobalEventListeners();
+        globalListenersReady = false;
         console.error("Failed to setup event listeners:", error);
+      } finally {
+        globalListenersSetupInProgress = false;
       }
     };
 
@@ -387,8 +404,10 @@ export const useGlobalShortcuts = () => {
     return () => {
       globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
       if (globalShortcutsConsumerCount === 0) {
+        globalListenersReady = false;
         isActive = false;
         cleanupGlobalEventListeners();
+        clearGlobalResponseScrollCallbacks();
       }
     };
   }, []);
