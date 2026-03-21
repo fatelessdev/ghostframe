@@ -9,18 +9,14 @@ import {
   Markdown,
   Switch,
   CopyButton,
-  ResizeGrabbers,
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
 import { MessageHistory } from "./MessageHistory";
 import {
   DEFAULT_RESPONSE_SETTINGS,
   getResponseSettings,
-  updateResponsePanelSize,
 } from "@/lib/storage/response-settings.storage";
-import { CSSProperties, useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { CSSProperties, useEffect, useState } from "react";
 
 const MIN_PANEL_WIDTH = 480;
 const MIN_PANEL_HEIGHT = 300;
@@ -46,7 +42,6 @@ export const Input = ({
   keepEngaged,
   setKeepEngaged,
 }: UseCompletionReturn) => {
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const [responseSettings, setResponseSettings] = useState(() =>
     getResponseSettings()
   );
@@ -79,63 +74,6 @@ export const Input = ({
       );
     };
   }, []);
-
-  useEffect(() => {
-    const element = panelRef.current;
-    if (!element || !isPopoverOpen) {
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) {
-        return;
-      }
-
-      const nextWidth = Math.round(entry.contentRect.width);
-      const nextHeight = Math.round(entry.contentRect.height);
-
-      if (
-        nextWidth === responseSettings.panelWidth &&
-        nextHeight === responseSettings.panelHeight
-      ) {
-        return;
-      }
-
-      setResponseSettings((prev) => ({
-        ...prev,
-        panelWidth: nextWidth,
-        panelHeight: nextHeight,
-      }));
-      updateResponsePanelSize(nextWidth, nextHeight);
-    });
-
-    observer.observe(element);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
-
-  useEffect(() => {
-    if (!isPopoverOpen) {
-      return;
-    }
-
-    const syncWindowSize = async () => {
-      try {
-        await invoke("set_window_height", {
-          window: getCurrentWebviewWindow(),
-          height: Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight),
-          width: Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth),
-        });
-      } catch (error) {
-        console.error("Failed to sync response panel size:", error);
-      }
-    };
-
-    void syncWindowSize();
-  }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
 
   return (
     <div className="relative flex-1">
@@ -190,7 +128,6 @@ export const Input = ({
 
         {/* Response Panel */}
         <PopoverContent
-          ref={panelRef}
           align="center"
           side="bottom"
           className="glass-card p-0 border shadow-lg overflow-hidden min-w-[480px] min-h-[300px] max-h-[calc(100vh-5rem)]"
@@ -335,11 +272,6 @@ export const Input = ({
               </div>
             </ScrollArea>
           </div>
-          <ResizeGrabbers
-            panelRef={panelRef}
-            minWidth={MIN_PANEL_WIDTH}
-            minHeight={MIN_PANEL_HEIGHT}
-          />
         </PopoverContent>
       </Popover>
     </div>

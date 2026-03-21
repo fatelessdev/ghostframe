@@ -1,11 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Popover,
   PopoverTrigger,
   PopoverContent,
   ScrollArea,
-  ResizeGrabbers,
 } from "@/components";
 import {
   HeadphonesIcon,
@@ -18,8 +17,6 @@ import {
   SendIcon,
   TimerIcon,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { PermissionFlow } from "./PermissionFlow";
 import { ResultsSection } from "./ResultsSection";
 import { Warning } from "./Warning";
@@ -30,7 +27,6 @@ import { cn } from "@/lib/utils";
 import {
   DEFAULT_RESPONSE_SETTINGS,
   getResponseSettings,
-  updateResponsePanelSize,
 } from "@/lib/storage/response-settings.storage";
 
 const MIN_PANEL_WIDTH = 480;
@@ -71,8 +67,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
   const isMac = navigator.platform.toLowerCase().includes("mac");
   const answerTriggerLabel = isMac ? "Cmd+Enter" : "Ctrl+Enter";
 
-  const panelRef = useRef<HTMLDivElement | null>(null);
-
   useEffect(() => {
     const syncResponseSettings = () => {
       setResponseSettings(getResponseSettings());
@@ -102,60 +96,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
       );
     };
   }, []);
-
-  useEffect(() => {
-    const element = panelRef.current;
-    if (!element || !isPopoverOpen) {
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) {
-        return;
-      }
-
-      const nextWidth = Math.round(entry.contentRect.width);
-      const nextHeight = Math.round(entry.contentRect.height);
-
-      if (
-        nextWidth === responseSettings.panelWidth &&
-        nextHeight === responseSettings.panelHeight
-      ) {
-        return;
-      }
-
-      setResponseSettings((previous) => ({
-        ...previous,
-        panelWidth: nextWidth,
-        panelHeight: nextHeight,
-      }));
-      updateResponsePanelSize(nextWidth, nextHeight);
-    });
-
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
-
-  useEffect(() => {
-    if (!isPopoverOpen) {
-      return;
-    }
-
-    const syncWindowSize = async () => {
-      try {
-        await invoke("set_window_height", {
-          window: getCurrentWebviewWindow(),
-          height: Math.max(MIN_PANEL_HEIGHT, responseSettings.panelHeight),
-          width: Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth),
-        });
-      } catch (syncError) {
-        console.error("Failed to sync panel size:", syncError);
-      }
-    };
-
-    void syncWindowSize();
-  }, [isPopoverOpen, responseSettings.panelHeight, responseSettings.panelWidth]);
 
   const handleToggleCapture = async () => {
     if (capturing) {
@@ -225,7 +165,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
 
       {(capturing || setupRequired || error) && (
         <PopoverContent
-          ref={panelRef}
           align="center"
           side="bottom"
           className="glass-card select-none p-0 border shadow-lg overflow-hidden border-input/50 min-w-[480px] min-h-[320px] max-h-[calc(100vh-4rem)]"
@@ -424,11 +363,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
               </div>
             )}
           </div>
-          <ResizeGrabbers
-            panelRef={panelRef}
-            minWidth={MIN_PANEL_WIDTH}
-            minHeight={MIN_PANEL_HEIGHT}
-          />
         </PopoverContent>
       )}
     </Popover>

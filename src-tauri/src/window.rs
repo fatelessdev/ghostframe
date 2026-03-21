@@ -43,9 +43,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SWP_NOOWNERZORDER, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
-// The offset from the top of the screen to the window
-const TOP_OFFSET: i32 = 54;
-
 /// Sets up the main window with custom positioning
 pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Try different possible window labels
@@ -57,7 +54,7 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
         })
         .ok_or("No window found")?;
 
-    position_window_top_center(&window, TOP_OFFSET)?;
+    size_main_window_to_overlay_bounds(&window).map_err(std::io::Error::other)?;
 
     sync_main_window(&app.handle()).map_err(std::io::Error::other)?;
 
@@ -159,6 +156,8 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>, focus_input: bool) -> Re
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
+    size_main_window_to_overlay_bounds(&window)?;
+
     app.state::<WindowPreferencesState>()
         .set_main_window_visible(true);
 
@@ -189,12 +188,36 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>, focus_input: bool) -> Re
 
     // Re-apply after show as well because Windows may rewrite styles when a
     // hidden window becomes visible.
+    size_main_window_to_overlay_bounds(&window)?;
     sync_main_window(app)?;
 
     if focus_input {
         window
             .emit("focus-text-input", serde_json::json!({}))
             .map_err(|e| format!("Failed to emit focus-text-input event: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn size_main_window_to_overlay_bounds<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    use tauri::{PhysicalPosition, Position, Size};
+
+    if let Some(monitor) = window
+        .current_monitor()
+        .map_err(|e| format!("Failed to get current monitor: {}", e))?
+        .or(
+            window
+                .primary_monitor()
+                .map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+        )
+    {
+        window
+            .set_size(Size::Physical(monitor.size()))
+            .map_err(|e| format!("Failed to set overlay size: {}", e))?;
+        window
+            .set_position(Position::Physical(PhysicalPosition { x: 0, y: 0 }))
+            .map_err(|e| format!("Failed to set overlay position: {}", e))?;
     }
 
     Ok(())
