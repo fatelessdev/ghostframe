@@ -60,8 +60,12 @@ export const useCompletion = () => {
     setScreenshotConfiguration,
   } = useApp();
   const globalShortcuts = useGlobalShortcuts();
-  const { registerAudioCallback, registerInputRef, registerScreenshotCallback } =
-    globalShortcuts;
+  const {
+    registerAudioCallback,
+    registerInputRef,
+    registerScreenshotCallback,
+    unregisterScreenshotCallback,
+  } = globalShortcuts;
 
   const [state, setState] = useState<CompletionState>({
     input: "",
@@ -1018,15 +1022,31 @@ export const useCompletion = () => {
   ]);
 
   useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("completion-attachment-count-changed", {
+        detail: {
+          count: state.attachedFiles.length,
+        },
+      })
+    );
+  }, [state.attachedFiles.length]);
+
+  useEffect(() => {
     if (isSystemAudioCapturing) {
+      unregisterScreenshotCallback();
       return;
     }
 
     registerScreenshotCallback(captureScreenshot);
+
+    return () => {
+      unregisterScreenshotCallback();
+    };
   }, [
     captureScreenshot,
     isSystemAudioCapturing,
     registerScreenshotCallback,
+    unregisterScreenshotCallback,
   ]);
 
   return {

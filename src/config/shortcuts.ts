@@ -56,9 +56,9 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     name: "Toggle Click-Through",
     description: "Toggle passive HUD mode (clicks pass through overlay)",
     defaultKey: {
-      macos: "cmd+shift+c",
-      windows: "ctrl+shift+c",
-      linux: "ctrl+shift+c",
+      macos: "cmd+m",
+      windows: "ctrl+m",
+      linux: "ctrl+m",
     },
   },
   {
@@ -147,9 +147,9 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     name: "Screenshot",
     description: "Capture screenshot",
     defaultKey: {
-      macos: "cmd+shift+s",
-      windows: "ctrl+shift+s",
-      linux: "ctrl+shift+s",
+      macos: "cmd+h",
+      windows: "ctrl+h",
+      linux: "ctrl+h",
     },
   },
 ];

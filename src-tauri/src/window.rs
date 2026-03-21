@@ -68,13 +68,6 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
         match event {
             WindowEvent::Focused(false) => {
                 let _ = sync_window_topmost(&app_handle, &window_clone);
-
-                if app_handle
-                    .state::<WindowPreferencesState>()
-                    .main_window_visible()
-                {
-                    let _ = show_main_window(&app_handle, false);
-                }
             }
             _ => {}
         }
@@ -369,6 +362,21 @@ pub async fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_dashboard_settings(app: tauri::AppHandle) -> Result<(), String> {
+    show_dashboard_window(&app)?;
+
+    if let Some(window) = app.get_webview_window("dashboard") {
+        window
+            .eval(
+                r#"window.history.pushState({}, '', '/settings'); window.dispatchEvent(new PopStateEvent('popstate'));"#,
+            )
+            .map_err(|e| format!("Failed to navigate dashboard to settings: {}", e))?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn toggle_dashboard(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(dashboard_window) = app.get_webview_window("dashboard") {
         match dashboard_window.is_visible() {
@@ -636,7 +644,7 @@ pub fn get_click_through(app: tauri::AppHandle) -> bool {
 /// Internal helper used by command and global shortcut.
 pub fn toggle_click_through_state<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
     let state = app.state::<WindowPreferencesState>();
-    let new_state = !state.click_through();
+    let new_state = true;
     state.set_click_through(new_state);
 
     if let Some(window) = app.get_webview_window("main") {
@@ -705,3 +713,109 @@ pub fn get_disguise_mode(app: tauri::AppHandle) -> String {
         _ => "auto".to_string(),
     }
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DOMRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl DOMRect {
+    pub fn contains_logical(&self, x: f64, y: f64) -> bool {
+        x >= self.x && x <= (self.x + self.width) &&
+        y >= self.y && y <= (self.y + self.height)
+    }
+}
+
+pub struct CursorEventState {
+    pub clickable_rects: std::sync::Arc<std::sync::Mutex<Vec<DOMRect>>>,
+    pub is_currently_ignoring: std::sync::Arc<std::sync::Mutex<bool>>,
+}
+
+impl Default for CursorEventState {
+    fn default() -> Self {
+        Self {
+            clickable_rects: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            is_currently_ignoring: std::sync::Arc::new(std::sync::Mutex::new(false)),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn set_clickable_rects(
+    app: tauri::AppHandle,
+    rects: Vec<DOMRect>,
+) -> Result<(), String> {
+    let state = app.state::<CursorEventState>();
+    if let Ok(mut lock) = state.clickable_rects.lock() {
+        *lock = rects;
+    }
+    Ok(())
+}
+
+pub fn start_cursor_event_monitor<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let app_handle = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            let state = app_handle.state::<CursorEventState>();
+
+            let click_through = app_handle.state::<crate::shortcuts::WindowPreferencesState>().click_through();
+
+            if let Some(window) = app_handle.get_webview_window("main") {
+                if click_through {
+                    let mut is_hovering = false;
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+                        use windows::Win32::Foundation::POINT;
+                        let mut cursor_pos = POINT::default();
+                        unsafe {
+                            let _ = GetCursorPos(&mut cursor_pos);
+                        }
+                        
+                        let scale = window.scale_factor().unwrap_or(1.0);
+                        if let Ok(pos) = window.outer_position() {
+                            let rel_x = cursor_pos.x - pos.x;
+                            let rel_y = cursor_pos.y - pos.y;
+                            
+                            let logic_x = rel_x as f64 / scale;
+                            let logic_y = rel_y as f64 / scale;
+                            
+                            
+                            if let Ok(rects) = state.clickable_rects.lock() {
+                                for rect in rects.iter() {
+                                    if rect.contains_logical(logic_x, logic_y) {
+                                        is_hovering = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let should_ignore = !is_hovering;
+                    
+                    if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                        if *lock != should_ignore {
+                            *lock = should_ignore;
+                            let _ = window.set_ignore_cursor_events(should_ignore);
+                        }
+                    }
+                } else {
+                    
+                    if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                        if *lock {
+                            *lock = false;
+                            let _ = window.set_ignore_cursor_events(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+

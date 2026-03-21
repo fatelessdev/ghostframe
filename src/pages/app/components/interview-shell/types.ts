@@ -1,1 +1,5 @@
-export type InterviewOverlayView = "response" | "transcripts" | "settings";
+export type InterviewOverlayView =
+	| "collapsed"
+	| "response"
+	| "transcripts"
+	| "settings";

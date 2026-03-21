@@ -48,7 +48,7 @@ impl Default for WindowPreferencesState {
             app_icon_visible: AtomicBool::new(true),
             // Matches the `contentProtected: true` default in tauri.conf.json
             content_protected: AtomicBool::new(true),
-            click_through: AtomicBool::new(false),
+            click_through: AtomicBool::new(true),
             main_window_visible: AtomicBool::new(true),
         }
     }
@@ -291,7 +291,10 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
         "move_window_down" => handle_move_window(app, "down"),
         "move_window_left" => handle_move_window(app, "left"),
         "move_window_right" => handle_move_window(app, "right"),
-        "toggle_click_through" => handle_toggle_click_through(app),
+        "toggle_click_through" => {
+            // Overlay interaction mode is fixed in the Interview Coder shell.
+            // Keep this action as a no-op so accidental presses do not flip behavior.
+        }
         "audio_recording" => handle_audio_shortcut(app),
         "screenshot" => handle_screenshot_shortcut(app),
         "system_audio" => handle_system_audio_shortcut(app),

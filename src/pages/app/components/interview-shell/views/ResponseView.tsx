@@ -56,7 +56,7 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
   return (
     <div
       ref={viewportRef}
-      className="flex-1 overflow-auto p-3"
+      className="h-full min-h-0 overflow-auto p-3"
       aria-label="Response content"
     >
       {children}

@@ -1,19 +1,15 @@
-import { Button, CustomCursor } from "@/components";
+import { CopyButton, CustomCursor, Markdown } from "@/components";
 import {
   OverlayPanel,
   OverlayTopBar,
   ResponseView,
-  SettingsView,
   TranscriptsView,
   type InterviewOverlayView,
 } from "./components";
 import { PermissionFlow } from "./components/speech/PermissionFlow";
-import { ResultsSection } from "./components/speech/ResultsSection";
-import { RollingTranscript } from "./components/speech/RollingTranscript";
-import { Warning } from "./components/speech/Warning";
-import { useApp } from "@/hooks";
+import { useApp, useClickableRects } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
-import { EyeIcon, ShieldIcon, SparklesIcon } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
@@ -22,16 +18,10 @@ import { getPlatform } from "@/lib";
 import { useEffect, useRef, useState } from "react";
 
 const CONTENT_PROTECTION_KEY = "content_protected";
-const CLICK_THROUGH_KEY = "click_through";
-const CONVERSATION_VIEWS: Array<"response" | "transcripts"> = [
-  "response",
-  "transcripts",
-];
 
 const VIEW_SHORTCUT_ACTIONS: Record<string, InterviewOverlayView> = {
   view_response: "response",
   view_transcripts: "transcripts",
-  view_settings: "settings",
 };
 
 const isEditableElement = (target: EventTarget | null): boolean => {
@@ -56,15 +46,20 @@ const resolveCustomShortcutView = (
 
 const App = () => {
   const { systemAudio } = useApp();
-  const { customizable, currentAIMode, setCurrentAIMode } = useAppContext();
+  const { customizable, currentAIMode } = useAppContext();
   const platform = getPlatform();
 
   const [contentProtected, setContentProtected] = useState<boolean>(true);
-  const [clickThrough, setClickThrough] = useState<boolean>(false);
-  const [activeView, setActiveView] = useState<InterviewOverlayView>("response");
+  const [activeView, setActiveView] = useState<InterviewOverlayView>("collapsed");
+  const [shortcutScreenshotCount, setShortcutScreenshotCount] =
+    useState<number>(0);
+  const [attachmentScreenshotCount, setAttachmentScreenshotCount] =
+    useState<number>(0);
   const [lastConversationView, setLastConversationView] = useState<
     "response" | "transcripts"
-  >("response");
+  >("transcripts");
+
+  useClickableRects([activeView]);
 
   const wasCapturingRef = useRef<boolean>(Boolean(systemAudio?.capturing));
 
@@ -74,12 +69,13 @@ const App = () => {
     systemAudio?.isAIProcessing ||
     false;
 
-  useEffect(() => {
-    if (!CONVERSATION_VIEWS.includes(activeView as "response" | "transcripts")) {
-      return;
-    }
+  const responseText = systemAudio?.lastAIResponse ?? "";
+  const responseHasCode = /```[\s\S]*?```|`[^`\n]+`/.test(responseText);
 
-    setLastConversationView(activeView as "response" | "transcripts");
+  useEffect(() => {
+    if (activeView === "response" || activeView === "transcripts") {
+      setLastConversationView(activeView);
+    }
   }, [activeView]);
 
   useEffect(() => {
@@ -105,11 +101,33 @@ const App = () => {
           return;
         }
 
+        if (actionId.trim().toLowerCase() === "view_settings") {
+          void openSettingsPanel();
+          return;
+        }
+
         const nextView = resolveCustomShortcutView(actionId);
         if (nextView) {
           setActiveView(nextView);
         }
       }
+    );
+
+    const unlistenScreenshot = listen("trigger-screenshot", () => {
+      setShortcutScreenshotCount((previousCount) => previousCount + 1);
+    });
+
+    const handleAttachmentCountChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ count?: number }>;
+      const nextCount = customEvent.detail?.count;
+      if (typeof nextCount === "number" && Number.isFinite(nextCount)) {
+        setAttachmentScreenshotCount(Math.max(0, Math.floor(nextCount)));
+      }
+    };
+
+    window.addEventListener(
+      "completion-attachment-count-changed",
+      handleAttachmentCountChanged as EventListener
     );
 
     return () => {
@@ -119,11 +137,18 @@ const App = () => {
       unlistenCustom
         .then((fn) => fn())
         .catch(() => {});
+      unlistenScreenshot
+        .then((fn) => fn())
+        .catch(() => {});
+      window.removeEventListener(
+        "completion-attachment-count-changed",
+        handleAttachmentCountChanged as EventListener
+      );
     };
   }, []);
 
   useEffect(() => {
-    if (activeView !== "settings") {
+    if (activeView === "collapsed") {
       return;
     }
 
@@ -185,33 +210,6 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    const saved = localStorage.getItem(CLICK_THROUGH_KEY);
-    if (saved !== null) {
-      const savedValue = saved === "true";
-      if (savedValue) {
-        invoke<boolean>("toggle_click_through").catch(() => {});
-      }
-      setClickThrough(savedValue);
-    } else {
-      invoke<boolean>("get_click_through")
-        .then((v) => setClickThrough(v))
-        .catch(() => {});
-    }
-
-    const unlisten = listen<boolean>("click-through-changed", (event) => {
-      const enabled = event.payload;
-      setClickThrough(enabled);
-      localStorage.setItem(CLICK_THROUGH_KEY, String(enabled));
-    });
-
-    return () => {
-      unlisten
-        .then((fn) => fn())
-        .catch(() => {});
-    };
-  }, []);
-
-  useEffect(() => {
     const root = document.documentElement;
 
     if (contentProtected) {
@@ -220,17 +218,13 @@ const App = () => {
       root.classList.remove("content-protected-active");
     }
 
-    if (clickThrough) {
-      root.classList.add("click-through-active");
-    } else {
-      root.classList.remove("click-through-active");
-    }
+    root.classList.add("click-through-active");
 
     return () => {
       root.classList.remove("content-protected-active");
       root.classList.remove("click-through-active");
     };
-  }, [clickThrough, contentProtected]);
+  }, [contentProtected]);
 
   useEffect(() => {
     if (isSessionActive && !contentProtected) {
@@ -245,24 +239,6 @@ const App = () => {
     }
   }, [contentProtected, isSessionActive]);
 
-  const toggleAIMode = () => {
-    setCurrentAIMode(currentAIMode === "D" ? "P" : "D");
-  };
-
-  const toggleContentProtection = async () => {
-    if (isSessionActive && contentProtected) {
-      return;
-    }
-
-    try {
-      const newState = await invoke<boolean>("toggle_content_protection");
-      setContentProtected(newState);
-      localStorage.setItem(CONTENT_PROTECTION_KEY, String(newState));
-    } catch (error) {
-      console.error("Failed to toggle content protection:", error);
-    }
-  };
-
   const handleStartInterview = async () => {
     if (!systemAudio) {
       return;
@@ -270,19 +246,21 @@ const App = () => {
 
     if (systemAudio.capturing) {
       await systemAudio.stopCapture("manual");
+      setActiveView("collapsed");
       return;
     }
 
+    setActiveView("transcripts");
     await systemAudio.startCapture("manual");
   };
 
-  const openDashboard = async () => {
-    try {
-      await invoke("open_dashboard");
-    } catch (error) {
-      console.error("Failed to open dashboard:", error);
-    }
-  };
+    const openSettingsPanel = async () => {
+      try {
+        await invoke("open_dashboard_settings");
+      } catch (error) {
+        console.error("Failed to open dashboard settings:", error);
+      }
+    };
 
   return (
     <ErrorBoundary
@@ -293,20 +271,30 @@ const App = () => {
       onReset={() => {
         console.log("Reset");
       }}
-    >
-      <div className="w-screen h-screen flex overflow-hidden justify-center items-start">
-        <OverlayPanel className="w-full max-w-[900px]">
-          <OverlayTopBar
-            screenshotCount={systemAudio?.manualScreenshots.length ?? 0}
-            mode={currentAIMode}
-            contentProtectionEnabled={contentProtected}
-            onStartInterview={() => {
-              void handleStartInterview();
-            }}
-            onOpenSettings={() => {
-              setActiveView("settings");
-            }}
-          />
+      >
+        <div className="w-screen h-screen flex overflow-hidden justify-center items-start px-4 pt-4 pointer-events-none">
+        <OverlayPanel
+          viewMode={activeView}
+          className="overlay-shell-width"
+          topBar={
+            <OverlayTopBar
+              screenshotCount={Math.max(
+                systemAudio?.manualScreenshots.length ?? 0,
+                attachmentScreenshotCount,
+                shortcutScreenshotCount
+              )}
+              mode={currentAIMode}
+              contentProtectionEnabled={contentProtected}
+              isCapturing={Boolean(systemAudio?.capturing)}
+              onStartInterview={() => {
+                void handleStartInterview();
+              }}
+              onOpenSettings={() => {
+                void openSettingsPanel();
+              }}
+            />
+          }
+        >
 
           {activeView === "response" ? (
             <ResponseView>
@@ -326,109 +314,34 @@ const App = () => {
                   }}
                 />
               ) : (
-                <>
-                  <ResultsSection
-                    transcriptSegments={systemAudio?.transcriptSegments ?? []}
-                    lastAIResponse={systemAudio?.lastAIResponse ?? ""}
-                    isAIProcessing={Boolean(systemAudio?.isAIProcessing)}
-                    textSize={14}
-                  />
-
-                  {!systemAudio?.lastAIResponse && systemAudio?.isAIProcessing ? (
-                    <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-                      Generating response...
+                <div className="group relative h-full w-full">
+                  {responseHasCode && responseText ? (
+                    <div className="pointer-events-auto absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
+                      <CopyButton content={responseText} />
                     </div>
                   ) : null}
-                </>
+
+                  {Boolean(systemAudio?.isAIProcessing) && !responseText ? (
+                    <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <span>Generating response...</span>
+                    </div>
+                  ) : null}
+
+                  <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert">
+                    <Markdown>{responseText}</Markdown>
+                    {Boolean(systemAudio?.isAIProcessing) && responseText ? (
+                      <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-primary align-middle" />
+                    ) : null}
+                  </div>
+                </div>
               )}
 
-              <Warning />
             </ResponseView>
           ) : null}
 
           {activeView === "transcripts" ? (
-            <TranscriptsView>
-              <RollingTranscript
-                transcriptSegments={systemAudio?.transcriptSegments ?? []}
-              />
-              <ResultsSection
-                transcriptSegments={systemAudio?.transcriptSegments ?? []}
-                lastAIResponse={systemAudio?.lastAIResponse ?? ""}
-                isAIProcessing={Boolean(systemAudio?.isAIProcessing)}
-                textSize={14}
-              />
-            </TranscriptsView>
-          ) : null}
-
-          {activeView === "settings" ? (
-            <SettingsView>
-              <div className="space-y-3">
-                <div className="rounded-md border border-border/60 bg-muted/20 p-3">
-                  <p className="text-xs font-medium text-foreground">Overlay controls</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Press <span className="font-semibold">Esc</span> to return to
-                    the last conversation view.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="icon"
-                    variant={currentAIMode === "P" ? "default" : "secondary"}
-                    className="font-semibold"
-                    title={
-                      currentAIMode === "D"
-                        ? "D mode active: fast responses. Click to switch to P mode."
-                        : "P mode active: smarter slower responses. Click to switch to D mode."
-                    }
-                    onClick={toggleAIMode}
-                  >
-                    {currentAIMode}
-                  </Button>
-
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    title={
-                      isSessionActive && contentProtected
-                        ? "Content protection is locked while an active session is running"
-                        : contentProtected
-                        ? "Content protection ON — window hidden from screen capture. Click to disable."
-                        : "Content protection OFF — window visible to screen capture. Click to enable."
-                    }
-                    onClick={toggleContentProtection}
-                    disabled={isSessionActive && contentProtected}
-                    className={`shrink-0 ${contentProtected ? "text-red-400 hover:text-red-300" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    {contentProtected ? (
-                      <ShieldIcon className="h-4 w-4" />
-                    ) : (
-                      <EyeIcon className="h-4 w-4" />
-                    )}
-                  </Button>
-
-                  <Button
-                    size="icon"
-                    className="cursor-pointer"
-                    title="Open Dev Space"
-                    onClick={openDashboard}
-                  >
-                    <SparklesIcon className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </SettingsView>
-          ) : null}
-
-          {!systemAudio?.capturing && activeView !== "settings" ? (
-            <Button
-              size={"icon"}
-              className="cursor-pointer"
-              title="Open Dev Space"
-              onClick={openDashboard}
-            >
-              <SparklesIcon className="h-4 w-4" />
-            </Button>
+            <TranscriptsView transcriptSegments={systemAudio?.transcriptSegments ?? []} />
           ) : null}
         </OverlayPanel>
         {customizable.cursor.type === "invisible" && platform !== "linux" ? (

@@ -44,6 +44,7 @@ pub fn run() {
         .manage(shortcuts::RegisteredShortcuts::default())
         .manage(shortcuts::MoveWindowState::default())
         .manage(window::DisguiseModeState::default())
+        .manage(window::CursorEventState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init());
@@ -56,6 +57,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_version,
             window::open_dashboard,
+            window::open_dashboard_settings,
             window::toggle_dashboard,
             window::move_window,
             window::toggle_content_protection,
@@ -87,6 +89,7 @@ pub fn run() {
             speaker::get_audio_sample_rate,
             speaker::get_input_devices,
             speaker::get_output_devices,
+            window::set_clickable_rects,
         ])
         .setup(|app| {
             // Setup main window positioning
@@ -94,6 +97,7 @@ pub fn run() {
 
             // Start background title rotation for process disguise
             window::start_window_title_disguise(app.handle());
+            window::start_cursor_event_monitor(app.handle());
 
             let app_handle = app.handle().clone();
             if app_handle.get_webview_window("dashboard").is_none() {
@@ -241,3 +245,4 @@ fn init(app_handle: &AppHandle) {
 
     panel.set_delegate(delegate);
 }
+

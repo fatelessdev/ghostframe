@@ -4,11 +4,13 @@ import {
   SettingsIcon,
   ShieldIcon,
 } from "lucide-react";
+import { Badge } from "@/components";
 
 interface OverlayTopBarProps {
   screenshotCount: number;
   mode: "D" | "P";
   contentProtectionEnabled: boolean;
+  isCapturing: boolean;
   onStartInterview: () => void;
   onOpenSettings: () => void;
   onDragHandleClick?: () => void;
@@ -26,9 +28,9 @@ export const OverlayTopBar = ({
   screenshotCount,
   mode,
   contentProtectionEnabled,
+  isCapturing,
   onStartInterview,
   onOpenSettings,
-  onDragHandleClick,
 }: OverlayTopBarProps) => {
   const screenshotLabel =
     screenshotCount > 0
@@ -40,39 +42,28 @@ export const OverlayTopBar = ({
     : "Content protection is disabled";
 
   return (
-    <header className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2">
+    <header className="overlay-top-bar-glass flex items-center justify-between gap-2 px-3 py-2 pointer-events-none">
       <div className="flex items-center gap-1.5">
         <button
           type="button"
-          className="inline-flex h-8 items-center rounded-xl bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="inline-flex h-8 items-center rounded-xl bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 pointer-events-auto"
           onClick={onStartInterview}
-          aria-label="Start Interview"
+          aria-label={isCapturing ? "Stop Interview" : "Start Interview"}
         >
-          Start Interview
+          {isCapturing ? "Stop Interview" : "Start Interview"}
         </button>
 
-        {onDragHandleClick ? (
-          <button
-            type="button"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-            onClick={onDragHandleClick}
-            aria-label="Drag handle"
-            data-tauri-drag-region
-          >
-            <GripVerticalIcon className="h-4 w-4" />
-          </button>
-        ) : (
-          <span
-            className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground"
-            aria-hidden="true"
-          >
-            <GripVerticalIcon className="h-4 w-4" />
-          </span>
-        )}
+        <div
+          className="overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border text-muted-foreground pointer-events-auto cursor-grab active:cursor-grabbing"
+          aria-label="Drag handle"
+          data-tauri-drag-region
+        >
+          <GripVerticalIcon className="h-4 w-4 pointer-events-none" />
+        </div>
 
         <button
           type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+          className="overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground pointer-events-auto"
           onClick={onOpenSettings}
           aria-label="Settings"
         >
@@ -82,25 +73,28 @@ export const OverlayTopBar = ({
 
       <div className="flex items-center gap-2">
         <div
-          className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 text-muted-foreground"
+          className="overlay-top-bar-control relative inline-flex min-h-8 min-w-8 items-center justify-center overflow-visible rounded-xl border text-muted-foreground pointer-events-none"
           role="status"
           aria-label={screenshotLabel}
         >
           <CameraIcon className="h-4 w-4" aria-hidden="true" />
           <span className="sr-only">{screenshotLabel}</span>
           {screenshotCount > 0 ? (
-            <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-4 text-primary-foreground">
+            <Badge
+              variant="outline"
+              className="absolute -right-1 -top-1 z-20 h-5 min-w-5 rounded-full border-border/60 bg-background/85 px-1 text-[10px] font-semibold leading-none text-foreground shadow-sm backdrop-blur-md"
+            >
               {getScreenshotBadgeLabel(screenshotCount)}
-            </span>
+            </Badge>
           ) : null}
         </div>
 
-        <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-xl border border-border/60 px-2 text-xs font-semibold text-muted-foreground">
+        <span className="overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border px-2 text-xs font-semibold text-muted-foreground pointer-events-none">
           {mode}
         </span>
 
         <span
-          className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border border-border/60 ${
+          className={`overlay-top-bar-control inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border pointer-events-none ${
             contentProtectionEnabled ? "text-red-400" : "text-muted-foreground"
           }`}
           aria-label={contentProtectionLabel}

@@ -53,10 +53,27 @@ export const getShortcutsConfig = (): ShortcutsConfig => {
       const parsed = JSON.parse(stored);
       // Merge with defaults to ensure all default actions are present
       const defaults = getDefaultShortcutsConfig();
-      return {
+      const merged: ShortcutsConfig = {
         bindings: { ...defaults.bindings, ...parsed.bindings },
         customActions: parsed.customActions || [],
       };
+
+      const screenshotBinding = merged.bindings.screenshot;
+      if (screenshotBinding) {
+        const platform = getPlatform();
+        const oldKey =
+          platform === "macos" ? "cmd+shift+s" : "ctrl+shift+s";
+        const newKey = getPlatformDefaultKey(DEFAULT_SHORTCUT_ACTIONS.find((action) => action.id === "screenshot")!);
+
+        if (screenshotBinding.key.toLowerCase() === oldKey) {
+          merged.bindings.screenshot = {
+            ...screenshotBinding,
+            key: newKey,
+          };
+        }
+      }
+
+      return merged;
     }
     return getDefaultShortcutsConfig();
   } catch (error) {

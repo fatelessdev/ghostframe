@@ -1,5 +1,5 @@
 import { CopyButton, Markdown } from "@/components";
-import { Loader2, SparklesIcon } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { TranscriptSegment } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -35,15 +35,13 @@ export const ResultsSection = ({
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <SparklesIcon className="w-3.5 h-3.5 text-primary" />
-          <h4 className="text-xs font-medium">Live Transcript</h4>
+      {hasTranscript ? (
+        <div className="flex items-center justify-end">
+          <div className="text-[10px] text-muted-foreground">
+            {committed.length} committed / {live.length} live
+          </div>
         </div>
-        <div className="text-[10px] text-muted-foreground">
-          {committed.length} committed / {live.length} live
-        </div>
-      </div>
+      ) : null}
 
       {hasTranscript && (
         <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
@@ -56,8 +54,8 @@ export const ResultsSection = ({
                 className={cn(
                   "max-w-[92%] rounded-xl px-3 py-2 text-xs border",
                   isUser
-                    ? "ml-auto bg-amber-500/10 border-amber-400/30"
-                    : "mr-auto bg-background/60 border-border/70"
+                    ? "ml-auto transcript-bubble-user"
+                    : "mr-auto transcript-bubble-interviewer"
                 )}
               >
                 <div
@@ -96,8 +94,8 @@ export const ResultsSection = ({
                 className={cn(
                   "max-w-[92%] rounded-xl px-3 py-2 text-xs border border-dashed animate-pulse",
                   isUser
-                    ? "ml-auto bg-amber-500/5 border-amber-400/30"
-                    : "mr-auto bg-background/40 border-border/70"
+                    ? "ml-auto transcript-bubble-user"
+                    : "mr-auto transcript-bubble-interviewer"
                 )}
               >
                 <div
