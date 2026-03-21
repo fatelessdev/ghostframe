@@ -1850,6 +1850,32 @@ export function useSystemAudio() {
     processPendingAnswer,
   ]);
 
+  useEffect(() => {
+    const globalWindow = window as Window & {
+      __ghostframeSystemAudioCapturing?: boolean;
+    };
+
+    globalWindow.__ghostframeSystemAudioCapturing = capturing;
+    window.dispatchEvent(
+      new CustomEvent("systemAudioCaptureStateChanged", {
+        detail: { capturing },
+      })
+    );
+  }, [capturing]);
+
+  useEffect(() => {
+    if (!capturing) {
+      return;
+    }
+
+    globalShortcuts.registerScreenshotCallback(async () => {
+      if (!captureRef.current) {
+        return;
+      }
+      await handleCaptureScreenshot();
+    });
+  }, [capturing, globalShortcuts, handleCaptureScreenshot]);
+
   const handleQuickActionClick = useCallback(
     async (action: string) => {
       const transcriptText = mergeTranscriptForPrompt(segmentsRef.current);

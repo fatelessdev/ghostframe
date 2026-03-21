@@ -76,6 +76,12 @@ export const useCompletion = () => {
   const [isFilesPopoverOpen, setIsFilesPopoverOpen] = useState(false);
   const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
   const [keepEngaged, setKeepEngaged] = useState(false);
+  const [isSystemAudioCapturing, setIsSystemAudioCapturing] = useState(() => {
+    const globalWindow = window as Window & {
+      __ghostframeSystemAudioCapturing?: boolean;
+    };
+    return !!globalWindow.__ghostframeSystemAudioCapturing;
+  });
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingScreenshotRef = useRef(false);
   const screenshotConfigRef = useRef(screenshotConfiguration);
@@ -968,6 +974,25 @@ export const useCompletion = () => {
     setMicOpen(!micOpen);
   }, [enableVAD, micOpen]);
 
+  useEffect(() => {
+    const handleCaptureStateChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<{ capturing?: boolean }>;
+      setIsSystemAudioCapturing(!!customEvent.detail?.capturing);
+    };
+
+    window.addEventListener(
+      "systemAudioCaptureStateChanged",
+      handleCaptureStateChanged as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        "systemAudioCaptureStateChanged",
+        handleCaptureStateChanged as EventListener
+      );
+    };
+  }, []);
+
   // Cleanup abort controller on unmount
   useEffect(() => {
     return () => {
@@ -983,14 +1008,23 @@ export const useCompletion = () => {
   useEffect(() => {
     globalShortcuts.registerAudioCallback(toggleRecording);
     globalShortcuts.registerInputRef(inputRef.current);
-    globalShortcuts.registerScreenshotCallback(captureScreenshot);
   }, [
     globalShortcuts.registerAudioCallback,
     globalShortcuts.registerInputRef,
-    globalShortcuts.registerScreenshotCallback,
     toggleRecording,
-    captureScreenshot,
     inputRef,
+  ]);
+
+  useEffect(() => {
+    if (isSystemAudioCapturing) {
+      return;
+    }
+
+    globalShortcuts.registerScreenshotCallback(captureScreenshot);
+  }, [
+    captureScreenshot,
+    globalShortcuts.registerScreenshotCallback,
+    isSystemAudioCapturing,
   ]);
 
   return {
