@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { XIcon } from "lucide-react";
 import {
   Theme,
   AlwaysOnTopToggle,
@@ -8,17 +9,24 @@ import {
   QuitApp,
   SystemAudioInterviewSettings,
 } from "./components";
+import {
+  AutoScrollToggle,
+  HighContrastToggle,
+  LanguageSelector,
+  ResponseLength,
+  TextSize,
+} from "@/pages/responses/components";
+import { ScreenshotConfigs } from "@/pages/screenshot/components";
 import { AIProviders, STTProviders } from "@/pages/dev/components";
 import { CursorSelection, ShortcutManager } from "@/pages/shortcuts/components";
 import { AudioSelection } from "@/pages/audio/components";
 import SystemPrompts from "@/pages/system-prompts";
 import { useGlobalShortcuts, useSettings } from "@/hooks";
-import { XIcon } from "lucide-react";
 
 interface SettingsProps { onClose?: () => void; }
 
 const Settings = ({ onClose }: SettingsProps) => {
-  const [activeTab, setActiveTab] = useState<"general" | "ai" | "stt" | "audio" | "prompts" | "shortcuts">("general");
+  const [activeTab, setActiveTab] = useState<"general" | "responses" | "screenshot" | "ai" | "stt" | "audio" | "prompts" | "shortcuts">("general");
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const { registerResponseScrollUpCallback, registerResponseScrollDownCallback, unregisterResponseScrollUpCallback, unregisterResponseScrollDownCallback } = useGlobalShortcuts();
@@ -60,6 +68,8 @@ const Settings = ({ onClose }: SettingsProps) => {
         </div>
         <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
           <button className={getTabClasses("general")} onClick={() => setActiveTab("general")}>General</button>
+          <button className={getTabClasses("responses")} onClick={() => setActiveTab("responses")}>Responses</button>
+          <button className={getTabClasses("screenshot")} onClick={() => setActiveTab("screenshot")}>Screenshot</button>
           <button className={getTabClasses("ai")} onClick={() => setActiveTab("ai")}>AI Providers</button>     
           <button className={getTabClasses("stt")} onClick={() => setActiveTab("stt")}>Speech to Text</button>  
           <button className={getTabClasses("audio")} onClick={() => setActiveTab("audio")}>Audio Devices</button>
@@ -82,6 +92,16 @@ const Settings = ({ onClose }: SettingsProps) => {
               <QuitApp />
             </div>
           )}
+          {activeTab === "responses" && (
+            <div className="flex flex-col gap-8">
+              <TextSize />
+              <HighContrastToggle />
+              <ResponseLength />
+              <LanguageSelector />
+              <AutoScrollToggle />
+            </div>
+          )}
+          {activeTab === "screenshot" && <ScreenshotConfigs {...settings} />}
           {activeTab === "ai" && <AIProviders {...settings} />}
           {activeTab === "stt" && <STTProviders {...settings} />}
           {activeTab === "audio" && <AudioSelection />}
