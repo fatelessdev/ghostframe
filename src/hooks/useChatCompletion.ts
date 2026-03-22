@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useApp } from "@/contexts";
 import { MAX_FILES } from "@/config";
+import { useScreenshotCaptureFlow } from "@/hooks/internal/useScreenshotCaptureFlow";
 import {
+  blobToBase64,
   fetchAIResponse,
   saveConversation,
   getConversationById,
@@ -11,39 +13,12 @@ import {
   generateRequestId,
   getResponseSettings,
 } from "@/lib";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-
-// Types for completion
-interface AttachedFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  size: number;
-}
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-}
-
-interface ChatConversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface ChatCompletionState {
-  input: string;
-  isLoading: boolean;
-  error: string | null;
-  attachedFiles: AttachedFile[];
-}
+import {
+  type AttachedFile,
+  type ChatCompletionState,
+  type ChatConversation,
+  type ChatMessage,
+} from "@/types";
 
 export const useChatCompletion = (
   conversationId: string,
@@ -100,7 +75,7 @@ export const useChatCompletion = (
 
   const addFile = useCallback(async (file: File) => {
     try {
-      const base64 = await fileToBase64(file);
+      const base64 = await blobToBase64(file);
       const attachedFile: AttachedFile = {
         id: Date.now().toString(),
         name: file.name,
@@ -262,12 +237,12 @@ export const useChatCompletion = (
             setMessages(updatedWithResponse);
             scrollToBottom();
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           if (currentRequestIdRef.current === requestId && !signal.aborted) {
             setState((prev) => ({
               ...prev,
               isLoading: false,
-              error: e.message || "An error occurred",
+              error: e instanceof Error ? e.message : "An error occurred",
             }));
           }
           return;
@@ -369,18 +344,6 @@ export const useChatCompletion = (
     }
     currentRequestIdRef.current = null;
     setState((prev) => ({ ...prev, isLoading: false }));
-  }, []);
-
-  const fileToBase64 = useCallback(async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64 = (reader.result as string)?.split(",")[1] || "";
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
   }, []);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -500,129 +463,20 @@ export const useChatCompletion = (
     [state.attachedFiles.length, addFile]
   );
 
-  const captureScreenshot = useCallback(async () => {
-    if (!handleScreenshotSubmit) return;
-
-    const config = screenshotConfigRef.current;
-
-    screenshotInitiatedByThisContext.current = true;
-
-    setIsScreenshotLoading(true);
-
-    try {
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac") && !hasCheckedPermissionRef.current) {
-        const {
-          checkScreenRecordingPermission,
-          requestScreenRecordingPermission,
-        } = await import("tauri-plugin-macos-permissions-api");
-
-        const hasPermission = await checkScreenRecordingPermission();
-
-        if (!hasPermission) {
-          await requestScreenRecordingPermission();
-
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          const hasPermissionNow = await checkScreenRecordingPermission();
-
-          if (!hasPermissionNow) {
-            setState((prev) => ({
-              ...prev,
-              error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Ghostframe in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
-            }));
-            setIsScreenshotLoading(false);
-            screenshotInitiatedByThisContext.current = false;
-            return;
-          }
-        }
-        hasCheckedPermissionRef.current = true;
-      }
-
-      if (config.enabled) {
-        const base64 = await invoke("capture_to_base64");
-
-        if (config.mode === "auto") {
-          await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-        } else if (config.mode === "manual") {
-          await handleScreenshotSubmit(base64 as string);
-        }
-        screenshotInitiatedByThisContext.current = false;
-      } else {
-        // Selection Mode: Open overlay to select an area
-        isProcessingScreenshotRef.current = false;
-        await invoke("start_screen_capture");
-      }
-    } catch (error) {
+  const { captureScreenshot } = useScreenshotCaptureFlow({
+    handleScreenshotSubmit,
+    screenshotConfigRef,
+    hasCheckedPermissionRef,
+    isProcessingScreenshotRef,
+    screenshotInitiatedByThisContext,
+    setIsScreenshotLoading,
+    onScreenshotError: (message) => {
       setState((prev) => ({
         ...prev,
-        error: "Failed to capture screenshot. Please try again.",
+        error: message,
       }));
-      isProcessingScreenshotRef.current = false;
-      screenshotInitiatedByThisContext.current = false;
-    } finally {
-      if (config.enabled) {
-        setIsScreenshotLoading(false);
-      }
-    }
-  }, [handleScreenshotSubmit]);
-
-  useEffect(() => {
-    let unlisten: any;
-
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
-        }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [handleScreenshotSubmit]);
-
-  useEffect(() => {
-    const unlisten = listen("capture-closed", () => {
-      setIsScreenshotLoading(false);
-      isProcessingScreenshotRef.current = false;
-      screenshotInitiatedByThisContext.current = false;
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+    },
+  });
 
   useEffect(() => {
     return () => {

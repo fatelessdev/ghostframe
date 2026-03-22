@@ -47,3 +47,5 @@ export const useWindowFocus = ({
     };
   }, [handleFocusChange]);
 };
+
+export type UseWindowFocus = typeof useWindowFocus;

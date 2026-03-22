@@ -644,7 +644,7 @@ pub fn get_click_through(app: tauri::AppHandle) -> bool {
 /// Internal helper used by command and global shortcut.
 pub fn toggle_click_through_state<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
     let state = app.state::<WindowPreferencesState>();
-    let new_state = true;
+    let new_state = !state.click_through();
     state.set_click_through(new_state);
 
     if let Some(window) = app.get_webview_window("main") {

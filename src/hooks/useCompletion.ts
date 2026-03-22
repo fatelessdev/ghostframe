@@ -2,7 +2,9 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useGlobalShortcuts } from "./useGlobalShortcuts";
 import { MAX_FILES } from "@/config";
 import { useApp } from "@/contexts";
+import { useScreenshotCaptureFlow } from "@/hooks/internal/useScreenshotCaptureFlow";
 import {
+  blobToBase64,
   fetchAIResponse,
   saveConversation,
   getConversationById,
@@ -13,42 +15,12 @@ import {
   generateRequestId,
   getResponseSettings,
 } from "@/lib";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-
-// Types for completion
-interface AttachedFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  size: number;
-}
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-}
-
-interface ChatConversation {
-  id: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-}
-
-interface CompletionState {
-  input: string;
-  response: string;
-  isLoading: boolean;
-  error: string | null;
-  attachedFiles: AttachedFile[];
-  currentConversationId: string | null;
-  conversationHistory: ChatMessage[];
-}
+import {
+  type AttachedFile,
+  type ChatConversation,
+  type ChatMessage,
+  type CompletionState,
+} from "@/types";
 
 export const useCompletion = () => {
   const {
@@ -113,7 +85,7 @@ export const useCompletion = () => {
 
   const addFile = useCallback(async (file: File) => {
     try {
-      const base64 = await fileToBase64(file);
+      const base64 = await blobToBase64(file);
       const attachedFile: AttachedFile = {
         id: Date.now().toString(),
         name: file.name,
@@ -245,13 +217,13 @@ export const useCompletion = () => {
               response: prev.response + chunk,
             }));
           }
-        } catch (e: any) {
+        } catch (e: unknown) {
           // Only show error if this is still the current request and not aborted
           if (currentRequestIdRef.current === requestId && !signal.aborted) {
             setState((prev) => ({
               ...prev,
               isLoading: false,
-              error: e.message || "An error occurred",
+              error: e instanceof Error ? e.message : "An error occurred",
             }));
           }
           return;
@@ -328,19 +300,6 @@ export const useCompletion = () => {
       attachedFiles: [],
     }));
   }, [cancel, keepEngaged]);
-
-  // Helper function to convert file to base64
-  const fileToBase64 = useCallback(async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64 = (reader.result as string)?.split(",")[1] || "";
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
-  }, []);
 
   // Note: saveConversation, getConversationById, and generateConversationTitle
   // are now imported from lib/database/chat-history.action.ts
@@ -450,11 +409,10 @@ export const useCompletion = () => {
 
   // Listen for conversation events from the main ChatHistory component
   useEffect(() => {
-    const handleConversationSelected = async (event: any) => {
-      console.log(event, "event");
+    const handleConversationSelected = async (event: Event) => {
+      const customEvent = event as CustomEvent<{ id?: string }>;
       // Only the conversation ID is passed through the event
-      const { id } = event.detail;
-      console.log(id, "id");
+      const { id } = customEvent.detail || {};
       if (!id || typeof id !== "string") {
         console.error("No conversation ID provided");
         setState((prev) => ({
@@ -463,7 +421,6 @@ export const useCompletion = () => {
         }));
         return;
       }
-      console.log(id, "id");
       try {
         // Fetch the full conversation from SQLite
         const conversation = await getConversationById(id);
@@ -490,8 +447,9 @@ export const useCompletion = () => {
       startNewConversation();
     };
 
-    const handleConversationDeleted = (event: any) => {
-      const deletedId = event.detail;
+    const handleConversationDeleted = (event: Event) => {
+      const customEvent = event as CustomEvent<string>;
+      const deletedId = customEvent.detail;
       // If the currently active conversation was deleted, start a new one
       if (state.currentConversationId === deletedId) {
         startNewConversation();
@@ -669,12 +627,12 @@ export const useCompletion = () => {
                 input: "",
               }));
             }
-          } catch (e: any) {
+          } catch (e: unknown) {
             // Only show error if this is still the current request and not aborted
             if (currentRequestIdRef.current === requestId && !signal.aborted) {
               setState((prev) => ({
                 ...prev,
-                error: e.message || "An error occurred",
+                error: e instanceof Error ? e.message : "An error occurred",
               }));
             }
           } finally {
@@ -846,134 +804,20 @@ export const useCompletion = () => {
     return () => window.removeEventListener("keydown", handleToggleShortcut);
   }, [isPopoverOpen]);
 
-  const captureScreenshot = useCallback(async () => {
-    if (!handleScreenshotSubmit) return;
-
-    const config = screenshotConfigRef.current;
-    screenshotInitiatedByThisContext.current = true;
-    setIsScreenshotLoading(true);
-
-    try {
-      // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac") && !hasCheckedPermissionRef.current) {
-        const {
-          checkScreenRecordingPermission,
-          requestScreenRecordingPermission,
-        } = await import("tauri-plugin-macos-permissions-api");
-
-        const hasPermission = await checkScreenRecordingPermission();
-
-        if (!hasPermission) {
-          // Request permission
-          await requestScreenRecordingPermission();
-
-          // Wait a moment and check again
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          const hasPermissionNow = await checkScreenRecordingPermission();
-
-          if (!hasPermissionNow) {
-            setState((prev) => ({
-              ...prev,
-              error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Ghostframe in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
-            }));
-            setIsScreenshotLoading(false);
-            screenshotInitiatedByThisContext.current = false;
-            return;
-          }
-        }
-        hasCheckedPermissionRef.current = true;
-      }
-
-      if (config.enabled) {
-        const base64 = await invoke("capture_to_base64");
-
-        if (config.mode === "auto") {
-          // Auto mode: Submit directly to AI with the configured prompt
-          await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-        } else if (config.mode === "manual") {
-          // Manual mode: Add to attached files without prompt
-          await handleScreenshotSubmit(base64 as string);
-        }
-        screenshotInitiatedByThisContext.current = false;
-      } else {
-        // Selection Mode: Open overlay to select an area
-        isProcessingScreenshotRef.current = false;
-        await invoke("start_screen_capture");
-      }
-    } catch (error) {
+  const { captureScreenshot } = useScreenshotCaptureFlow({
+    handleScreenshotSubmit,
+    screenshotConfigRef,
+    hasCheckedPermissionRef,
+    isProcessingScreenshotRef,
+    screenshotInitiatedByThisContext,
+    setIsScreenshotLoading,
+    onScreenshotError: (message) => {
       setState((prev) => ({
         ...prev,
-        error: "Failed to capture screenshot. Please try again.",
+        error: message,
       }));
-      isProcessingScreenshotRef.current = false;
-      screenshotInitiatedByThisContext.current = false;
-    } finally {
-      if (config.enabled) {
-        setIsScreenshotLoading(false);
-      }
-    }
-  }, [handleScreenshotSubmit]);
-
-  useEffect(() => {
-    let unlisten: any;
-
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
-        }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
-
-    return () => {
-      if (unlisten) {
-        unlisten();
-      }
-    };
-  }, [handleScreenshotSubmit]);
-
-  useEffect(() => {
-    const unlisten = listen("capture-closed", () => {
-      setIsScreenshotLoading(false);
-      isProcessingScreenshotRef.current = false;
-      screenshotInitiatedByThisContext.current = false;
-    });
-
-    return () => {
-      unlisten.then((fn) => fn());
-    };
-  }, []);
+    },
+  });
 
   const toggleRecording = useCallback(() => {
     setEnableVAD(!enableVAD);
