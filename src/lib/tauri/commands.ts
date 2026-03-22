@@ -36,4 +36,7 @@ export const tauriCommands = {
   ): Promise<string> => {
     return invoke<string>("start_system_audio_capture", args);
   },
+  exitApp: async (): Promise<void> => {
+    await invoke("exit_app");
+  },
 };

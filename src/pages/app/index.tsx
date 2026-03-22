@@ -70,6 +70,7 @@ const App = () => {
     systemAudio?.isProcessing ||
     systemAudio?.isAIProcessing ||
     false;
+  const isRecording = Boolean(systemAudio?.capturing);
 
   const responseText = systemAudio?.lastAIResponse ?? "";
   const responseHasCode = /```[\s\S]*?```|`[^`\n]+`/.test(responseText);
@@ -92,6 +93,9 @@ const App = () => {
 
   useEffect(() => {
     const unlistenAnswer = listen("trigger-answer", () => {
+      if (!isRecording) {
+        return;
+      }
       setActiveView("response");
     });
 
@@ -109,6 +113,10 @@ const App = () => {
         }
 
         const nextView = resolveCustomShortcutView(actionId);
+        if (!isRecording && (nextView === "response" || nextView === "transcripts")) {
+          return;
+        }
+
         if (nextView) {
           setActiveView(nextView);
         }
@@ -147,7 +155,13 @@ const App = () => {
         handleAttachmentCountChanged as EventListener
       );
     };
-  }, []);
+  }, [isRecording]);
+
+  useEffect(() => {
+    if (!isRecording && (activeView === "response" || activeView === "transcripts")) {
+      setActiveView("collapsed");
+    }
+  }, [activeView, isRecording]);
 
   useEffect(() => {
     if (activeView === "collapsed") {
@@ -301,7 +315,7 @@ const App = () => {
           }
         >
 
-          {activeView === "response" ? (
+          {activeView === "response" && isRecording ? (
             <ResponseView>
               {systemAudio?.error ? (
                 <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -345,7 +359,7 @@ const App = () => {
             </ResponseView>
           ) : null}
 
-          {activeView === "transcripts" ? (
+          {activeView === "transcripts" && isRecording ? (
             <TranscriptsView transcriptSegments={systemAudio?.transcriptSegments ?? []} />
           ) : null}
 

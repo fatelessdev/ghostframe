@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { Theme, AlwaysOnTopToggle, AppIconToggle, AutostartToggle, DisguiseMode, SystemAudioInterviewSettings } from "./components";
+import {
+  Theme,
+  AlwaysOnTopToggle,
+  AppIconToggle,
+  AutostartToggle,
+  DisguiseMode,
+  QuitApp,
+  SystemAudioInterviewSettings,
+} from "./components";
 import { AIProviders, STTProviders } from "@/pages/dev/components";
 import { CursorSelection, ShortcutManager } from "@/pages/shortcuts/components";
 import { AudioSelection } from "@/pages/audio/components";
@@ -71,6 +79,7 @@ const Settings = ({ onClose }: SettingsProps) => {
               <AlwaysOnTopToggle />
               <DisguiseMode />
               <SystemAudioInterviewSettings />
+              <QuitApp />
             </div>
           )}
           {activeTab === "ai" && <AIProviders {...settings} />}
