@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { XIcon } from "lucide-react";
+import { XIcon, PowerIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Theme,
   AlwaysOnTopToggle,
@@ -75,6 +76,15 @@ const Settings = ({ onClose }: SettingsProps) => {
           <button className={getTabClasses("audio")} onClick={() => setActiveTab("audio")}>Audio Devices</button>
           <button className={getTabClasses("prompts")} onClick={() => setActiveTab("prompts")}>System Prompts</button>
           <button className={getTabClasses("shortcuts")} onClick={() => setActiveTab("shortcuts")}>Shortcuts</button>
+        </div>
+        <div className="p-3 border-t border-white/10">
+          <button
+            onClick={() => invoke("exit_app")}
+            className="w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2"
+          >
+            <PowerIcon className="w-4 h-4" />
+            Quit Application
+          </button>
         </div>
       </div>
 
