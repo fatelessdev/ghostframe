@@ -50,12 +50,15 @@ export const DisguiseMode = () => {
   }, []);
 
   const handleChange = async (newMode: DisguiseModeValue) => {
+    const previousMode = mode;
     setMode(newMode);
     localStorage.setItem(DISGUISE_STORAGE_KEY, newMode);
     try {
       await invoke("set_disguise_mode", { mode: newMode });
     } catch (err) {
       console.error("Failed to set disguise mode:", err);
+      setMode(previousMode);
+      localStorage.setItem(DISGUISE_STORAGE_KEY, previousMode);
     }
   };
 

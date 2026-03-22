@@ -95,7 +95,11 @@ export async function fetchSTT(params: STTParams): Promise<string> {
       const freshBlob = new Blob([await audio.arrayBuffer()], {
         type: audio.type,
       });
-      form.append("file", freshBlob, "audio.wav");
+      const audioFieldName =
+        Object.entries(formData).find(([, val]) =>
+          typeof val === "string" && val.includes("{{AUDIO}}")
+        )?.[0] || "file";
+      form.append(audioFieldName, freshBlob, "audio.wav");
       const headerKeys = Object.keys(headers).map((k) =>
         k.toUpperCase().replace(/[-_]/g, "")
       );
@@ -117,7 +121,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
           const [formKey, ...formValueParts] = val.split("=");
           const formValue = formValueParts.join("=");
 
-          if (formKey.toLowerCase() === "file") continue; // Already handled by form.append('file', audio)
+          if (formKey.toLowerCase() === audioFieldName.toLowerCase()) continue; // Already handled
 
           if (
             !formValue ||
@@ -127,7 +131,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
 
           form.append(formKey, formValue);
         } else {
-          if (key.toLowerCase() === "file") continue; // Already handled by form.append('file', audio)
+          if (key.toLowerCase() === audioFieldName.toLowerCase()) continue; // Already handled
           if (
             !val ||
             headerKeys.includes(key.toUpperCase()) ||

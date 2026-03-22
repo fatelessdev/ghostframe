@@ -20,7 +20,7 @@ export const useMenuItems = () => {
   }[] = [
     {
       icon: MessagesSquare,
-      label: "Chats",
+      label: "History",
       href: "/chats",
     },
     {

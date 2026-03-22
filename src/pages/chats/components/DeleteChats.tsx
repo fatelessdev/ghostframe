@@ -1,18 +1,23 @@
 import { Loader2, TrashIcon } from "lucide-react";
 import { Button, Header } from "@/components";
-import { UseSettingsReturn } from "@/types";
-import { useState } from "react";
+import { Dispatch, SetStateAction, useState } from "react";
+
+interface DeleteChatsProps {
+  handleDeleteAllChatsConfirm: () => Promise<void>;
+  showDeleteConfirmDialog: boolean;
+  setShowDeleteConfirmDialog: Dispatch<SetStateAction<boolean>>;
+}
 
 export const DeleteChats = ({
   handleDeleteAllChatsConfirm,
   showDeleteConfirmDialog,
   setShowDeleteConfirmDialog,
-}: UseSettingsReturn) => {
+}: DeleteChatsProps) => {
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const deleteAllChats = () => {
+  const deleteAllChats = async () => {
     setIsDeleting(true);
-    handleDeleteAllChatsConfirm();
+    await handleDeleteAllChatsConfirm();
     setTimeout(() => {
       setIsDeleting(false);
     }, 2000);

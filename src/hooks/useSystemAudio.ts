@@ -827,7 +827,7 @@ export function useSystemAudio() {
 
       startPhase = "get_audio_sample_rate";
       const deviceId =
-        selectedAudioDevices.output.id !== "default"
+        selectedAudioDevices.output.id && selectedAudioDevices.output.id !== "default"
           ? selectedAudioDevices.output.id
           : null;
 

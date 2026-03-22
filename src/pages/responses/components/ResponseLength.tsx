@@ -1,4 +1,4 @@
-import { Card, Header } from "@/components";
+import { Header } from "@/components";
 import { RESPONSE_LENGTHS } from "@/lib";
 import { updateResponseLength } from "@/lib/storage/response-settings.storage";
 import { useState, useEffect } from "react";
@@ -28,14 +28,16 @@ export const ResponseLength = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {RESPONSE_LENGTHS.map((length) => (
-          <Card
+          <button
             key={length.id}
-            className={`relative p-4 border lg:border-2 shadow-none cursor-pointer transition-all ${
+            type="button"
+            aria-pressed={selectedLength === length.id}
+            onClick={() => handleLengthChange(length.id)}
+            className={`relative flex flex-col gap-6 rounded-xl border bg-card/80 p-4 text-left shadow-none cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
               selectedLength === length.id
                 ? "border-primary"
                 : "border-border hover:border-primary/50"
             }`}
-            onClick={() => handleLengthChange(length.id)}
           >
             <div className="space-y-1">
               <h3 className="text-sm lg:text-md font-semibold">
@@ -48,7 +50,7 @@ export const ResponseLength = () => {
             {selectedLength === length.id && (
               <CheckCircle2 className="size-5 text-green-500 flex-shrink-0 absolute top-2 right-2" />
             )}
-          </Card>
+          </button>
         ))}
       </div>
     </div>

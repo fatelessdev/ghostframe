@@ -164,7 +164,7 @@ const View = () => {
         />
       ) : (
         <div className="flex flex-col gap-4 pb-24 px-2">
-          {messages?.messages.map((message, index, array) => {
+          {messages?.messages.slice().map((message, index, array) => {
             const isUser = message.role === "user";
             const showDate =
               index === 0 ||

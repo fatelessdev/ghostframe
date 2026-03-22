@@ -6,13 +6,13 @@ import {
   AppIconToggle,
   AutostartToggle,
   DisguiseMode,
-  QuitApp,
   SystemAudioInterviewSettings,
 } from "./components";
 import {
   AutoScrollToggle,
   HighContrastToggle,
   LanguageSelector,
+  PanelSize,
   ResponseLength,
   TextSize,
 } from "@/pages/responses/components";
@@ -89,11 +89,11 @@ const Settings = ({ onClose }: SettingsProps) => {
               <AlwaysOnTopToggle />
               <DisguiseMode />
               <SystemAudioInterviewSettings />
-              <QuitApp />
             </div>
           )}
           {activeTab === "responses" && (
             <div className="flex flex-col gap-8">
+              <PanelSize />
               <TextSize />
               <HighContrastToggle />
               <ResponseLength />

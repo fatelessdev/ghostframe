@@ -1,12 +1,14 @@
 import { Badge, Input, Card, Empty } from "@/components";
-import { useHistory } from "@/hooks";
+import { useHistory, useSettings } from "@/hooks";
 import { PageLayout } from "@/layouts";
 import { MessageCircleIcon, Search } from "lucide-react";
 import moment from "moment";
 import { useNavigate } from "react-router-dom";
+import { DeleteChats } from "./components";
 
 const Dashboard = () => {
   const conversations = useHistory();
+  const settings = useSettings();
   const navigate = useNavigate();
   // Group conversations by date
   const groupedConversations = conversations.conversations.reduce(
@@ -27,7 +29,7 @@ const Dashboard = () => {
   );
 
   return (
-    <PageLayout
+      <PageLayout
       title="All conversations"
       description="View all your conversations"
     >
@@ -51,6 +53,11 @@ const Dashboard = () => {
                 onChange={(e) => conversations.setSearch(e.target.value)}
               />
             </div>
+            <DeleteChats
+              handleDeleteAllChatsConfirm={settings.handleDeleteAllChatsConfirm}
+              showDeleteConfirmDialog={settings.showDeleteConfirmDialog}
+              setShowDeleteConfirmDialog={settings.setShowDeleteConfirmDialog}
+            />
             {sortedDates
               .filter((dateKey) =>
                 conversations?.search?.length === 0

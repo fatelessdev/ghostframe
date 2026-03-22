@@ -1,5 +1,6 @@
 import { Header, Label, Slider, Switch, Textarea, Input } from "@/components";
-import { useMemo, useState } from "react";
+import { tauriCommands } from "@/lib";
+import { useEffect, useMemo, useState } from "react";
 import {
   getSystemAudioInterviewSettings,
   updateSystemAudioInterviewSettings,
@@ -16,11 +17,47 @@ export const SystemAudioInterviewSettings = () => {
   );
   const [newQuickAction, setNewQuickAction] = useState("");
 
+  useEffect(() => {
+    const syncSettings = () => {
+      setSettings(getSystemAudioInterviewSettings());
+    };
+
+    window.addEventListener("systemAudioInterviewSettingsChanged", syncSettings);
+    window.addEventListener("storage", syncSettings);
+
+    return () => {
+      window.removeEventListener(
+        "systemAudioInterviewSettingsChanged",
+        syncSettings
+      );
+      window.removeEventListener("storage", syncSettings);
+    };
+  }, []);
+
   const quickActionCount = useMemo(() => settings.quickActions.length, [
     settings.quickActions,
   ]);
 
   const applySettings = (updates: Partial<typeof settings>) => {
+    if (updates.vadConfig) {
+      const next = {
+        ...settings,
+        ...updates,
+        vadConfig: {
+          ...settings.vadConfig,
+          ...updates.vadConfig,
+        },
+      };
+
+      void tauriCommands.updateVadConfig(next.vadConfig).then(() => {
+        const stored = updateSystemAudioInterviewSettings(updates);
+        setSettings(stored);
+      }).catch((error) => {
+        console.warn("Failed to sync VAD config with backend:", error);
+      });
+      return;
+    }
+
     const next = updateSystemAudioInterviewSettings(updates);
     setSettings(next);
   };
@@ -151,6 +188,28 @@ export const SystemAudioInterviewSettings = () => {
           <Label className="text-xs font-medium">Speech detection tuning</Label>
 
           <div className="space-y-2">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label className="text-sm font-medium">Enable VAD</Label>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Turn voice activity detection on or off for system audio capture.
+                </p>
+              </div>
+              <Switch
+                checked={settings.vadConfig.enabled}
+                onCheckedChange={(checked) => {
+                  applySettings({
+                    vadConfig: {
+                      ...settings.vadConfig,
+                      enabled: checked,
+                    },
+                  });
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span>Speech sensitivity</span>
               <span className="text-muted-foreground">
@@ -167,6 +226,144 @@ export const SystemAudioInterviewSettings = () => {
                   vadConfig: {
                     ...settings.vadConfig,
                     sensitivity_rms: value / 1000,
+                  },
+                });
+              }}
+              />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span>Peak threshold</span>
+              <span className="text-muted-foreground">
+                {(settings.vadConfig.peak_threshold * 1000).toFixed(1)}
+              </span>
+            </div>
+            <Slider
+              value={[settings.vadConfig.peak_threshold * 1000]}
+              min={5}
+              max={100}
+              step={0.5}
+              onValueChange={([value]) => {
+                applySettings({
+                  vadConfig: {
+                    ...settings.vadConfig,
+                    peak_threshold: value / 1000,
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span>Hop size</span>
+              <span className="text-muted-foreground">
+                {settings.vadConfig.hop_size} samples
+              </span>
+            </div>
+            <Slider
+              value={[settings.vadConfig.hop_size]}
+              min={256}
+              max={4096}
+              step={256}
+              onValueChange={([value]) => {
+                applySettings({
+                  vadConfig: {
+                    ...settings.vadConfig,
+                    hop_size: Math.round(value),
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span>Silence chunks</span>
+              <span className="text-muted-foreground">
+                {settings.vadConfig.silence_chunks}
+              </span>
+            </div>
+            <Slider
+              value={[settings.vadConfig.silence_chunks]}
+              min={1}
+              max={60}
+              step={1}
+              onValueChange={([value]) => {
+                applySettings({
+                  vadConfig: {
+                    ...settings.vadConfig,
+                    silence_chunks: Math.round(value),
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span>Minimum speech chunks</span>
+              <span className="text-muted-foreground">
+                {settings.vadConfig.min_speech_chunks}
+              </span>
+            </div>
+            <Slider
+              value={[settings.vadConfig.min_speech_chunks]}
+              min={1}
+              max={20}
+              step={1}
+              onValueChange={([value]) => {
+                applySettings({
+                  vadConfig: {
+                    ...settings.vadConfig,
+                    min_speech_chunks: Math.round(value),
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span>Pre-speech chunks</span>
+              <span className="text-muted-foreground">
+                {settings.vadConfig.pre_speech_chunks}
+              </span>
+            </div>
+            <Slider
+              value={[settings.vadConfig.pre_speech_chunks]}
+              min={0}
+              max={20}
+              step={1}
+              onValueChange={([value]) => {
+                applySettings({
+                  vadConfig: {
+                    ...settings.vadConfig,
+                    pre_speech_chunks: Math.round(value),
+                  },
+                });
+              }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span>Max recording duration</span>
+              <span className="text-muted-foreground">
+                {settings.vadConfig.max_recording_duration_secs}s
+              </span>
+            </div>
+            <Slider
+              value={[settings.vadConfig.max_recording_duration_secs]}
+              min={30}
+              max={3600}
+              step={30}
+              onValueChange={([value]) => {
+                applySettings({
+                  vadConfig: {
+                    ...settings.vadConfig,
+                    max_recording_duration_secs: Math.round(value),
                   },
                 });
               }}

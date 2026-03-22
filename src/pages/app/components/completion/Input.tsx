@@ -19,7 +19,7 @@ import {
 import { CSSProperties, useEffect, useState } from "react";
 
 const MIN_PANEL_WIDTH = 480;
-const MIN_PANEL_HEIGHT = 300;
+const MIN_PANEL_HEIGHT = 320;
 
 export const Input = ({
   isPopoverOpen,
@@ -42,6 +42,7 @@ export const Input = ({
   keepEngaged,
   setKeepEngaged,
 }: UseCompletionReturn) => {
+  const [isManuallyOpen, setIsManuallyOpen] = useState(false);
   const [responseSettings, setResponseSettings] = useState(() =>
     getResponseSettings()
   );
@@ -78,8 +79,9 @@ export const Input = ({
   return (
     <div className="relative flex-1">
       <Popover
-        open={isPopoverOpen}
+        open={isPopoverOpen || isManuallyOpen}
         onOpenChange={(open) => {
+          setIsManuallyOpen(open);
           if (!open && !isLoading && !keepEngaged) {
             reset();
           }
@@ -130,7 +132,7 @@ export const Input = ({
         <PopoverContent
           align="center"
           side="bottom"
-          className="glass-card p-0 border shadow-lg overflow-hidden min-w-[480px] min-h-[300px] max-h-[calc(100vh-5rem)]"
+          className="glass-card p-0 border shadow-lg overflow-hidden min-w-[480px] min-h-[320px] max-h-[calc(100vh-5rem)]"
           sideOffset={8}
           style={{
             width: `${Math.max(MIN_PANEL_WIDTH, responseSettings.panelWidth)}px`,
@@ -148,7 +150,7 @@ export const Input = ({
                   (Use arrow keys to scroll)
                 </div>
                 <div className="text-[10px] text-muted-foreground/70 hidden sm:block">
-                  Drag any edge to resize
+                  Adjust panel size in Response Settings
                 </div>
               </div>
               <div className="flex items-center gap-2 select-none">
@@ -174,13 +176,14 @@ export const Input = ({
                   />
                 </div>
                 <CopyButton content={response} />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => {
-                    if (isLoading) {
-                      cancel();
-                    } else if (keepEngaged) {
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => {
+                      setIsManuallyOpen(false);
+                      if (isLoading) {
+                        cancel();
+                      } else if (keepEngaged) {
                       // When keepEngaged is on, close everything and start new conversation
                       setKeepEngaged(false);
                       startNewConversation();
@@ -233,6 +236,7 @@ export const Input = ({
                 {keepEngaged && conversationHistory.length > 1 && (
                   <div className="space-y-3 pt-3">
                     {conversationHistory
+                      .slice()
                       .sort((a, b) => b?.timestamp - a?.timestamp)
                       .map((message, index) => {
                         if (!isLoading && index === 0) {
