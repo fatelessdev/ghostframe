@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { cn } from "@/lib/utils";
 import { TranscriptSegment } from "@/types";
+import { useOverlayScroll } from "../OverlayPanel";
 
 interface TranscriptsViewProps {
   transcriptSegments: TranscriptSegment[];
 }
 
-const TRANSCRIPT_SCROLL_STEP = 180;
+const TRANSCRIPT_SCROLL_STEP = 120; // Smaller step for smoother feel
 
 export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const { setScrollRef } = useOverlayScroll();
+  const lastScrollTimeRef = useRef<number>(0);
   const {
     registerResponseScrollUpCallback,
     registerResponseScrollDownCallback,
@@ -21,6 +24,12 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
   const orderedSegments = useMemo(() => {
     return transcriptSegments.slice().sort((a, b) => a.timestamp - b.timestamp);
   }, [transcriptSegments]);
+
+  // Register viewport ref with parent for scroll state tracking
+  useEffect(() => {
+    setScrollRef(viewportRef.current);
+    return () => setScrollRef(null);
+  }, [setScrollRef]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -40,9 +49,15 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       return;
     }
 
+    // Use instant scroll for repeated calls (smoother when holding key)
+    const now = Date.now();
+    const timeSinceLastScroll = now - lastScrollTimeRef.current;
+    const behavior = timeSinceLastScroll < 200 ? "instant" : "smooth";
+    lastScrollTimeRef.current = now;
+
     viewport.scrollBy({
       top: delta,
-      behavior: "smooth",
+      behavior: behavior as ScrollBehavior,
     });
   }, []);
 
@@ -73,12 +88,12 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
   return (
     <div
       ref={viewportRef}
-      className="h-full min-h-0 overflow-auto p-3"
+      className="flex-1 min-h-0 overflow-auto px-3 py-2 pb-12 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
       aria-label="Transcript content"
     >
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {orderedSegments.length === 0 ? (
-          <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground italic">
+          <div className="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-[11px] text-white/40 italic">
             Transcript will appear here once interview capture starts.
           </div>
         ) : (
@@ -89,7 +104,7 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
               <div
                 key={segment.id}
                 className={cn(
-                  "max-w-[92%] rounded-xl px-3 py-2 text-xs border",
+                  "max-w-[88%] rounded-xl px-2.5 py-1.5 text-[11px] border",
                   isUser
                     ? "ml-auto transcript-bubble-user"
                     : "mr-auto transcript-bubble-interviewer"
@@ -97,18 +112,18 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
               >
                 <div
                   className={cn(
-                    "mb-1 flex items-center gap-1.5",
+                    "mb-0.5 flex items-center gap-1",
                     isUser ? "justify-end" : "justify-start"
                   )}
                 >
                   <span
                     className={cn(
-                      "inline-flex h-1.5 w-1.5 rounded-full",
-                      isUser ? "bg-blue-400/80" : "bg-slate-400/80"
+                      "inline-flex h-1 w-1 rounded-full",
+                      isUser ? "bg-blue-400/70" : "bg-slate-400/70"
                     )}
                     aria-hidden="true"
                   />
-                  <span className="text-[10px] text-muted-foreground">
+                  <span className="text-[9px] text-white/30 font-medium">
                     {new Date(segment.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -116,7 +131,7 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                     })}
                   </span>
                 </div>
-                <p className={segment.isLive ? "animate-pulse" : ""}>{segment.text}</p>
+                <p className={cn("text-white/80 leading-relaxed", segment.isLive && "animate-pulse")}>{segment.text}</p>
               </div>
             );
           })

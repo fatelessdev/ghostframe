@@ -138,12 +138,25 @@ const Settings = ({ onClose }: SettingsProps) => {
     moment(b).diff(moment(a))
   );
 
+  // Track last scroll time for smooth behavior when holding keys
+  const lastScrollTimeRef = useRef<number>(0);
+
   useEffect(() => {
-    const scrollAmount = 150;
-    const scrollUp = () =>
-      scrollRef.current?.scrollBy({ top: -scrollAmount, behavior: "smooth" });
-    const scrollDown = () =>
-      scrollRef.current?.scrollBy({ top: scrollAmount, behavior: "smooth" });
+    const scrollAmount = 120; // Smaller step for smoother feel
+    const scrollUp = () => {
+      const now = Date.now();
+      const timeSinceLastScroll = now - lastScrollTimeRef.current;
+      const behavior = timeSinceLastScroll < 200 ? "instant" : "smooth";
+      lastScrollTimeRef.current = now;
+      scrollRef.current?.scrollBy({ top: -scrollAmount, behavior: behavior as ScrollBehavior });
+    };
+    const scrollDown = () => {
+      const now = Date.now();
+      const timeSinceLastScroll = now - lastScrollTimeRef.current;
+      const behavior = timeSinceLastScroll < 200 ? "instant" : "smooth";
+      lastScrollTimeRef.current = now;
+      scrollRef.current?.scrollBy({ top: scrollAmount, behavior: behavior as ScrollBehavior });
+    };
     registerResponseScrollUpCallback(scrollUp);
     registerResponseScrollDownCallback(scrollDown);
     return () => {

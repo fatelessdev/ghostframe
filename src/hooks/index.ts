@@ -14,3 +14,4 @@ export * from "./useSystemPrompts";
 export * from "./useApp";
 export * from "./useMenuItems";
 export * from "./useClickableRects";
+export * from "./useScrollState";

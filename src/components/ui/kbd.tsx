@@ -3,21 +3,21 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const kbdVariants = cva(
-  "inline-flex items-center justify-center gap-0.5 font-mono text-[10px] leading-none select-none",
+  "inline-flex items-center justify-center font-medium leading-none select-none",
   {
     variants: {
       variant: {
         default:
-          "bg-white/10 dark:bg-white/10 text-foreground/80 px-1.5 py-1 rounded border border-white/20 dark:border-white/10",
+          "bg-white/10 text-white/80 rounded border border-white/15 shadow-sm",
         ghost:
-          "bg-muted/50 text-muted-foreground px-1.5 py-0.5 rounded",
+          "bg-white/5 text-white/60 rounded",
         outline:
-          "bg-background border border-border px-1.5 py-0.5 rounded",
+          "bg-transparent border border-white/20 text-white/70 rounded",
       },
       size: {
-        default: "text-[10px] px-1.5 py-1",
-        sm: "text-[9px] px-1 py-0.5",
-        lg: "text-xs px-2 py-1",
+        default: "text-[10px] px-1.5 py-0.5 min-w-[1.25rem]",
+        sm: "text-[9px] px-1 py-0.5 min-w-[1rem]",
+        lg: "text-[11px] px-2 py-1 min-w-[1.5rem]",
       },
     },
     defaultVariants: {
@@ -29,23 +29,27 @@ const kbdVariants = cva(
 
 export interface KbdProps
   extends React.HTMLAttributes<HTMLElement>,
-    VariantProps<typeof kbdVariants> {}
+    VariantProps<typeof kbdVariants> {
+  /** If true, render each key as a separate badge */
+  split?: boolean;
+}
 
 /**
  * Keyboard shortcut display component with icon-style rendering.
  * Automatically converts modifier keys to symbols on Mac.
  *
  * @example
- * <Kbd>Ctrl+Enter</Kbd>
- * // Renders: ⌘ ↵ (on Mac) or Ctrl ↵ (on Windows)
+ * <Kbd>Ctrl+Shift+Up</Kbd>
+ * // Renders: Ctrl Shift ↑ (as separate badges when split=true)
  *
- * <Kbd keys={["mod", "shift", "k"]} />
- * // Renders: ⌘ ⇧ K (on Mac) or Ctrl ⇧ K (on Windows)
+ * <Kbd split>Ctrl+Enter</Kbd>
+ * // Renders: [Ctrl] [↵] (two separate badges)
  */
 function Kbd({
   className,
   variant,
   size,
+  split = true,
   children,
   ...props
 }: KbdProps) {
@@ -62,7 +66,7 @@ function Kbd({
     command: { mac: "⌘", win: "Ctrl" },
     alt: { mac: "⌥", win: "Alt" },
     option: { mac: "⌥", win: "Alt" },
-    shift: { mac: "⇧", win: "⇧" },
+    shift: { mac: "⇧", win: "Shift" },
     enter: { mac: "↵", win: "↵" },
     return: { mac: "↵", win: "↵" },
     tab: { mac: "⇥", win: "Tab" },
@@ -103,6 +107,24 @@ function Kbd({
   const renderKeys = () => {
     if (typeof children === "string") {
       const keys = parseKeys(children);
+      
+      if (split) {
+        // Render each key as a separate badge
+        return (
+          <span className="inline-flex items-center gap-0.5">
+            {keys.map((key, index) => (
+              <kbd
+                key={index}
+                className={cn(kbdVariants({ variant, size }))}
+              >
+                {formatKey(key)}
+              </kbd>
+            ))}
+          </span>
+        );
+      }
+      
+      // Combined badge (old behavior)
       return keys.map((key, index) => (
         <React.Fragment key={index}>
           {index > 0 && <span className="opacity-40 mx-0.5">+</span>}
@@ -114,6 +136,11 @@ function Kbd({
     }
     return children;
   };
+
+  // If split mode, the wrapper is just a span, badges are inside
+  if (split && typeof children === "string") {
+    return <span className={className} {...props}>{renderKeys()}</span>;
+  }
 
   return (
     <kbd className={cn(kbdVariants({ variant, size, className }))} {...props}>
