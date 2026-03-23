@@ -5,6 +5,15 @@ import {
   MessagesSquareIcon,
   MessageCircleIcon,
   Search,
+  ArrowLeftIcon,
+  Download,
+  Trash2,
+  SparklesIcon,
+  UserIcon,
+  SendIcon,
+  Check,
+  Loader2,
+  MessageCircleReplyIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -32,10 +41,28 @@ import {
   useGlobalShortcuts,
   useSettings,
   useHistory,
+  useChatCompletion,
 } from "@/hooks";
-import { Badge, Input, Card, Empty, Button, Header } from "@/components";
+import {
+  Badge,
+  Input,
+  Card,
+  Empty,
+  Button,
+  Header,
+  Markdown,
+  Textarea,
+} from "@/components";
+import {
+  ChatAudio,
+  ChatScreenshot,
+  ChatFiles,
+  AudioRecorder,
+} from "@/pages/chats/components";
 import moment from "moment";
-import { getPlatform } from "@/lib";
+import { getPlatform, getConversationById, getResponseSettings } from "@/lib";
+import { ChatConversation } from "@/types";
+import { useApp } from "@/contexts";
 
 interface SettingsProps {
   onClose?: () => void;
@@ -80,6 +107,7 @@ const getOsInstructions = () => {
 
 const Settings = ({ onClose }: SettingsProps) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const osInstructions = getOsInstructions();
 
@@ -140,6 +168,13 @@ const Settings = ({ onClose }: SettingsProps) => {
     return () => window.removeEventListener("wheel", h);
   }, []);
 
+  // Reset conversation view when changing tabs
+  useEffect(() => {
+    if (activeTab !== "history") {
+      setSelectedConversationId(null);
+    }
+  }, [activeTab]);
+
   const getTabClasses = (tab: string) =>
     "w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all " +
     (activeTab === tab
@@ -147,7 +182,11 @@ const Settings = ({ onClose }: SettingsProps) => {
       : "text-white/50 hover:text-white hover:bg-white/5");
 
   const handleOpenChat = (conversationId: string) => {
-    invoke("open_dashboard", { path: `/chats/view/${conversationId}` });
+    setSelectedConversationId(conversationId);
+  };
+
+  const handleBackToList = () => {
+    setSelectedConversationId(null);
   };
 
   return (
@@ -243,7 +282,7 @@ const Settings = ({ onClose }: SettingsProps) => {
       >
         <div className="max-w-2xl mx-auto flex flex-col gap-8 pb-16">
           {/* History Tab */}
-          {activeTab === "history" && (
+          {activeTab === "history" && !selectedConversationId && (
             <div className="flex flex-col gap-6">
               <Header
                 title="Conversation History"
@@ -345,6 +384,15 @@ const Settings = ({ onClose }: SettingsProps) => {
             </div>
           )}
 
+          {/* Conversation View */}
+          {activeTab === "history" && selectedConversationId && (
+            <ConversationView
+              conversationId={selectedConversationId}
+              onBack={handleBackToList}
+              onDeleted={handleBackToList}
+            />
+          )}
+
           {/* General Tab */}
           {activeTab === "general" && (
             <div className="flex flex-col gap-6">
@@ -416,6 +464,335 @@ const Settings = ({ onClose }: SettingsProps) => {
           )}
         </div>
       </div>
+    </div>
+  );
+};
+
+// Conversation View Component - Full chat view with all features
+interface ConversationViewProps {
+  conversationId: string;
+  onBack: () => void;
+  onDeleted: () => void;
+}
+
+const ConversationView = ({
+  conversationId,
+  onBack,
+  onDeleted,
+}: ConversationViewProps) => {
+  const { supportsImages } = useApp();
+  const [messages, setMessages] = useState<ChatConversation | null>(null);
+  const [textSize, setTextSize] = useState(14);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+
+  const {
+    handleDeleteConfirm,
+    confirmDelete,
+    cancelDelete,
+    deleteConfirm,
+    handleAttachToOverlay,
+    handleDownload,
+    isDownloaded,
+    isAttached,
+  } = useHistory();
+
+  const completion = useChatCompletion(conversationId, messages, setMessages);
+
+  useEffect(() => {
+    setTextSize(getResponseSettings().textSize);
+
+    const handleSettingsChange = () => {
+      setTextSize(getResponseSettings().textSize);
+    };
+
+    window.addEventListener("responseSettingsChanged", handleSettingsChange);
+    return () => {
+      window.removeEventListener("responseSettingsChanged", handleSettingsChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const getMessages = async () => {
+      const conversation = await getConversationById(conversationId);
+      setMessages(conversation || null);
+    };
+    getMessages();
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (messages?.messages.length) {
+      setTimeout(() => {
+        completion.messagesEndRef.current?.scrollIntoView({
+          behavior: "smooth",
+        });
+      }, 100);
+    }
+  }, [messages?.messages.length]);
+
+  const handleDelete = async () => {
+    await confirmDelete();
+    setDeleteConfirmOpen(false);
+    onDeleted();
+  };
+
+  return (
+    <div className="flex flex-col h-full relative">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onBack}
+          className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10"
+        >
+          <ArrowLeftIcon className="w-4 h-4" />
+        </Button>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-white truncate">
+            {messages?.title || "Loading..."}
+          </h3>
+          <p className="text-xs text-white/50">
+            {messages?.messages.length || 0} messages
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleAttachToOverlay(conversationId)}
+            disabled={isAttached}
+            className="h-7 text-xs text-white/60 hover:text-white hover:bg-white/10"
+            title="Open in Overlay"
+          >
+            {isAttached ? (
+              <Check className="w-3 h-3 text-green-500" />
+            ) : (
+              <MessageCircleReplyIcon className="w-3 h-3" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => handleDownload(messages, e)}
+            disabled={isDownloaded}
+            className="h-7 text-xs text-white/60 hover:text-white hover:bg-white/10"
+            title="Download"
+          >
+            {isDownloaded ? (
+              <Check className="w-3 h-3 text-green-500" />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              handleDeleteConfirm(conversationId);
+              setDeleteConfirmOpen(true);
+            }}
+            className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            title="Delete"
+          >
+            <Trash2 className="w-3 h-3" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Messages */}
+      {messages?.messages.length === 0 ? (
+        <Empty
+          isLoading={false}
+          icon={MessageCircleIcon}
+          title="No messages found"
+          description="Start a new message to get started"
+        />
+      ) : (
+        <div className="flex flex-col gap-4 pb-32">
+          {messages?.messages.slice().map((message, index, array) => {
+            const isUser = message.role === "user";
+            const showDate =
+              index === 0 ||
+              moment(message.timestamp).format("YYYY-MM-DD") !==
+                moment(array[index - 1]?.timestamp).format("YYYY-MM-DD");
+
+            return (
+              <div key={message.id}>
+                {showDate && (
+                  <Badge
+                    variant="outline"
+                    className="flex items-center justify-center my-4 w-fit mx-auto border-white/20 text-white/60"
+                  >
+                    {moment(message.timestamp).format("ddd, MMM D")}
+                  </Badge>
+                )}
+
+                <div
+                  className={`flex gap-3 ${
+                    isUser ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  {!isUser && (
+                    <div className="flex-shrink-0">
+                      <div className="size-7 rounded-full bg-primary/20 flex items-center justify-center">
+                        <SparklesIcon className="size-3 text-primary" />
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    className={`flex flex-col gap-1 max-w-[80%] ${
+                      isUser ? "items-end" : "items-start"
+                    }`}
+                  >
+                    <Card
+                      className={`p-3 transition-all shadow-none ${
+                        isUser
+                          ? "!bg-primary text-primary-foreground !border-primary rounded-tr-sm"
+                          : "!bg-white/10 !border-white/10 rounded-tl-sm"
+                      }`}
+                    >
+                      <div
+                        className="response-markdown prose prose-sm prose-invert max-w-none"
+                        style={{ fontSize: `${textSize}px` }}
+                      >
+                        <Markdown>{message.content}</Markdown>
+                      </div>
+                    </Card>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] bg-transparent border-none text-white/40 ${
+                        isUser ? "-mr-1" : "-ml-1"
+                      }`}
+                    >
+                      {moment(message.timestamp).format("hh:mm A")}
+                    </Badge>
+                  </div>
+
+                  {isUser && (
+                    <div className="flex-shrink-0">
+                      <div className="size-7 rounded-full bg-primary flex items-center justify-center">
+                        <UserIcon className="size-3 text-primary-foreground" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={completion.messagesEndRef} />
+        </div>
+      )}
+
+      {/* Input Footer */}
+      <div className="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md border-t border-white/10 rounded-b-xl">
+        {completion.error && (
+          <div className="px-4 pt-3 pb-0">
+            <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-sm text-red-400">
+              <strong>Error:</strong> {completion.error}
+            </div>
+          </div>
+        )}
+
+        <div className="relative flex items-start gap-2 p-4">
+          <div className="flex-1 relative">
+            {completion.isRecording ? (
+              <AudioRecorder
+                onTranscriptionComplete={(text) => {
+                  completion.setIsRecording(false);
+                  completion.submit(text);
+                }}
+                onCancel={() => completion.setIsRecording(false)}
+              />
+            ) : (
+              <>
+                <div className="absolute bottom-2 left-2 flex items-center gap-1 z-10">
+                  <ChatFiles
+                    attachedFiles={completion.attachedFiles}
+                    handleFileSelect={completion.handleFileSelect}
+                    removeFile={completion.removeFile}
+                    onRemoveAllFiles={completion.onRemoveAllFiles}
+                    isLoading={completion.isLoading}
+                    isFilesPopoverOpen={completion.isFilesPopoverOpen}
+                    setIsFilesPopoverOpen={completion.setIsFilesPopoverOpen}
+                    disabled={!supportsImages}
+                  />
+                  <ChatAudio
+                    micOpen={completion.micOpen}
+                    setMicOpen={completion.setMicOpen}
+                    isRecording={completion.isRecording}
+                    setIsRecording={completion.setIsRecording}
+                    disabled={false}
+                  />
+                  <ChatScreenshot
+                    screenshotConfiguration={completion.screenshotConfiguration}
+                    attachedFiles={completion.attachedFiles}
+                    isLoading={completion.isLoading}
+                    captureScreenshot={completion.captureScreenshot}
+                    isScreenshotLoading={completion.isScreenshotLoading}
+                    disabled={!supportsImages}
+                  />
+                </div>
+
+                <Textarea
+                  ref={completion.inputRef}
+                  placeholder="Type a message..."
+                  className="pr-12 pl-2 resize-none pb-12 pt-3 bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                  rows={2}
+                  value={completion.input}
+                  onChange={(e) => completion.setInput(e.target.value)}
+                  onKeyDown={completion.handleKeyPress}
+                  onPaste={completion.handlePaste}
+                  disabled={completion.isLoading}
+                />
+                <Button
+                  size="icon"
+                  className="size-8 rounded-lg absolute right-2 bottom-2"
+                  title="Send message"
+                  onClick={() => completion.submit()}
+                  disabled={completion.isLoading || !completion.input.trim()}
+                >
+                  {completion.isLoading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <SendIcon className="size-4" />
+                  )}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmOpen && deleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-zinc-900 border border-white/10 rounded-lg p-6 max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-2 text-white">
+              Delete Conversation
+            </h3>
+            <p className="text-sm text-white/60 mb-4">
+              Are you sure you want to delete this conversation? This action
+              cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  cancelDelete();
+                  setDeleteConfirmOpen(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={handleDelete}>
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
