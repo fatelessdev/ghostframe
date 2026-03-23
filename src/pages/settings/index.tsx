@@ -442,7 +442,7 @@ const Settings = ({ onClose }: SettingsProps) => {
           {activeTab === "audio" && (
             <div className="flex flex-col gap-6">
               <AudioSelection />
-              <div className="text-xs text-amber-400 bg-amber-500/10 p-3 rounded-md space-y-2 border border-amber-500/20">
+              <div className="text-xs text-blue-400 bg-blue-500/10 p-3 rounded-md space-y-2 border border-blue-400/20">
                 <p>
                   <strong>⚠️ If selected devices don't work:</strong> Please
                   verify your default system audio settings. Go to{" "}
@@ -451,7 +451,7 @@ const Settings = ({ onClose }: SettingsProps) => {
                   Ensure the correct devices are set as default in your operating
                   system.
                 </p>
-                <p className="text-amber-400/80">
+                <p className="text-blue-400/80">
                   <strong>Note:</strong> If the selected device fails or is
                   unavailable, the app will automatically fall back to your
                   system's default audio devices.

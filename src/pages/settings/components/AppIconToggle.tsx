@@ -26,7 +26,7 @@ export const AppIconToggle = ({ className }: AppIconToggleProps) => {
         isMainTitle
       />
       {isWindows ? (
-        <div className="text-xs text-amber-600 bg-amber-500/10 p-3 rounded-md">
+        <div className="text-xs text-blue-400 bg-blue-500/10 p-3 rounded-md border border-blue-400/20">
           Windows keeps the main overlay hidden from taskbar and Alt+Tab at all times. This setting only applies on other platforms.
         </div>
       ) : (

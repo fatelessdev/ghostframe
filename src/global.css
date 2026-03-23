@@ -45,7 +45,7 @@
 
 /* When dark mode is forced via .dark, update the glass-card */
 .dark .glass-card {
-  background-color: rgba(0, 0, 0, 0.2) !important;
+  background-color: rgba(0, 0, 0, 0.6) !important;
 }
 
 /* Optional: If click-through mode is active, you can apply this to enhance text readability over busy backgrounds */
@@ -123,8 +123,8 @@
   --overlay-border-soft: rgb(255 255 255 / 0.2);
   --overlay-border-highlight: rgb(255 255 255 / 0.3);
   --overlay-shadow: 0 20px 60px rgb(2 6 23 / 0.4);
-  --overlay-transcript-user-bg: rgb(245 158 11 / 0.14);
-  --overlay-transcript-user-border: rgb(245 158 11 / 0.35);
+  --overlay-transcript-user-bg: rgb(59 130 246 / 0.14);
+  --overlay-transcript-user-border: rgb(59 130 246 / 0.35);
   --overlay-transcript-interviewer-bg: rgb(148 163 184 / 0.12);
   --overlay-transcript-interviewer-border: rgb(148 163 184 / 0.34);
   --background: oklch(1 0 0);
@@ -166,8 +166,8 @@
   --overlay-border-soft: rgb(255 255 255 / 0.18);
   --overlay-border-highlight: rgb(255 255 255 / 0.28);
   --overlay-shadow: 0 24px 64px rgb(2 6 23 / 0.5);
-  --overlay-transcript-user-bg: rgb(245 158 11 / 0.16);
-  --overlay-transcript-user-border: rgb(245 158 11 / 0.4);
+  --overlay-transcript-user-bg: rgb(59 130 246 / 0.16);
+  --overlay-transcript-user-border: rgb(59 130 246 / 0.4);
   --overlay-transcript-interviewer-bg: rgb(148 163 184 / 0.14);
   --overlay-transcript-interviewer-border: rgb(148 163 184 / 0.36);
   --background: oklch(0.145 0 0);

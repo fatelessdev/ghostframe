@@ -38,7 +38,7 @@ export const RollingTranscript = ({ transcriptSegments }: Props) => {
               <span
                 className={cn(
                   "inline-flex h-1.5 w-1.5 rounded-full",
-                  isUser ? "bg-amber-500/80" : "bg-slate-400/80"
+                  isUser ? "bg-blue-400/80" : "bg-slate-400/80"
                 )}
                 aria-hidden="true"
               />
