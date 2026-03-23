@@ -352,8 +352,20 @@ const Settings = ({ onClose }: SettingsProps) => {
                             .map((doc) => (
                               <Card
                                 key={doc.id}
+                                data-clickable-rect="true"
+                                role="button"
+                                tabIndex={0}
                                 className="shadow-none select-none p-3 gap-0 group relative transition-all !bg-white/5 hover:!bg-white/10 !border-white/10 hover:!border-white/20 cursor-pointer"
                                 onClick={() => handleOpenChat(doc.id)}
+                                onKeyDown={(event) => {
+                                  if (
+                                    event.key === "Enter" ||
+                                    event.key === " "
+                                  ) {
+                                    event.preventDefault();
+                                    handleOpenChat(doc.id);
+                                  }
+                                }}
                               >
                                 <div className="flex items-center justify-between">
                                   <p className="line-clamp-1 text-sm text-white/90 mr-4">
