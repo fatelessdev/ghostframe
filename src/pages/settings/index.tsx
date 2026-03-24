@@ -21,7 +21,9 @@ import {
   AlwaysOnTopToggle,
   AppIconToggle,
   AutostartToggle,
+  ContentProtectionToggle,
   DisguiseMode,
+  ModelModeToggle,
   SystemAudioInterviewSettings,
 } from "./components";
 import {
@@ -422,6 +424,7 @@ const Settings = ({ onClose }: SettingsProps) => {
           {activeTab === "general" && (
             <div className="flex flex-col gap-6">
               <Theme />
+              <ContentProtectionToggle />
               <AutostartToggle />
               <AppIconToggle />
               <AlwaysOnTopToggle />
@@ -446,7 +449,12 @@ const Settings = ({ onClose }: SettingsProps) => {
           {activeTab === "screenshot" && <ScreenshotConfigs {...settings} />}
 
           {/* AI Providers Tab */}
-          {activeTab === "ai" && <AIProviders {...settings} />}
+          {activeTab === "ai" && (
+            <div className="flex flex-col gap-6">
+              <ModelModeToggle />
+              <AIProviders {...settings} />
+            </div>
+          )}
 
           {/* Speech to Text Tab */}
           {activeTab === "stt" && <STTProviders {...settings} />}

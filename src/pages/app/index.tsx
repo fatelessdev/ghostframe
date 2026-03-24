@@ -48,7 +48,7 @@ const resolveCustomShortcutView = (
 
 const App = () => {
   const { systemAudio } = useApp();
-  const { customizable, currentAIMode } = useAppContext();
+  const { customizable, currentAIMode, setCurrentAIMode } = useAppContext();
   const platform = getPlatform();
 
   const [contentProtected, setContentProtected] = useState<boolean>(true);
@@ -104,6 +104,12 @@ const App = () => {
       (event) => {
         const actionId = event.payload?.action;
         if (!actionId) {
+          return;
+        }
+
+        // Handle model toggle
+        if (actionId.trim().toLowerCase() === "toggle_click_through") {
+          handleToggleMode();
           return;
         }
 
@@ -270,6 +276,10 @@ const App = () => {
     await systemAudio.startCapture("manual");
   };
 
+  const handleToggleMode = () => {
+    setCurrentAIMode(currentAIMode === "P" ? "D" : "P");
+  };
+
     const openSettingsPanel = async () => {
       try {
         if (activeView === "settings") {
@@ -310,7 +320,8 @@ const App = () => {
               onStartInterview={() => {
                   void handleStartInterview();
                 }}
-                onOpenSettings={() => { void openSettingsPanel(); }}
+              onOpenSettings={() => { void openSettingsPanel(); }}
+              onToggleMode={handleToggleMode}
               />
           }
         >
