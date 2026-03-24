@@ -63,8 +63,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
   const [responseSettings, setResponseSettings] = useState(() =>
     getResponseSettings()
   );
-  const isMac = navigator.platform.toLowerCase().includes("mac");
-  const answerTriggerLabel = isMac ? "Cmd+Enter" : "Ctrl+Enter";
 
   useEffect(() => {
     const syncResponseSettings = () => {
@@ -202,10 +200,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       onClick={() => void onAnswerTrigger()}
                       disabled={isProcessing || isAIProcessing}
                       className="h-7 text-[10px] gap-1 px-2"
-                      title={`Send current transcript and screenshots (${answerTriggerLabel})`}
+                      title="Send current transcript and screenshots"
                     >
                       <SendIcon className="w-3 h-3" />
-                      {answerTriggerLabel} Send
+                      Send
                     </Button>
                   )}
 

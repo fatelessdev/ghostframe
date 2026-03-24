@@ -16,7 +16,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
 import { getPlatform } from "@/lib";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const CONTENT_PROTECTION_KEY = "content_protected";
 
@@ -58,10 +58,8 @@ const App = () => {
 
   const [contentProtected, setContentProtected] = useState<boolean>(true);
   const [activeView, setActiveView] = useState<InterviewOverlayView>("collapsed");
-  const [shortcutScreenshotCount, setShortcutScreenshotCount] =
-    useState<number>(0);
-  const [attachmentScreenshotCount, setAttachmentScreenshotCount] =
-    useState<number>(0);
+  const [isQuickPromptOpen, setIsQuickPromptOpen] = useState<boolean>(false);
+  const [quickPromptText, setQuickPromptText] = useState<string>("");
   const [lastConversationView, setLastConversationView] = useState<
     "response" | "transcripts"
   >("transcripts");
@@ -69,6 +67,8 @@ const App = () => {
   useClickableRects([activeView]);
 
   const wasCapturingRef = useRef<boolean>(Boolean(systemAudio?.capturing));
+  const quickPromptInputRef = useRef<HTMLInputElement | null>(null);
+  const quickPromptSendInFlightRef = useRef<boolean>(false);
 
   const isSessionActive =
     systemAudio?.capturing ||
@@ -76,9 +76,40 @@ const App = () => {
     systemAudio?.isAIProcessing ||
     false;
   const isRecording = Boolean(systemAudio?.capturing);
+  const hasStandaloneResponse =
+    Boolean(systemAudio?.isAIProcessing) ||
+    Boolean(systemAudio?.lastAIResponse) ||
+    Boolean(systemAudio?.error);
+  const canShowResponseView = isRecording || hasStandaloneResponse;
 
   const responseText = systemAudio?.lastAIResponse ?? "";
   const responseHasCode = /```[\s\S]*?```|`[^`\n]+`/.test(responseText);
+
+  const handleQuickPromptSend = useCallback(async () => {
+    if (!systemAudio || quickPromptSendInFlightRef.current) {
+      return;
+    }
+
+    const typedText = quickPromptText.trim();
+    if (!isRecording && !typedText) {
+      return;
+    }
+
+    quickPromptSendInFlightRef.current = true;
+    try {
+      setActiveView("response");
+
+      const sent = await systemAudio.onAnswerTrigger(typedText || undefined);
+      if (!sent) {
+        return;
+      }
+
+      setQuickPromptText("");
+      setIsQuickPromptOpen(false);
+    } finally {
+      quickPromptSendInFlightRef.current = false;
+    }
+  }, [isRecording, quickPromptText, systemAudio]);
 
   useEffect(() => {
     if (activeView === "response" || activeView === "transcripts") {
@@ -98,6 +129,11 @@ const App = () => {
 
   useEffect(() => {
     const unlistenAnswer = listen("trigger-answer", () => {
+      if (isQuickPromptOpen) {
+        void handleQuickPromptSend();
+        return;
+      }
+
       if (!isRecording) {
         return;
       }
@@ -134,23 +170,6 @@ const App = () => {
       }
     );
 
-    const unlistenScreenshot = listen("trigger-screenshot", () => {
-      setShortcutScreenshotCount((previousCount) => previousCount + 1);
-    });
-
-    const handleAttachmentCountChanged = (event: Event) => {
-      const customEvent = event as CustomEvent<{ count?: number }>;
-      const nextCount = customEvent.detail?.count;
-      if (typeof nextCount === "number" && Number.isFinite(nextCount)) {
-        setAttachmentScreenshotCount(Math.max(0, Math.floor(nextCount)));
-      }
-    };
-
-    window.addEventListener(
-      "completion-attachment-count-changed",
-      handleAttachmentCountChanged as EventListener
-    );
-
     return () => {
       unlistenAnswer
         .then((fn) => fn())
@@ -158,21 +177,59 @@ const App = () => {
       unlistenCustom
         .then((fn) => fn())
         .catch(() => {});
-      unlistenScreenshot
-        .then((fn) => fn())
-        .catch(() => {});
-      window.removeEventListener(
-        "completion-attachment-count-changed",
-        handleAttachmentCountChanged as EventListener
-      );
     };
-  }, [isRecording]);
+  }, [handleQuickPromptSend, isQuickPromptOpen, isRecording]);
 
   useEffect(() => {
-    if (!isRecording && (activeView === "response" || activeView === "transcripts")) {
+    if (
+      !isRecording &&
+      !hasStandaloneResponse &&
+      (activeView === "response" || activeView === "transcripts")
+    ) {
       setActiveView("collapsed");
     }
-  }, [activeView, isRecording]);
+  }, [activeView, hasStandaloneResponse, isRecording]);
+
+  useEffect(() => {
+    const unlistenFocus = listen("focus-text-input", () => {
+      setIsQuickPromptOpen(true);
+      setTimeout(() => {
+        quickPromptInputRef.current?.focus();
+      }, 40);
+    });
+
+    return () => {
+      unlistenFocus
+        .then((fn) => fn())
+        .catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isQuickPromptOpen) {
+      return;
+    }
+
+    const animationFrame = requestAnimationFrame(() => {
+      quickPromptInputRef.current?.focus();
+    });
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+    };
+  }, [isQuickPromptOpen]);
+
+  useEffect(() => {
+    const globalWindow = window as Window & {
+      __ghostframeQuickPromptOpen?: boolean;
+    };
+
+    globalWindow.__ghostframeQuickPromptOpen = isQuickPromptOpen;
+
+    return () => {
+      globalWindow.__ghostframeQuickPromptOpen = false;
+    };
+  }, [isQuickPromptOpen]);
 
   useEffect(() => {
     if (activeView === "collapsed") {
@@ -297,6 +354,23 @@ const App = () => {
     setCurrentAIMode(currentAIMode === "P" ? "D" : "P");
   };
 
+  const handleQuickPromptKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    const hasModifier = event.ctrlKey || event.metaKey;
+
+    if (hasModifier && event.key === "Enter") {
+      event.preventDefault();
+      void handleQuickPromptSend();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setIsQuickPromptOpen(false);
+    }
+  };
+
   useEffect(() => {
     const unlistenToggleModel = listen("toggle-model-mode", () => {
       toggleCurrentAIMode();
@@ -336,24 +410,38 @@ const App = () => {
           onSetViewMode={setActiveView}
           className="overlay-shell-width"
           topBar={
-            <OverlayTopBar
-              screenshotCount={Math.max(
-                systemAudio?.manualScreenshots.length ?? 0,
-                attachmentScreenshotCount,
-                shortcutScreenshotCount
-              )}
-              mode={currentAIMode}
-              isCapturing={Boolean(systemAudio?.capturing)}
-              onStartInterview={() => {
-                  void handleStartInterview();
-                }}
-              onOpenSettings={() => { void openSettingsPanel(); }}
-              onToggleMode={handleToggleMode}
+            <>
+              {isQuickPromptOpen ? (
+                <div className="pointer-events-none mb-2 flex justify-center">
+                  <div className="w-full max-w-[720px] pointer-events-auto">
+                    <input
+                      ref={quickPromptInputRef}
+                      value={quickPromptText}
+                      onChange={(event) => setQuickPromptText(event.target.value)}
+                      onKeyDown={handleQuickPromptKeyDown}
+                      placeholder="Type context/instruction..."
+                      className="overlay-panel-glass w-full rounded-2xl border border-white/[0.14] shadow-xl shadow-black/20 px-3.5 py-3 text-[12px] text-white/95 placeholder:text-white/45 outline-none ring-0 focus:outline-none focus:ring-0 focus:border-white/[0.2]"
+                      aria-label="Quick prompt input"
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              <OverlayTopBar
+                screenshotCount={systemAudio?.manualScreenshots.length ?? 0}
+                mode={currentAIMode}
+                isCapturing={Boolean(systemAudio?.capturing)}
+                onStartInterview={() => {
+                    void handleStartInterview();
+                  }}
+                onOpenSettings={() => { void openSettingsPanel(); }}
+                onToggleMode={handleToggleMode}
               />
+            </>
           }
         >
 
-          {activeView === "response" && isRecording ? (
+          {activeView === "response" && canShowResponseView ? (
             <ResponseView>
               {systemAudio?.error ? (
                 <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">

@@ -625,43 +625,65 @@ export function useSystemAudio() {
     ]
   );
 
-  const processPendingAnswer = useCallback(async () => {
-    if (!capturing || answerTriggerInFlightRef.current) {
-      return;
-    }
+  const processPendingAnswer = useCallback(
+    async (typedInstruction?: string): Promise<boolean> => {
+      const trimmedInstruction = typedInstruction?.trim() ?? "";
 
-    answerTriggerInFlightRef.current = true;
-    setIsProcessing(true);
-    setError("");
+      if ((!capturing && !trimmedInstruction) || answerTriggerInFlightRef.current) {
+        return false;
+      }
 
-    try {
-      const triggerTs = Date.now();
-      const mergedPrompt = mergeTranscriptForPrompt(segmentsRef.current, triggerTs);
-      const prompt = mergedPrompt.trim();
+      answerTriggerInFlightRef.current = true;
+      setIsProcessing(true);
+      setError("");
 
-      if (!prompt) {
+      try {
+        const triggerTs = Date.now();
+        let prompt = "";
+
+        if (capturing) {
+          const mergedPrompt = mergeTranscriptForPrompt(
+            segmentsRef.current,
+            triggerTs
+          ).trim();
+
+          if (!mergedPrompt && !trimmedInstruction) {
+            setIsProcessing(false);
+            setError("No transcript available yet. Keep speaking and try again.");
+            return false;
+          }
+
+          prompt = mergedPrompt;
+          if (trimmedInstruction) {
+            prompt = prompt
+              ? `${prompt}\n\nInstruction: ${trimmedInstruction}`
+              : trimmedInstruction;
+          }
+        } else {
+          prompt = trimmedInstruction;
+        }
+
+        const imagesBase64 = buildImagesPayload();
+        const sent = await runAI(prompt, imagesBase64);
+        if (sent && capturing) {
+          applySegmentUpdate((previous) => retainUnsentSegments(previous, triggerTs));
+          clearPendingRealtimeState();
+        }
+
+        return sent;
+      } finally {
+        answerTriggerInFlightRef.current = false;
         setIsProcessing(false);
-        setError("No transcript available yet. Keep speaking and try again.");
-        return;
       }
-
-      const imagesBase64 = buildImagesPayload();
-      const sent = await runAI(prompt, imagesBase64);
-      if (sent) {
-        applySegmentUpdate((previous) => retainUnsentSegments(previous, triggerTs));
-        clearPendingRealtimeState();
-      }
-    } finally {
-      answerTriggerInFlightRef.current = false;
-      setIsProcessing(false);
-    }
-  }, [
-    applySegmentUpdate,
-    buildImagesPayload,
-    capturing,
-    clearPendingRealtimeState,
-    runAI,
-  ]);
+    },
+    [
+      applySegmentUpdate,
+      buildImagesPayload,
+      capturing,
+      clearPendingRealtimeState,
+      runAI,
+    ]
+  );
 
   const closeRealtimeSystems = useCallback(
     (reason: string) => {
@@ -974,26 +996,27 @@ export function useSystemAudio() {
     });
   }, []);
 
-  const onAnswerTrigger = useCallback(async () => {
-    if (!capturing) {
-      return;
-    }
+  const onAnswerTrigger = useCallback(
+    async (typedInstruction?: string): Promise<boolean> => {
+      if (capturing) {
+        commitBothStreams();
+        commitLatestPartialTranscripts({
+          latestPartialInterviewerRef,
+          latestPartialUserRef,
+          pendingCommitEchoRef,
+          appendCommittedTranscript,
+        });
+      }
 
-    commitBothStreams();
-    commitLatestPartialTranscripts({
-      latestPartialInterviewerRef,
-      latestPartialUserRef,
-      pendingCommitEchoRef,
+      return processPendingAnswer(typedInstruction);
+    },
+    [
       appendCommittedTranscript,
-    });
-
-    await processPendingAnswer();
-  }, [
-    appendCommittedTranscript,
-    capturing,
-    commitBothStreams,
-    processPendingAnswer,
-  ]);
+      capturing,
+      commitBothStreams,
+      processPendingAnswer,
+    ]
+  );
 
   useEffect(() => {
     const globalWindow = window as Window & {

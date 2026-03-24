@@ -148,8 +148,8 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                 {/* Transcript text */}
                 <p 
                   className={cn(
-                    "text-white/75 leading-relaxed tracking-wide",
-                    segment.isLive && "text-white/60"
+                    "text-white/84 leading-relaxed tracking-wide",
+                    segment.isLive && "text-white/68"
                   )}
                 >
                   {segment.text}

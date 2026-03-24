@@ -3,16 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const kbdVariants = cva(
-  "inline-flex items-center justify-center font-medium leading-none select-none",
+  "text-mono inline-flex items-center justify-center font-semibold leading-none select-none",
   {
     variants: {
       variant: {
         default:
-          "bg-white/10 text-white/80 rounded border border-white/15 shadow-sm",
+          "bg-white/14 text-white/90 rounded border border-white/20 shadow-sm",
         ghost:
-          "bg-white/5 text-white/60 rounded",
+          "bg-white/8 text-white/80 rounded border border-white/15",
         outline:
-          "bg-transparent border border-white/20 text-white/70 rounded",
+          "bg-transparent border border-white/25 text-white/85 rounded",
       },
       size: {
         default: "text-[10px] px-1.5 py-0.5 min-w-[1.25rem]",

@@ -1,6 +1,5 @@
 import { ReactNode, useRef, createContext, useContext } from "react";
 import { InterviewOverlayView } from "./types";
-import { Kbd } from "@/components/ui/kbd";
 import { useScrollState, type ScrollState } from "@/hooks";
 
 // Context to share scroll state from child views to panel
@@ -73,7 +72,6 @@ export const OverlayPanel = ({
               />
             )}
             <span className="pl-1">Response</span>
-            <Kbd size="sm" variant="ghost">Alt+1</Kbd>
           </button>
           <button
             role="tab"
@@ -97,7 +95,6 @@ export const OverlayPanel = ({
               />
             )}
             <span className="pl-1">Transcripts</span>
-            <Kbd size="sm" variant="ghost">Alt+2</Kbd>
           </button>
         </div>
 
@@ -105,39 +102,6 @@ export const OverlayPanel = ({
         <span className="text-white/30 text-[11px] tracking-wide">
           {viewMode === "response" ? "AI Response" : "Live Transcripts"}
         </span>
-      </div>
-    );
-  };
-
-  // Render footer shortcuts based on scroll state
-  const renderFooterShortcuts = () => {
-    const { hasOverflow, canScrollUp, canScrollDown } = scrollState;
-
-    // No overflow = no shortcuts needed
-    if (!hasOverflow) {
-      return null;
-    }
-
-    return (
-      <div className="absolute bottom-3 left-0 right-0 pointer-events-none z-10">
-        <div className="font-abel flex justify-center gap-2.5 pointer-events-auto animate-in fade-in-0 slide-in-from-bottom-2 duration-300">
-          {canScrollUp && (
-            <div className="flex items-center gap-2 text-[11px] text-white/45 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/[0.06] shadow-lg shadow-black/20 transition-all duration-200 hover:bg-black/60 hover:text-white/55">
-              <span className="tracking-wide">Scroll Up</span>
-              <Kbd size="sm" variant="ghost">Ctrl+Shift+Up</Kbd>
-            </div>
-          )}
-          {canScrollDown && (
-            <div className="flex items-center gap-2 text-[11px] text-white/45 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/[0.06] shadow-lg shadow-black/20 transition-all duration-200 hover:bg-black/60 hover:text-white/55">
-              <span className="tracking-wide">Scroll Down</span>
-              <Kbd size="sm" variant="ghost">Ctrl+Shift+Down</Kbd>
-            </div>
-          )}
-          <div className="flex items-center gap-2 text-[11px] text-white/45 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/[0.06] shadow-lg shadow-black/20 transition-all duration-200 hover:bg-black/60 hover:text-white/55">
-            <span className="tracking-wide">Start Over</span>
-            <Kbd size="sm" variant="ghost">Ctrl+G</Kbd>
-          </div>
-        </div>
       </div>
     );
   };
@@ -174,8 +138,6 @@ export const OverlayPanel = ({
                 {children}
               </div>
 
-              {/* Footer controls - only when scrollable */}
-              {viewMode !== "settings" && renderFooterShortcuts()}
             </div>
           </>
         ) : null}

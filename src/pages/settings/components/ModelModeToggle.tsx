@@ -1,4 +1,4 @@
-import { Switch, Label, Header } from "@/components";
+import { Switch, Label, Header, Kbd } from "@/components";
 import { ZapIcon, SparklesIcon } from "lucide-react";
 import { useApp } from "@/contexts";
 
@@ -49,7 +49,7 @@ export const ModelModeToggle = ({ className }: ModelModeToggleProps) => {
         />
       </div>
       <p className="text-[10px] text-muted-foreground/70 mt-1">
-        Shortcut: <kbd className="px-1 py-0.5 rounded bg-white/5 text-[9px]">Ctrl+M</kbd> to toggle
+        Shortcut: <Kbd size="sm" variant="ghost">Ctrl+M</Kbd> to toggle
       </p>
     </div>
   );
