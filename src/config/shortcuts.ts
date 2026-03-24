@@ -2,6 +2,16 @@ import { ShortcutAction } from "@/types";
 
 export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
   {
+    id: "emergency_erase",
+    name: "Emergency Erase",
+    description: "Panic shortcut to wipe data and quit immediately",
+    defaultKey: {
+      macos: "cmd+shift+e",
+      windows: "ctrl+shift+e",
+      linux: "ctrl+shift+e",
+    },
+  },
+  {
     id: "toggle_dashboard",
     name: "Toggle Dashboard",
     description: "Open/Close the dashboard window",
@@ -42,9 +52,9 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
-    id: "toggle_click_through",
-    name: "Toggle Click-Through",
-    description: "Toggle passive HUD mode (clicks pass through overlay)",
+    id: "toggle_model_mode",
+    name: "Toggle Model Mode",
+    description: "Switch between Dumb and Pro models",
     defaultKey: {
       macos: "cmd+m",
       windows: "ctrl+m",
@@ -62,6 +72,67 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "answer_trigger",
+    name: "Send Interview Context",
+    description:
+      "In System Audio mode, send current transcript and screenshots to AI",
+    defaultKey: {
+      macos: "cmd+enter",
+      windows: "ctrl+enter",
+      linux: "ctrl+enter",
+    },
+  },
+  {
+    id: "view_response",
+    name: "Show Response View",
+    description: "Switch interview shell to the response view",
+    defaultKey: {
+      macos: "alt+1",
+      windows: "alt+1",
+      linux: "alt+1",
+    },
+  },
+  {
+    id: "view_transcripts",
+    name: "Show Transcripts View",
+    description: "Switch interview shell to the transcripts view",
+    defaultKey: {
+      macos: "alt+2",
+      windows: "alt+2",
+      linux: "alt+2",
+    },
+  },
+  {
+    id: "view_settings",
+    name: "Show Settings View",
+    description: "Switch interview shell to the settings view",
+    defaultKey: {
+      macos: "alt+3",
+      windows: "alt+3",
+      linux: "alt+3",
+    },
+  },
+  {
+    id: "scroll_response_up",
+    name: "Scroll Response Up",
+    description: "Scroll the response view up",
+    defaultKey: {
+      macos: "cmd+shift+up",
+      windows: "ctrl+shift+up",
+      linux: "ctrl+shift+up",
+    },
+  },
+  {
+    id: "scroll_response_down",
+    name: "Scroll Response Down",
+    description: "Scroll the response view down",
+    defaultKey: {
+      macos: "cmd+shift+down",
+      windows: "ctrl+shift+down",
+      linux: "ctrl+shift+down",
+    },
+  },
+  {
     id: "audio_recording",
     name: "Voice Input",
     description: "Start voice recording",
@@ -76,9 +147,9 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     name: "Screenshot",
     description: "Capture screenshot",
     defaultKey: {
-      macos: "cmd+shift+s",
-      windows: "ctrl+shift+s",
-      linux: "ctrl+shift+s",
+      macos: "cmd+h",
+      windows: "ctrl+h",
+      linux: "ctrl+h",
     },
   },
 ];

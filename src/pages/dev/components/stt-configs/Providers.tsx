@@ -12,6 +12,9 @@ export const Providers = ({
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const [providerVariablesCache, setProviderVariablesCache] = useState<
+    Record<string, Record<string, string>>
+  >({});
 
   useEffect(() => {
     if (selectedSttProvider?.provider) {
@@ -23,7 +26,18 @@ export const Providers = ({
         setLocalSelectedProvider(json as ResultJSON);
       }
     }
-  }, [selectedSttProvider?.provider]);
+  }, [selectedSttProvider?.provider, allSttProviders]);
+
+  useEffect(() => {
+    if (!selectedSttProvider?.provider) {
+      return;
+    }
+
+    setProviderVariablesCache((previous) => ({
+      ...previous,
+      [selectedSttProvider.provider]: selectedSttProvider.variables,
+    }));
+  }, [selectedSttProvider?.provider, selectedSttProvider?.variables]);
 
   const findKeyAndValue = (key: string) => {
     return sttVariables?.find((v) => v?.key === key);
@@ -60,9 +74,14 @@ export const Providers = ({
           })}
           placeholder="Choose your STT provider"
           onChange={(value) => {
+            const nextVariables =
+              providerVariablesCache[value] ??
+              (value === selectedSttProvider?.provider
+                ? selectedSttProvider?.variables ?? {}
+                : {});
             onSetSelectedSttProvider({
               provider: value,
-              variables: {},
+              variables: nextVariables,
             });
           }}
         />

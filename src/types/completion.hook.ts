@@ -6,13 +6,13 @@ import {
   ChangeEvent,
   ClipboardEvent,
 } from "react";
-// import {
-//   AttachedFile,
-//   ChatMessage,
-//   ChatConversation,
-//   CompletionState,
-//   ScreenshotConfig,
-// } from "@/types";
+import {
+  type AttachedFile,
+  type ChatConversation,
+  type ChatMessage,
+  type CompletionState,
+  type ScreenshotConfig,
+} from "@/types";
 
 /**
  * Type definition for the useCompletion hook return value
@@ -39,7 +39,7 @@ export interface UseCompletionReturn {
 
   // File attachment management
   /** Array of currently attached files */
-  attachedFiles: any[];
+  attachedFiles: AttachedFile[];
   /** Function to add a file to attachments */
   addFile: (file: File) => Promise<void>;
   /** Function to remove a file by its ID */
@@ -57,7 +57,7 @@ export interface UseCompletionReturn {
 
   // State management
   /** Direct state setter for advanced use cases */
-  setState: Dispatch<SetStateAction<any>>;
+  setState: Dispatch<SetStateAction<CompletionState>>;
 
   // Voice Activity Detection (VAD) and microphone
   /** Whether Voice Activity Detection is enabled */
@@ -73,9 +73,9 @@ export interface UseCompletionReturn {
   /** ID of the currently active conversation, null for new conversation */
   currentConversationId: string | null;
   /** Array of messages in the current conversation */
-  conversationHistory: any[];
+  conversationHistory: ChatMessage[];
   /** Function to load an existing conversation */
-  loadConversation: (conversation: any) => void;
+  loadConversation: (conversation: ChatConversation) => void;
   /** Function to start a new conversation (clears current state) */
   startNewConversation: () => void;
 
@@ -91,9 +91,9 @@ export interface UseCompletionReturn {
 
   // Screenshot functionality
   /** Current screenshot configuration settings */
-  screenshotConfiguration: any;
+  screenshotConfiguration: ScreenshotConfig;
   /** Function to update screenshot configuration */
-  setScreenshotConfiguration: Dispatch<SetStateAction<any>>;
+  setScreenshotConfiguration: Dispatch<SetStateAction<ScreenshotConfig>>;
   /** Function to handle screenshot submission with optional prompt */
   handleScreenshotSubmit: (base64: string, prompt?: string) => Promise<void>;
 
@@ -110,8 +110,6 @@ export interface UseCompletionReturn {
   isPopoverOpen: boolean;
   /** Ref for the scroll area container (for auto-scrolling) */
   scrollAreaRef: RefObject<HTMLDivElement | null>;
-  /** Function to resize the application window based on UI state */
-  resizeWindow: (expanded: boolean) => Promise<void>;
 
   // Files popover management
   /** Whether the files attachment popover is open */

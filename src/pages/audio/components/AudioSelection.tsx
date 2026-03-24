@@ -207,7 +207,7 @@ export const AudioSelection = () => {
 
           {/* Permission Notice */}
           {devices?.input?.length === 0 && !isLoadingDevices && (
-            <div className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-md">
+            <div className="text-xs text-blue-400 bg-blue-500/10 p-3 rounded-md border border-blue-400/20">
               <strong>
                 ⚠️ Click the refresh button to load your microphone devices.
               </strong>{" "}
@@ -306,7 +306,7 @@ export const AudioSelection = () => {
 
           {/* Permission Notice */}
           {devices?.output?.length === 0 && !isLoadingDevices && (
-            <div className="text-xs text-amber-500 bg-amber-500/10 p-3 rounded-md">
+            <div className="text-xs text-blue-400 bg-blue-500/10 p-3 rounded-md border border-blue-400/20">
               <strong>
                 ⚠️ Click the refresh button to load your system audio devices.
               </strong>{" "}

@@ -6,7 +6,7 @@ import {
   Markdown,
   Textarea,
 } from "@/components";
-import { getConversationById } from "@/lib";
+import { getConversationById, toDateKey, formatDisplayDate, formatDisplayTime } from "@/lib";
 import { ChatConversation } from "@/types";
 import {
   Download,
@@ -20,7 +20,6 @@ import {
   Loader2,
 } from "lucide-react";
 import { useState, useEffect } from "react";
-import moment from "moment";
 import { useParams, useNavigate } from "react-router-dom";
 import { PageLayout } from "@/layouts";
 import { useHistory, useChatCompletion } from "@/hooks";
@@ -164,12 +163,12 @@ const View = () => {
         />
       ) : (
         <div className="flex flex-col gap-4 pb-24 px-2">
-          {messages?.messages.map((message, index, array) => {
+          {messages?.messages.slice().map((message, index, array) => {
             const isUser = message.role === "user";
             const showDate =
               index === 0 ||
-              moment(message.timestamp).format("YYYY-MM-DD") !==
-                moment(array[index - 1]?.timestamp).format("YYYY-MM-DD");
+              toDateKey(message.timestamp) !==
+                toDateKey(array[index - 1]?.timestamp);
 
             return (
               <div key={message.id}>
@@ -179,7 +178,7 @@ const View = () => {
                     variant={"outline"}
                     className="flex items-center justify-center my-4 w-fit mx-auto"
                   >
-                    {moment(message.timestamp).format("ddd, MMM D")}
+                    {formatDisplayDate(message.timestamp)}
                   </Badge>
                 )}
 
@@ -221,7 +220,7 @@ const View = () => {
                         isUser ? "-mr-1" : "-ml-1"
                       }`}
                     >
-                      {moment(message.timestamp).format("hh:mm A")}
+                      {formatDisplayTime(message.timestamp)}
                     </Badge>
                   </div>
 

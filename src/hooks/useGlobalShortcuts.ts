@@ -9,6 +9,9 @@ let globalEventListeners: {
   audio?: UnlistenFn;
   screenshot?: UnlistenFn;
   systemAudio?: UnlistenFn;
+  answerTrigger?: UnlistenFn;
+  responseScrollUp?: UnlistenFn;
+  responseScrollDown?: UnlistenFn;
   customShortcut?: UnlistenFn;
   registrationError?: UnlistenFn;
 } = {};
@@ -21,13 +24,78 @@ let globalInputRef: HTMLInputElement | null = null;
 let globalAudioCallback: (() => void) | null = null;
 let globalScreenshotCallback: (() => void | Promise<void>) | null = null;
 let globalSystemAudioCallback: (() => void) | null = null;
+let globalAnswerTriggerCallback: (() => void | Promise<void>) | null = null;
+let globalResponseScrollUpCallback: (() => void) | null = null;
+let globalResponseScrollDownCallback: (() => void) | null = null;
 let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
+
+const ROUTE_HANDLED_CUSTOM_ACTIONS = new Set([
+  "view_response",
+  "view_transcripts",
+  "view_settings",
+]);
+
+// Global hook consumer count for singleton listener lifecycle
+let globalShortcutsConsumerCount = 0;
+let globalListenersReady = false;
+let globalListenersSetupInProgress = false;
+let globalListenersSetupGeneration = 0;
+
+const clearGlobalResponseScrollCallbacks = (): void => {
+  globalResponseScrollUpCallback = null;
+  globalResponseScrollDownCallback = null;
+};
+
+const isCurrentSetup = (setupGeneration: number): boolean => {
+  return (
+    setupGeneration === globalListenersSetupGeneration &&
+    globalShortcutsConsumerCount > 0
+  );
+};
+
+const cleanupGlobalEventListeners = (): void => {
+  const listenerCleanupMap: Array<{
+    key: keyof typeof globalEventListeners;
+    label: string;
+  }> = [
+    { key: "focus", label: "focus" },
+    { key: "audio", label: "audio" },
+    { key: "screenshot", label: "screenshot" },
+    { key: "systemAudio", label: "system audio" },
+    { key: "answerTrigger", label: "answer trigger" },
+    { key: "responseScrollUp", label: "response scroll up" },
+    { key: "responseScrollDown", label: "response scroll down" },
+    { key: "customShortcut", label: "custom shortcut" },
+    {
+      key: "registrationError",
+      label: "shortcut registration error",
+    },
+  ];
+
+  listenerCleanupMap.forEach(({ key, label }) => {
+    const unlisten = globalEventListeners[key];
+    if (!unlisten) {
+      return;
+    }
+
+    try {
+      unlisten();
+    } catch (error) {
+      console.warn(`Error cleaning up ${label} listener:`, error);
+    }
+
+    delete globalEventListeners[key];
+  });
+};
 
 export const useGlobalShortcuts = () => {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const audioCallbackRef = useRef<(() => void) | null>(null);
   const screenshotCallbackRef = useRef<(() => void) | null>(null);
   const systemAudioCallbackRef = useRef<(() => void) | null>(null);
+  const answerTriggerCallbackRef = useRef<(() => void) | null>(null);
+  const responseScrollUpCallbackRef = useRef<(() => void) | null>(null);
+  const responseScrollDownCallbackRef = useRef<(() => void) | null>(null);
   const customShortcutCallbacksRef = useRef<Map<string, () => void>>(new Map());
 
   const checkShortcutsRegistered = useCallback(async (): Promise<boolean> => {
@@ -87,10 +155,63 @@ export const useGlobalShortcuts = () => {
     []
   );
 
+  const unregisterScreenshotCallback = useCallback(() => {
+    const ownedCallback = screenshotCallbackRef.current;
+    screenshotCallbackRef.current = null;
+
+    if (ownedCallback && globalScreenshotCallback === ownedCallback) {
+      globalScreenshotCallback = null;
+    }
+  }, []);
+
   // Register system audio callback
   const registerSystemAudioCallback = useCallback((callback: () => void) => {
     systemAudioCallbackRef.current = callback;
     globalSystemAudioCallback = callback;
+  }, []);
+
+  const registerAnswerTriggerCallback = useCallback(
+    (callback: () => void | Promise<void>) => {
+      answerTriggerCallbackRef.current = callback;
+      globalAnswerTriggerCallback = callback;
+    },
+    []
+  );
+
+  const registerResponseScrollUpCallback = useCallback((callback: () => void) => {
+    // Single-consumer callback model: latest registration owns this callback.
+    responseScrollUpCallbackRef.current = callback;
+    globalResponseScrollUpCallback = callback;
+  }, []);
+
+  const registerResponseScrollDownCallback = useCallback((callback: () => void) => {
+    // Single-consumer callback model: latest registration owns this callback.
+    responseScrollDownCallbackRef.current = callback;
+    globalResponseScrollDownCallback = callback;
+  }, []);
+
+  const unregisterResponseScrollUpCallback = useCallback(() => {
+    const ownedCallback = responseScrollUpCallbackRef.current;
+    responseScrollUpCallbackRef.current = null;
+
+    if (
+      ownedCallback &&
+      globalResponseScrollUpCallback === ownedCallback
+    ) {
+      globalResponseScrollUpCallback = null;
+    }
+  }, []);
+
+  const unregisterResponseScrollDownCallback = useCallback(() => {
+    const ownedCallback = responseScrollDownCallbackRef.current;
+    responseScrollDownCallbackRef.current = null;
+
+    if (
+      ownedCallback &&
+      globalResponseScrollDownCallback === ownedCallback
+    ) {
+      globalResponseScrollDownCallback = null;
+    }
   }, []);
 
   // Register custom shortcut callback
@@ -110,54 +231,32 @@ export const useGlobalShortcuts = () => {
 
   // Setup event listeners using global singleton
   useEffect(() => {
+    globalShortcutsConsumerCount += 1;
+    const shouldSetupListeners =
+      !globalListenersReady &&
+      !globalListenersSetupInProgress;
+
+    if (!shouldSetupListeners) {
+      return () => {
+        globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
+        if (globalShortcutsConsumerCount === 0) {
+          globalListenersSetupGeneration += 1;
+          globalListenersSetupInProgress = false;
+          globalListenersReady = false;
+          cleanupGlobalEventListeners();
+          clearGlobalResponseScrollCallbacks();
+        }
+      };
+    }
+
+    globalListenersSetupInProgress = true;
+    const setupGeneration = ++globalListenersSetupGeneration;
+    let isActive = true;
+
     const setupEventListeners = async () => {
       try {
         // Clean up any existing global listeners first
-        if (globalEventListeners.focus) {
-          try {
-            globalEventListeners.focus();
-          } catch (error) {
-            console.warn("Error cleaning up focus listener:", error);
-          }
-        }
-        if (globalEventListeners.audio) {
-          try {
-            globalEventListeners.audio();
-          } catch (error) {
-            console.warn("Error cleaning up audio listener:", error);
-          }
-        }
-        if (globalEventListeners.screenshot) {
-          try {
-            globalEventListeners.screenshot();
-          } catch (error) {
-            console.warn("Error cleaning up screenshot listener:", error);
-          }
-        }
-        if (globalEventListeners.systemAudio) {
-          try {
-            globalEventListeners.systemAudio();
-          } catch (error) {
-            console.warn("Error cleaning up system audio listener:", error);
-          }
-        }
-        if (globalEventListeners.customShortcut) {
-          try {
-            globalEventListeners.customShortcut();
-          } catch (error) {
-            console.warn("Error cleaning up custom shortcut listener:", error);
-          }
-        }
-        if (globalEventListeners.registrationError) {
-          try {
-            globalEventListeners.registrationError();
-          } catch (error) {
-            console.warn(
-              "Error cleaning up shortcut registration error listener:",
-              error
-            );
-          }
-        }
+        cleanupGlobalEventListeners();
 
         // Listen for focus text input event
         const unlistenFocus = await listen("focus-text-input", () => {
@@ -167,6 +266,10 @@ export const useGlobalShortcuts = () => {
             }
           }, 100);
         });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenFocus();
+          return;
+        }
         globalEventListeners.focus = unlistenFocus;
 
         // Listen for audio recording event
@@ -175,6 +278,10 @@ export const useGlobalShortcuts = () => {
             globalAudioCallback();
           }
         });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenAudio();
+          return;
+        }
         globalEventListeners.audio = unlistenAudio;
 
         // Listen for screenshot trigger event with debouncing
@@ -210,6 +317,10 @@ export const useGlobalShortcuts = () => {
             );
           }
         });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenScreenshot();
+          return;
+        }
         globalEventListeners.screenshot = unlistenScreenshot;
 
         // Listen for system audio toggle event
@@ -218,7 +329,56 @@ export const useGlobalShortcuts = () => {
             globalSystemAudioCallback();
           }
         });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenSystemAudio();
+          return;
+        }
         globalEventListeners.systemAudio = unlistenSystemAudio;
+
+        const unlistenAnswerTrigger = await listen("trigger-answer", () => {
+          if (globalAnswerTriggerCallback) {
+            try {
+              Promise.resolve(globalAnswerTriggerCallback()).catch((error) => {
+                console.error("Answer trigger shortcut callback failed:", error);
+              });
+            } catch (error) {
+              console.error(
+                "Failed to run answer trigger shortcut callback:",
+                error
+              );
+            }
+          }
+        });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenAnswerTrigger();
+          return;
+        }
+        globalEventListeners.answerTrigger = unlistenAnswerTrigger;
+
+        const unlistenResponseScrollUp = await listen("scroll-response-up", () => {
+          if (globalResponseScrollUpCallback) {
+            globalResponseScrollUpCallback();
+          }
+        });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenResponseScrollUp();
+          return;
+        }
+        globalEventListeners.responseScrollUp = unlistenResponseScrollUp;
+
+        const unlistenResponseScrollDown = await listen(
+          "scroll-response-down",
+          () => {
+            if (globalResponseScrollDownCallback) {
+              globalResponseScrollDownCallback();
+            }
+          }
+        );
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenResponseScrollDown();
+          return;
+        }
+        globalEventListeners.responseScrollDown = unlistenResponseScrollDown;
 
         // Listen for custom shortcut events
         const unlistenCustomShortcut = await listen<{ action: string }>(
@@ -228,13 +388,17 @@ export const useGlobalShortcuts = () => {
             const callback = globalCustomShortcutCallbacks.get(actionId);
             if (callback) {
               callback();
-            } else {
+            } else if (!ROUTE_HANDLED_CUSTOM_ACTIONS.has(actionId)) {
               console.warn(
                 `No callback registered for custom shortcut: ${actionId}`
               );
             }
           }
         );
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenCustomShortcut();
+          return;
+        }
         globalEventListeners.customShortcut = unlistenCustomShortcut;
 
         const unlistenRegistrationError = await listen<
@@ -246,13 +410,37 @@ export const useGlobalShortcuts = () => {
             })
           );
         });
+        if (!isActive || !isCurrentSetup(setupGeneration)) {
+          unlistenRegistrationError();
+          return;
+        }
         globalEventListeners.registrationError = unlistenRegistrationError;
+        if (!isCurrentSetup(setupGeneration)) {
+          return;
+        }
+        globalListenersReady = true;
       } catch (error) {
+        cleanupGlobalEventListeners();
+        globalListenersReady = false;
         console.error("Failed to setup event listeners:", error);
+      } finally {
+        globalListenersSetupInProgress = false;
       }
     };
 
     setupEventListeners();
+
+    return () => {
+      globalShortcutsConsumerCount = Math.max(0, globalShortcutsConsumerCount - 1);
+      if (globalShortcutsConsumerCount === 0) {
+        globalListenersSetupGeneration += 1;
+        globalListenersSetupInProgress = false;
+        globalListenersReady = false;
+        isActive = false;
+        cleanupGlobalEventListeners();
+        clearGlobalResponseScrollCallbacks();
+      }
+    };
   }, []);
 
   return {
@@ -262,7 +450,13 @@ export const useGlobalShortcuts = () => {
     registerInputRef,
     registerAudioCallback,
     registerScreenshotCallback,
+    unregisterScreenshotCallback,
     registerSystemAudioCallback,
+    registerAnswerTriggerCallback,
+    registerResponseScrollUpCallback,
+    registerResponseScrollDownCallback,
+    unregisterResponseScrollUpCallback,
+    unregisterResponseScrollDownCallback,
     registerCustomShortcutCallback,
     unregisterCustomShortcutCallback,
   };

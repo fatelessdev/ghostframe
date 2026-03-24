@@ -43,9 +43,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SWP_NOOWNERZORDER, SWP_NOZORDER, WS_EX_APPWINDOW, WS_EX_TOOLWINDOW,
 };
 
-// The offset from the top of the screen to the window
-const TOP_OFFSET: i32 = 54;
-
 /// Sets up the main window with custom positioning
 pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Try different possible window labels
@@ -57,7 +54,7 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
         })
         .ok_or("No window found")?;
 
-    position_window_top_center(&window, TOP_OFFSET)?;
+    size_main_window_to_overlay_bounds(&window).map_err(std::io::Error::other)?;
 
     sync_main_window(&app.handle()).map_err(std::io::Error::other)?;
 
@@ -71,13 +68,6 @@ pub fn setup_main_window(app: &mut App) -> Result<(), Box<dyn std::error::Error>
         match event {
             WindowEvent::Focused(false) => {
                 let _ = sync_window_topmost(&app_handle, &window_clone);
-
-                if app_handle
-                    .state::<WindowPreferencesState>()
-                    .main_window_visible()
-                {
-                    let _ = show_main_window(&app_handle, false);
-                }
             }
             _ => {}
         }
@@ -159,6 +149,8 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>, focus_input: bool) -> Re
         .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
 
+    size_main_window_to_overlay_bounds(&window)?;
+
     app.state::<WindowPreferencesState>()
         .set_main_window_visible(true);
 
@@ -189,12 +181,36 @@ pub fn show_main_window<R: Runtime>(app: &AppHandle<R>, focus_input: bool) -> Re
 
     // Re-apply after show as well because Windows may rewrite styles when a
     // hidden window becomes visible.
+    size_main_window_to_overlay_bounds(&window)?;
     sync_main_window(app)?;
 
     if focus_input {
         window
             .emit("focus-text-input", serde_json::json!({}))
             .map_err(|e| format!("Failed to emit focus-text-input event: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn size_main_window_to_overlay_bounds<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), String> {
+    use tauri::{PhysicalPosition, Position, Size};
+
+    if let Some(monitor) = window
+        .current_monitor()
+        .map_err(|e| format!("Failed to get current monitor: {}", e))?
+        .or(
+            window
+                .primary_monitor()
+                .map_err(|e| format!("Failed to get primary monitor: {}", e))?,
+        )
+    {
+        window
+            .set_size(Size::Physical(*monitor.size()))
+            .map_err(|e| format!("Failed to set overlay size: {}", e))?;
+        window
+            .set_position(Position::Physical(PhysicalPosition { x: 0, y: 0 }))
+            .map_err(|e| format!("Failed to set overlay position: {}", e))?;
     }
 
     Ok(())
@@ -341,72 +357,23 @@ pub fn center_window_completely(window: &WebviewWindow) -> Result<(), Box<dyn st
 }
 
 #[tauri::command]
-pub fn set_window_height(
-    window: tauri::WebviewWindow,
-    height: u32,
-    width: Option<u32>,
-) -> Result<(), String> {
-    use tauri::{LogicalPosition, LogicalSize, Position, Size};
-
-    let mut target_width = width.unwrap_or(600) as f64;
-    let mut target_height = height as f64;
-
-    if let Some(monitor) = window
-        .current_monitor()
-        .map_err(|e| format!("Failed to get current monitor: {}", e))?
-        .or(
-            window
-                .primary_monitor()
-                .map_err(|e| format!("Failed to get primary monitor: {}", e))?,
-        )
-    {
-        let scale_factor = monitor.scale_factor();
-        let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
-
-        // Keep a small margin so the panel never touches the screen edges.
-        target_width = target_width.min((monitor_size.width - 16.0).max(320.0));
-        target_height = target_height.min((monitor_size.height - 16.0).max(200.0));
-    }
-
-    let new_size = LogicalSize::new(target_width, target_height);
-    window
-        .set_size(Size::Logical(new_size))
-        .map_err(|e| format!("Failed to resize window: {}", e))?;
-
-    if let Some(monitor) = window
-        .current_monitor()
-        .map_err(|e| format!("Failed to get current monitor: {}", e))?
-        .or(
-            window
-                .primary_monitor()
-                .map_err(|e| format!("Failed to get primary monitor: {}", e))?,
-        )
-    {
-        let scale_factor = monitor.scale_factor();
-        let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
-        let current_position = window
-            .outer_position()
-            .map_err(|e| format!("Failed to get window position: {}", e))?
-            .to_logical::<f64>(scale_factor);
-
-        let centered_x = ((monitor_size.width - target_width) / 2.0).max(0.0);
-        let max_y = (monitor_size.height - target_height).max(0.0);
-        let clamped_y = current_position.y.clamp(0.0, max_y);
-
-        window
-            .set_position(Position::Logical(LogicalPosition::new(
-                centered_x,
-                clamped_y,
-            )))
-            .map_err(|e| format!("Failed to reposition window: {}", e))?;
-    }
-
-    Ok(())
+pub async fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
+    show_dashboard_window(&app)
 }
 
 #[tauri::command]
-pub async fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
-    show_dashboard_window(&app)
+pub async fn open_dashboard_settings(app: tauri::AppHandle) -> Result<(), String> {
+    show_dashboard_window(&app)?;
+
+    if let Some(window) = app.get_webview_window("dashboard") {
+        window
+            .eval(
+                r#"window.history.pushState({}, '', '/settings'); window.dispatchEvent(new PopStateEvent('popstate'));"#,
+            )
+            .map_err(|e| format!("Failed to navigate dashboard to settings: {}", e))?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -674,6 +641,34 @@ pub fn get_click_through(app: tauri::AppHandle) -> bool {
     app.state::<WindowPreferencesState>().click_through()
 }
 
+/// Explicitly sets click-through mode to a specific state.
+/// Used when views need to temporarily disable click-through (e.g., settings panel).
+#[tauri::command]
+pub fn set_click_through(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<WindowPreferencesState>();
+    state.set_click_through(enabled);
+    
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, ensure window has focus when disabling click-through
+            if !enabled {
+                let _ = window.set_focus();
+            }
+        }
+        
+        window
+            .set_ignore_cursor_events(enabled)
+            .map_err(|e| format!("Failed to set click-through mode: {}", e))?;
+    }
+    
+    if let Err(error) = app.emit("click-through-changed", enabled) {
+        eprintln!("Failed to emit click-through-changed: {}", error);
+    }
+    
+    Ok(())
+}
+
 /// Internal helper used by command and global shortcut.
 pub fn toggle_click_through_state<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
     let state = app.state::<WindowPreferencesState>();
@@ -746,3 +741,145 @@ pub fn get_disguise_mode(app: tauri::AppHandle) -> String {
         _ => "auto".to_string(),
     }
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DOMRect {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl DOMRect {
+    pub fn contains_logical(&self, x: f64, y: f64) -> bool {
+        x >= self.x && x <= (self.x + self.width) &&
+        y >= self.y && y <= (self.y + self.height)
+    }
+}
+
+pub struct CursorEventState {
+    pub clickable_rects: std::sync::Arc<std::sync::Mutex<Vec<DOMRect>>>,
+    pub is_currently_ignoring: std::sync::Arc<std::sync::Mutex<bool>>,
+    pub not_hovering_frame_count: std::sync::Arc<std::sync::Mutex<u32>>,
+}
+
+/// Number of consecutive frames the cursor must be outside clickable rects
+/// before we start ignoring cursor events. At 16ms per frame, 5 frames = ~80ms.
+const IGNORE_CURSOR_DEBOUNCE_FRAMES: u32 = 5;
+
+impl Default for CursorEventState {
+    fn default() -> Self {
+        Self {
+            clickable_rects: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            is_currently_ignoring: std::sync::Arc::new(std::sync::Mutex::new(false)),
+            not_hovering_frame_count: std::sync::Arc::new(std::sync::Mutex::new(0)),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn set_clickable_rects(
+    app: tauri::AppHandle,
+    rects: Vec<DOMRect>,
+) -> Result<(), String> {
+    let state = app.state::<CursorEventState>();
+    if let Ok(mut lock) = state.clickable_rects.lock() {
+        *lock = rects;
+    }
+    Ok(())
+}
+
+pub fn start_cursor_event_monitor<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let app_handle = app.clone();
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+            let state = app_handle.state::<CursorEventState>();
+
+            let main_visible = app_handle.state::<crate::shortcuts::WindowPreferencesState>().main_window_visible();
+            if !main_visible {
+                continue;
+            }
+
+            let click_through = app_handle.state::<crate::shortcuts::WindowPreferencesState>().click_through();
+
+            if let Some(window) = app_handle.get_webview_window("main") {
+                if click_through {
+                    let mut is_hovering = false;
+                    #[cfg(target_os = "windows")]
+                    {
+                        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+                        use windows::Win32::Foundation::POINT;
+                        let mut cursor_pos = POINT::default();
+                        unsafe {
+                            let _ = GetCursorPos(&mut cursor_pos);
+                        }
+                        
+                        let scale = window.scale_factor().unwrap_or(1.0);
+                        if let Ok(pos) = window.outer_position() {
+                            let rel_x = cursor_pos.x - pos.x;
+                            let rel_y = cursor_pos.y - pos.y;
+                            
+                            let logic_x = rel_x as f64 / scale;
+                            let logic_y = rel_y as f64 / scale;
+
+                            if let Ok(rects) = state.clickable_rects.lock() {
+                                for rect in rects.iter() {
+                                    if rect.contains_logical(logic_x, logic_y) {
+                                        is_hovering = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Debounce the ignore logic to avoid race conditions during React re-renders.
+                    // When cursor moves over a clickable rect, immediately enable events.
+                    // When cursor moves away, wait for several consecutive frames before ignoring.
+                    if is_hovering {
+                        // Reset the not-hovering counter
+                        if let Ok(mut count) = state.not_hovering_frame_count.lock() {
+                            *count = 0;
+                        }
+                        // Immediately enable cursor events when hovering
+                        if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                            if *lock {
+                                *lock = false;
+                                let _ = window.set_ignore_cursor_events(false);
+                            }
+                        }
+                    } else {
+                        // Increment the not-hovering counter
+                        let should_ignore = if let Ok(mut count) = state.not_hovering_frame_count.lock() {
+                            *count = count.saturating_add(1);
+                            *count >= IGNORE_CURSOR_DEBOUNCE_FRAMES
+                        } else {
+                            false
+                        };
+                        
+                        // Only ignore after debounce period
+                        if should_ignore {
+                            if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                                if !*lock {
+                                    *lock = true;
+                                    let _ = window.set_ignore_cursor_events(true);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    
+                    if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                        if *lock {
+                            *lock = false;
+                            let _ = window.set_ignore_cursor_events(false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+

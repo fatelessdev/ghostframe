@@ -13,6 +13,9 @@ export const Providers = ({
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const [providerVariablesCache, setProviderVariablesCache] = useState<
+    Record<string, Record<string, string>>
+  >({});
 
   useEffect(() => {
     if (selectedAIProvider?.provider) {
@@ -24,7 +27,18 @@ export const Providers = ({
         setLocalSelectedProvider(json as ResultJSON);
       }
     }
-  }, [selectedAIProvider?.provider]);
+  }, [selectedAIProvider?.provider, allAiProviders]);
+
+  useEffect(() => {
+    if (!selectedAIProvider?.provider) {
+      return;
+    }
+
+    setProviderVariablesCache((previous) => ({
+      ...previous,
+      [selectedAIProvider.provider]: selectedAIProvider.variables,
+    }));
+  }, [selectedAIProvider?.provider, selectedAIProvider?.variables]);
 
   const findKeyAndValue = (key: string) => {
     return variables?.find((v) => v?.key === key);
@@ -70,9 +84,14 @@ export const Providers = ({
           })}
           placeholder="Choose your AI provider"
           onChange={(value) => {
+            const nextVariables =
+              providerVariablesCache[value] ??
+              (value === selectedAIProvider?.provider
+                ? selectedAIProvider?.variables ?? {}
+                : {});
             onSetSelectedAIProvider({
               provider: value,
-              variables: {},
+              variables: nextVariables,
             });
           }}
         />

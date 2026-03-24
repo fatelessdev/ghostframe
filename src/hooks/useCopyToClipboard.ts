@@ -12,9 +12,25 @@ export function useCopyToClipboard({
   const [isCopied, setIsCopied] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const extractCodeFromMarkdown = useCallback((content: string): string => {
+    const codeBlockRegex = /```[\s\S]*?\n([\s\S]*?)```/g;
+    const matches = Array.from(content.matchAll(codeBlockRegex));
+
+    if (!matches.length) {
+      return content;
+    }
+
+    return matches
+      .map((match) => match[1]?.trim())
+      .filter((block): block is string => Boolean(block))
+      .join("\n\n");
+  }, []);
+
   const handleCopy = useCallback(() => {
+    const textToCopy = extractCodeFromMarkdown(text);
+
     navigator.clipboard
-      .writeText(text)
+      .writeText(textToCopy)
       .then(() => {
         setIsCopied(true);
         if (timeoutRef.current) {
@@ -28,7 +44,7 @@ export function useCopyToClipboard({
       .catch(() => {
         console.error("Failed to copy to clipboard.");
       });
-  }, [text, copyMessage]);
+  }, [copyMessage, extractCodeFromMarkdown, text]);
 
   return { isCopied, handleCopy };
 }

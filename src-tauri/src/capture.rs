@@ -185,12 +185,14 @@ pub fn close_overlay_window(app: tauri::AppHandle) -> Result<(), String> {
 
     // Clear captured monitors from state
     let state = app.state::<CaptureState>();
-    state.captured_monitors.lock().unwrap().clear();
+    if let Ok(mut captured_monitors) = state.captured_monitors.lock() {
+        captured_monitors.clear();
+    }
     state.overlay_active.store(false, Ordering::SeqCst);
 
     // Emit an event to the main window to signal that the overlay has been closed
     if let Some(main_window) = app.get_webview_window("main") {
-        main_window.emit("capture-closed", ()).unwrap();
+        let _ = main_window.emit("capture-closed", ());
     }
 
     Ok(())

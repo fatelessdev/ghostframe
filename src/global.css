@@ -45,7 +45,7 @@
 
 /* When dark mode is forced via .dark, update the glass-card */
 .dark .glass-card {
-  background-color: rgba(0, 0, 0, 0.2) !important;
+  background-color: rgba(0, 0, 0, 0.6) !important;
 }
 
 /* Optional: If click-through mode is active, you can apply this to enhance text readability over busy backgrounds */
@@ -72,6 +72,24 @@
 .dark.click-through-active input,
 .dark.click-through-active textarea {
   background-color: rgba(30, 30, 30, 0.9) !important;
+}
+
+/* Settings panel: fully opaque, no click-through effects */
+[data-overlay-view-mode="settings"],
+[data-overlay-view-mode="settings"] * {
+  text-shadow: none !important;
+}
+
+[data-overlay-view-mode="settings"] input,
+[data-overlay-view-mode="settings"] textarea {
+  background-color: var(--input) !important;
+  color: var(--foreground) !important;
+}
+
+[data-overlay-view-mode="settings"] [data-radix-popper-content-wrapper],
+[data-overlay-view-mode="settings"] [data-slot="popover-content"],
+[data-overlay-view-mode="settings"] [role="dialog"] {
+  pointer-events: auto !important;
 }
 
 @custom-variant dark (&:is(.dark *));
@@ -117,6 +135,16 @@
 :root {
   --radius: 0.625rem;
   --cursor-type: default;
+  --overlay-shell-max-width: 980px;
+  --overlay-topbar-glass: rgb(18 23 30 / 0.65);
+  --overlay-panel-glass: rgb(14 18 24 / 0.55);
+  --overlay-border-soft: rgb(255 255 255 / 0.12);
+  --overlay-border-highlight: rgb(255 255 255 / 0.2);
+  --overlay-shadow: 0 16px 48px rgb(2 6 23 / 0.35);
+  --overlay-transcript-user-bg: rgb(59 130 246 / 0.12);
+  --overlay-transcript-user-border: rgb(59 130 246 / 0.25);
+  --overlay-transcript-interviewer-bg: rgb(148 163 184 / 0.1);
+  --overlay-transcript-interviewer-border: rgb(148 163 184 / 0.25);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -151,6 +179,15 @@
 }
 
 .dark {
+  --overlay-topbar-glass: rgb(15 18 24 / 0.6);
+  --overlay-panel-glass: rgb(11 14 20 / 0.5);
+  --overlay-border-soft: rgb(255 255 255 / 0.1);
+  --overlay-border-highlight: rgb(255 255 255 / 0.18);
+  --overlay-shadow: 0 20px 56px rgb(2 6 23 / 0.4);
+  --overlay-transcript-user-bg: rgb(59 130 246 / 0.14);
+  --overlay-transcript-user-border: rgb(59 130 246 / 0.3);
+  --overlay-transcript-interviewer-bg: rgb(148 163 184 / 0.12);
+  --overlay-transcript-interviewer-border: rgb(148 163 184 / 0.28);
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -193,6 +230,83 @@
   }
 }
 
+/* ========================================
+   TYPOGRAPHY SYSTEM
+   Inter Tight - Dense UI
+   Abel - Overlay UI elements
+   ======================================== */
+
+html {
+  font-family: "Inter Tight", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11"; /* Stylistic alternates */
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Abel font for overlay UI - clean, modern, readable */
+.font-abel {
+  font-family: "Abel", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* Base typography for overlay UI */
+.overlay-text {
+  font-family: "Inter Tight", sans-serif;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+  text-wrap: pretty;
+}
+
+/* Compact labels - used in top bar, badges */
+.text-label {
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Bold labels for headings/section titles */
+.text-label-bold {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+/* Body text for responses and transcripts */
+.text-body {
+  font-weight: 400;
+  letter-spacing: -0.008em;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+/* Monospace for code and keyboard shortcuts */
+.text-mono {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-feature-settings: "liga" 0; /* Disable ligatures in code */
+}
+
+/* Small meta text (timestamps, hints) */
+.text-meta {
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.3;
+  text-transform: none;
+}
+
+/* Uppercase small caps style */
+.text-caps {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.7em;
+}
+
 /* Apply global transparency */
 [data-slot="card"] {
   background-color: rgb(from var(--card) r g b / var(--opacity, 1)) !important;
@@ -212,23 +326,23 @@
 }
 
 *::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 *::-webkit-scrollbar-track {
   background: transparent !important;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgb(from var(--muted-foreground) r g b / 0.2) !important;
-  border-radius: 4px;
+  background: rgb(from var(--muted-foreground) r g b / 0.15) !important;
+  border-radius: 3px;
   transition: background-color 0.2s ease;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgb(from var(--muted-foreground) r g b / 0.3) !important;
+  background: rgb(from var(--muted-foreground) r g b / 0.25) !important;
 }
 
 *::-webkit-scrollbar-corner {
@@ -248,6 +362,79 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+.overlay-shell-width {
+  width: min(100%, var(--overlay-shell-max-width));
+  max-width: var(--overlay-shell-max-width);
+}
+
+.overlay-panel-shell {
+  border-radius: 16px;
+  border: 1px solid var(--overlay-border-soft);
+  box-shadow: var(--overlay-shadow);
+  pointer-events: auto;
+}
+
+.overlay-panel-collapsed {
+  height: auto;
+  min-height: 0;
+}
+
+.overlay-panel-expanded {
+  min-height: 320px;
+}
+
+.overlay-top-bar-glass {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  background: var(--overlay-topbar-glass);
+  border-bottom: 1px solid var(--overlay-border-soft);
+  pointer-events: auto;
+}
+
+.overlay-panel-glass {
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  background: var(--overlay-panel-glass);
+  pointer-events: auto;
+}
+
+.overlay-top-bar-control {
+  border-color: var(--overlay-border-soft);
+  background: rgb(255 255 255 / 0.02);
+  pointer-events: auto;
+}
+
+.overlay-top-bar-control:hover {
+  border-color: var(--overlay-border-highlight);
+}
+
+[data-overlay-panel-body][data-overlay-view-mode="response"],
+[data-overlay-panel-body][data-overlay-view-mode="transcripts"] {
+  pointer-events: auto;
+}
+
+[data-overlay-panel-body][data-overlay-view-mode="settings"] {
+  pointer-events: auto;
+}
+
+[data-overlay-panel-body][data-overlay-view-mode="settings"] button,
+[data-overlay-panel-body][data-overlay-view-mode="settings"] input,
+[data-overlay-panel-body][data-overlay-view-mode="settings"] textarea,
+[data-overlay-panel-body][data-overlay-view-mode="settings"] select,
+[data-overlay-panel-body][data-overlay-view-mode="settings"] [role="button"] {
+  pointer-events: auto;
+}
+
+.transcript-bubble-user {
+  background: var(--overlay-transcript-user-bg);
+  border-color: var(--overlay-transcript-user-border);
+}
+
+.transcript-bubble-interviewer {
+  background: var(--overlay-transcript-interviewer-bg);
+  border-color: var(--overlay-transcript-interviewer-border);
 }
 
 /* Streamdown code block styling */
@@ -297,4 +484,34 @@ body {
 .response-markdown code,
 .response-markdown table {
   font-size: inherit !important;
+}
+
+@keyframes rolling-transcript-marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.rolling-transcript-line {
+  white-space: nowrap;
+  display: inline-block;
+  min-width: 100%;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 8%,
+    black 92%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 8%,
+    black 92%,
+    transparent 100%
+  );
+  animation: rolling-transcript-marquee 14s linear infinite;
 }

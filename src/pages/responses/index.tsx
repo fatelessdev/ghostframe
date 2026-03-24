@@ -4,6 +4,7 @@ import {
   AutoScrollToggle,
   TextSize,
   HighContrastToggle,
+  PanelSize,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -13,6 +14,7 @@ const Responses = () => {
       title="Response Settings"
       description="Customize how AI generates and displays responses"
     >
+      <PanelSize />
       <TextSize />
       <HighContrastToggle />
 

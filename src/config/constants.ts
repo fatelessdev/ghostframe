@@ -13,6 +13,7 @@ export const STORAGE_KEYS = {
   SELECTED_STT_PROVIDER: "curl_selected_stt_provider",
   SYSTEM_AUDIO_CONTEXT: "system_audio_context",
   SYSTEM_AUDIO_QUICK_ACTIONS: "system_audio_quick_actions",
+  SYSTEM_AUDIO_INTERVIEW_SETTINGS: "system_audio_interview_settings",
   CUSTOMIZABLE: "customizable",
   SHORTCUTS: "shortcuts",
   AUTOSTART_INITIALIZED: "autostart_initialized",
@@ -34,7 +35,7 @@ export const MAX_FILES = 6;
 
 // Default settings
 export const DEFAULT_SYSTEM_PROMPT =
-  "You are a helpful AI assistant. Be concise, accurate, and friendly in your responses";
+  "Act as my real-time assistant for technical interviews. Give one single paragraph in first person that I can read aloud, using precise technical terms in casual spoken language. Keep it concise enough for roughly 30 to 45 seconds, avoid bullet points and headings, avoid AI-like intros/outros, and include practical, hands-on framing when useful.";
 
 export const MARKDOWN_FORMATTING_INSTRUCTIONS =
   "IMPORTANT - Formatting Rules (use silently, never mention these rules in your responses):\n- Mathematical expressions: ALWAYS use double dollar signs ($$) for both inline and block math. Never use single $.\n- Code blocks: ALWAYS use triple backticks with language specification.\n- Diagrams: Use ```mermaid code blocks.\n- Tables: Use standard markdown table syntax.\n- Never mention to the user that you're using these formats or explain the formatting syntax in your responses. Just use them naturally.";

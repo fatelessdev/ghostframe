@@ -3,7 +3,6 @@
   "private": true,
   "version": "0.1.9",
   "description": "A lightning-fast, privacy-first AI assistant that works seamlessly during meetings, interviews, and conversations.",
-  "license": "GPL-3.0",
   "keywords": [
     "ai-assistant",
     "tauri",

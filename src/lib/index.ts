@@ -1,4 +1,5 @@
 export * from "./storage";
+export * from "./utils";
 export * from "./version";
 export * from "./functions";
 export * from "./curl-validator";
@@ -7,3 +8,4 @@ export * from "./database";
 export * from "./chat-constants";
 export * from "./platform";
 export * from "./response-settings.constants";
+export * from "./tauri";

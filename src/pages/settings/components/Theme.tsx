@@ -43,7 +43,9 @@ export const Theme = () => {
                 )}
               </Label>
               <p className="text-xs text-muted-foreground mt-1">
-                {theme === "light"
+                {theme === "system"
+                  ? "Following your system appearance preference"
+                  : theme === "light"
                   ? "Using light theme for better visibility in bright environments"
                   : "Using dark theme for comfortable viewing in low light"}
               </p>

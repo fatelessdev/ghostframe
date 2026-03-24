@@ -49,8 +49,6 @@ const validateAndProcessCurlProviders = (
         } catch (e) {
           return false;
         }
-
-        return true;
       })
       .map((p) => {
         const provider = { ...p, isCustom: true };
@@ -170,7 +168,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
             autoPrompt:
               parsed.autoPrompt ||
               "Analyze this screenshot and provide insights",
-            enabled: parsed.enabled !== undefined ? parsed.enabled : false,
+            enabled: parsed.enabled !== undefined ? parsed.enabled : true,
           });
         }
       } catch {
@@ -222,23 +220,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     // Load customizable state
     const customizableState = getCustomizableState();
     setCustomizable(customizableState);
-
     updateCursor(customizableState.cursor.type || "invisible");
-
-    const stored = safeLocalStorage.getItem(STORAGE_KEYS.CUSTOMIZABLE);
-    if (!stored) {
-      setCustomizableState(customizableState);
-    } else {
-      try {
-        const parsed = JSON.parse(stored);
-        if (!parsed.autostart) {
-          setCustomizableState(customizableState);
-          updateCursor(customizableState.cursor.type || "invisible");
-        }
-      } catch (error) {
-        console.debug("Failed to check customizable state schema:", error);
-      }
-    }
+    setCustomizableState(customizableState);
 
     // Load selected audio devices
     const savedAudioDevices = safeLocalStorage.getItem(
@@ -335,7 +318,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         );
 
         if (!autostartInitialized) {
-          const autostartEnabled = customizable?.autostart?.isEnabled ?? true;
+          const autostartEnabled =
+            getCustomizableState().autostart?.isEnabled ?? true;
 
           if (autostartEnabled) {
             await enable();
@@ -463,6 +447,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setCurrentAIModeState(mode === "P" ? "P" : "D");
   };
 
+  const toggleCurrentAIMode = () => {
+    setCurrentAIModeState((prev) => (prev === "P" ? "D" : "P"));
+  };
+
   // Setter for selected STT with validation
   const onSetSelectedSttProvider = ({
     provider,
@@ -481,6 +469,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Toggle handlers
   const toggleAppIconVisibility = async (isVisible: boolean) => {
+    const previousState = getCustomizableState();
     const newState = updateAppIconVisibility(isVisible);
     setCustomizable(newState);
     try {
@@ -488,10 +477,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       loadData();
     } catch (error) {
       console.error("Failed to toggle app icon visibility:", error);
+      setCustomizable(previousState);
+      setCustomizableState(previousState);
     }
   };
 
   const toggleAlwaysOnTop = async (isEnabled: boolean) => {
+    const previousState = getCustomizableState();
     const newState = updateAlwaysOnTop(isEnabled);
     setCustomizable(newState);
     try {
@@ -499,10 +491,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       loadData();
     } catch (error) {
       console.error("Failed to toggle always on top:", error);
+      setCustomizable(previousState);
+      setCustomizableState(previousState);
     }
   };
 
   const toggleAutostart = async (isEnabled: boolean) => {
+    const previousState = getCustomizableState();
     const newState = updateAutostart(isEnabled);
     setCustomizable(newState);
     try {
@@ -514,8 +509,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       loadData();
     } catch (error) {
       console.error("Failed to toggle autostart:", error);
-      const revertedState = updateAutostart(!isEnabled);
-      setCustomizable(revertedState);
+      setCustomizable(previousState);
+      setCustomizableState(previousState);
     }
   };
 
@@ -536,6 +531,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     currentAIMode,
     onSetSelectedAIProvider,
     setCurrentAIMode,
+    toggleCurrentAIMode,
     allSttProviders,
     customSttProviders,
     selectedSttProvider,

@@ -1,11 +1,9 @@
 import { useEffect } from "react";
-import { useTitles, useSystemAudio } from "@/hooks";
+import { useSystemAudio } from "./useSystemAudio";
 import { safeLocalStorage, migrateLocalStorageToSQLite } from "@/lib";
 
 export const useApp = () => {
   const systemAudio = useSystemAudio();
-  // Initialize title management
-  useTitles();
 
   // Migrate localStorage chat history to SQLite on app startup
   useEffect(() => {

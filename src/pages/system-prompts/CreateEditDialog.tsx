@@ -85,7 +85,7 @@ export const CreateEditDialog = ({
               System Prompt
             </label>
             <Textarea
-              placeholder="You are a helpful AI assistant. Be concise, accurate, and friendly in your responses..."
+              placeholder="Act as my real-time assistant for technical interviews. Give one single paragraph in first person that I can read aloud, using precise technical terms in casual spoken language..."
               className="min-h-[200px] max-h-[400px] resize-none overflow-y-auto"
               value={form.prompt}
               onChange={(e) => setForm({ ...form, prompt: e.target.value })}

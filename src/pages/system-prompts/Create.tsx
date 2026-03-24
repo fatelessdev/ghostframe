@@ -42,7 +42,7 @@ export const CreateSystemPrompt = ({
         disabled={isSaving}
       />
       <Textarea
-        placeholder="You are a helpful AI assistant. Be concise, accurate, and friendly in your responses..."
+        placeholder="Act as my real-time assistant for technical interviews. Give one single paragraph in first person that I can read aloud, using precise technical terms in casual spoken language..."
         className="min-h-[100px] resize-none border-1 border-input/50 focus:border-primary/50 transition-colors"
         value={form.prompt}
         onChange={(e) => setForm({ ...form, prompt: e.target.value })}

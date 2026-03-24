@@ -175,7 +175,16 @@ const SystemPrompts = () => {
             return (
               <Card
                 key={prompt.id}
-                className={`relative border  lg:border-2 shadow-none p-4 pb-10 gap-0 group cursor-pointer transition-all hover:shadow-sm ${
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    handleCardClick(prompt.id);
+                  }
+                }}
+                className={`relative border  lg:border-2 shadow-none p-4 pb-10 gap-0 group cursor-pointer transition-all hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
                   isSelected
                     ? "!bg-primary/5 dark:!bg-primary/10 border-primary"
                     : "!bg-black/5 dark:!bg-white/5 border-transparent"

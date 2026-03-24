@@ -22,6 +22,7 @@ export type IContextType = {
     variables: Record<string, string>;
   }) => void;
   setCurrentAIMode: (mode: AIMode) => void;
+  toggleCurrentAIMode: () => void;
   allSttProviders: TYPE_PROVIDER[];
   customSttProviders: TYPE_PROVIDER[];
   selectedSttProvider: {

@@ -33,6 +33,13 @@ export interface CompletionState {
   conversationHistory: ChatMessage[];
 }
 
+export interface ChatCompletionState {
+  input: string;
+  isLoading: boolean;
+  error: string | null;
+  attachedFiles: AttachedFile[];
+}
+
 // Provider-related types
 export interface Message {
   role: "system" | "user" | "assistant";

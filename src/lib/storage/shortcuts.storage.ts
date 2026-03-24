@@ -53,10 +53,46 @@ export const getShortcutsConfig = (): ShortcutsConfig => {
       const parsed = JSON.parse(stored);
       // Merge with defaults to ensure all default actions are present
       const defaults = getDefaultShortcutsConfig();
-      return {
+      const merged: ShortcutsConfig = {
         bindings: { ...defaults.bindings, ...parsed.bindings },
         customActions: parsed.customActions || [],
       };
+
+      let migrated = false;
+
+      if (merged.bindings.toggle_click_through && !merged.bindings.toggle_model_mode) {
+        merged.bindings.toggle_model_mode = {
+          ...merged.bindings.toggle_click_through,
+          action: "toggle_model_mode",
+        };
+        migrated = true;
+      }
+
+      if (merged.bindings.toggle_click_through) {
+        delete merged.bindings.toggle_click_through;
+        migrated = true;
+      }
+
+      if (migrated) {
+        setShortcutsConfig(merged);
+      }
+
+      const screenshotBinding = merged.bindings.screenshot;
+      if (screenshotBinding) {
+        const platform = getPlatform();
+        const oldKey =
+          platform === "macos" ? "cmd+shift+s" : "ctrl+shift+s";
+        const newKey = getPlatformDefaultKey(DEFAULT_SHORTCUT_ACTIONS.find((action) => action.id === "screenshot")!);
+
+        if (screenshotBinding.key.toLowerCase() === oldKey) {
+          merged.bindings.screenshot = {
+            ...screenshotBinding,
+            key: newKey,
+          };
+        }
+      }
+
+      return merged;
     }
     return getDefaultShortcutsConfig();
   } catch (error) {
@@ -246,70 +282,13 @@ export const formatShortcutKeyForDisplay = (key: string): string => {
 /**
  * Get all available actions (default + custom)
  */
-export const getAllShortcutActions = (
-  hasLicense: boolean
-): ShortcutAction[] => {
+export const getAllShortcutActions = (): ShortcutAction[] => {
   const config = getShortcutsConfig();
   const actions = [...DEFAULT_SHORTCUT_ACTIONS];
 
-  // Add custom actions if user has license
-  if (hasLicense && config.customActions) {
+  if (config.customActions) {
     actions.push(...config.customActions);
   }
 
   return actions;
-};
-
-/**
- * Add a custom shortcut action (license required)
- */
-export const addCustomShortcutAction = (
-  action: ShortcutAction
-): ShortcutsConfig => {
-  const config = getShortcutsConfig();
-
-  if (!config.customActions) {
-    config.customActions = [];
-  }
-
-  // Check if action already exists
-  const existingIndex = config.customActions.findIndex(
-    (a) => a.id === action.id
-  );
-  if (existingIndex >= 0) {
-    config.customActions[existingIndex] = action;
-  } else {
-    config.customActions.push(action);
-  }
-
-  // Add binding for the new action
-  config.bindings[action.id] = {
-    action: action.id,
-    key: getPlatformDefaultKey(action),
-    enabled: true,
-  };
-
-  setShortcutsConfig(config);
-  return config;
-};
-
-/**
- * Remove a custom shortcut action
- */
-export const removeCustomShortcutAction = (
-  actionId: string
-): ShortcutsConfig => {
-  const config = getShortcutsConfig();
-
-  if (config.customActions) {
-    config.customActions = config.customActions.filter(
-      (a) => a.id !== actionId
-    );
-  }
-
-  // Remove binding
-  delete config.bindings[actionId];
-
-  setShortcutsConfig(config);
-  return config;
 };

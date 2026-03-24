@@ -44,6 +44,7 @@ pub fn run() {
         .manage(shortcuts::RegisteredShortcuts::default())
         .manage(shortcuts::MoveWindowState::default())
         .manage(window::DisguiseModeState::default())
+        .manage(window::CursorEventState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init());
@@ -55,14 +56,15 @@ pub fn run() {
     let mut builder = builder
         .invoke_handler(tauri::generate_handler![
             get_app_version,
-            window::set_window_height,
             window::open_dashboard,
+            window::open_dashboard_settings,
             window::toggle_dashboard,
             window::move_window,
             window::toggle_content_protection,
             window::get_content_protection,
             window::toggle_click_through,
             window::get_click_through,
+            window::set_click_through,
             window::set_disguise_mode,
             window::get_disguise_mode,
             capture::capture_to_base64,
@@ -75,6 +77,7 @@ pub fn run() {
             shortcuts::validate_shortcut_key,
             shortcuts::set_app_icon_visibility,
             shortcuts::set_always_on_top,
+            shortcuts::emergency_erase,
             shortcuts::exit_app,
             speaker::start_system_audio_capture,
             speaker::stop_system_audio_capture,
@@ -87,6 +90,7 @@ pub fn run() {
             speaker::get_audio_sample_rate,
             speaker::get_input_devices,
             speaker::get_output_devices,
+            window::set_clickable_rects,
         ])
         .setup(|app| {
             // Setup main window positioning
@@ -94,6 +98,7 @@ pub fn run() {
 
             // Start background title rotation for process disguise
             window::start_window_title_disguise(app.handle());
+            window::start_cursor_event_monitor(app.handle());
 
             let app_handle = app.handle().clone();
             if app_handle.get_webview_window("dashboard").is_none() {
@@ -151,20 +156,20 @@ pub fn run() {
                             if let Some(action_id) = action_id {
                                 match event.state() {
                                     ShortcutState::Pressed => {
-                                        if let Some(direction) =
-                                            action_id.strip_prefix("move_window_")
-                                        {
+                                        if let Some(direction) = action_id.strip_prefix("move_window_") {
                                             shortcuts::start_move_window(app, direction);
+                                        } else if let Some(direction) = action_id.strip_prefix("scroll_response_") {
+                                            shortcuts::start_scroll_response(app, direction);
                                         } else {
                                             eprintln!("Shortcut triggered: {}", action_id);
                                             shortcuts::handle_shortcut_action(app, &action_id);
                                         }
                                     }
                                     ShortcutState::Released => {
-                                        if let Some(direction) =
-                                            action_id.strip_prefix("move_window_")
-                                        {
+                                        if let Some(direction) = action_id.strip_prefix("move_window_") {
                                             shortcuts::stop_move_window(app, direction);
+                                        } else if let Some(direction) = action_id.strip_prefix("scroll_response_") {
+                                            shortcuts::stop_scroll_response(app, direction);
                                         }
                                     }
                                 }
@@ -185,9 +190,15 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_macos_permissions::init());
     }
 
-    builder
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+    let app = builder
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::ExitRequested { .. } = event {
+            shortcuts::scrub_sensitive_data_on_quit(app_handle);
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -235,3 +246,4 @@ fn init(app_handle: &AppHandle) {
 
     panel.set_delegate(delegate);
 }
+
