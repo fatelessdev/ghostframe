@@ -71,10 +71,21 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
   return (
     <div
       ref={viewportRef}
-      className="flex-1 min-h-0 overflow-auto px-3 py-2 pb-12 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
-      aria-label="Response content"
+      className="
+        font-abel flex-1 min-h-0 overflow-auto 
+        px-4 py-3 pb-14
+        scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent 
+        scroll-smooth
+        animate-in fade-in-0 duration-200
+      "
+      role="region"
+      aria-label="AI response"
+      aria-live="polite"
     >
-      {children}
+      {/* Content wrapper with refined typography */}
+      <div className="text-body text-white/85 leading-relaxed tracking-wide">
+        {children}
+      </div>
     </div>
   );
 };

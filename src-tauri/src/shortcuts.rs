@@ -28,7 +28,7 @@ const SENSITIVE_LOCAL_STORAGE_KEYS: &[&str] = &[
 ];
 
 const EMERGENCY_ERASE_ACTION_ID: &str = "emergency_erase";
-const TOGGLE_CLICK_THROUGH_ACTION_ID: &str = "toggle_click_through";
+const TOGGLE_MODEL_MODE_ACTION_ID: &str = "toggle_model_mode";
 const EMERGENCY_ERASE_DATABASE_FILE: &str = "ghostframe.db";
 const EMERGENCY_ERASE_STORAGE_SCRIPT: &str = "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){console.error('Failed to clear web storage during emergency erase', e);}})();";
 
@@ -183,7 +183,7 @@ pub fn setup_global_shortcuts<R: Runtime>(
                 );
             } else {
                 registered.insert(
-                    TOGGLE_CLICK_THROUGH_ACTION_ID.to_string(),
+                    TOGGLE_MODEL_MODE_ACTION_ID.to_string(),
                     click_through_shortcut.to_string(),
                 );
             }
@@ -291,9 +291,12 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
         "move_window_down" => handle_move_window(app, "down"),
         "move_window_left" => handle_move_window(app, "left"),
         "move_window_right" => handle_move_window(app, "right"),
-        "toggle_click_through" => {
-            // Overlay interaction mode is fixed in the Interview Coder shell.
-            // Keep this action as a no-op so accidental presses do not flip behavior.
+        "toggle_click_through" | "toggle_model_mode" => {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.emit("toggle-model-mode", json!({})) {
+                    eprintln!("Failed to emit toggle-model-mode event: {}", error);
+                }
+            }
         }
         "audio_recording" => handle_audio_shortcut(app),
         "screenshot" => handle_screenshot_shortcut(app),

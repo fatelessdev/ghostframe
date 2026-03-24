@@ -5,6 +5,32 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Format a date or timestamp to "YYYY-MM-DD" for grouping. */
+export function toDateKey(date: Date | number | string): string {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Format a date to "Mon, Jan 5" style display string. */
+export function formatDisplayDate(date: Date | number | string): string {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/** Format a date to "02:30 PM" style time string. */
+export function formatDisplayTime(date: Date | number | string): string {
+  const d = date instanceof Date ? date : new Date(date);
+  return d.toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
 export function normalizeTranscription(text: string): string {
   return text
     .normalize("NFD")

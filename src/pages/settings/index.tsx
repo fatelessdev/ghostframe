@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   XIcon,
   PowerIcon,
@@ -15,7 +16,6 @@ import {
   Loader2,
   MessageCircleReplyIcon,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Theme,
   AlwaysOnTopToggle,
@@ -54,6 +54,12 @@ import {
   Header,
   Markdown,
   Textarea,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from "@/components";
 import {
   ChatAudio,
@@ -61,8 +67,7 @@ import {
   ChatFiles,
   AudioRecorder,
 } from "@/pages/chats/components";
-import moment from "moment";
-import { getPlatform, getConversationById, getResponseSettings } from "@/lib";
+import { getPlatform, getConversationById, getResponseSettings, toDateKey, formatDisplayDate, formatDisplayTime } from "@/lib";
 import { ChatConversation } from "@/types";
 import { useApp } from "@/contexts";
 
@@ -123,10 +128,17 @@ const Settings = ({ onClose }: SettingsProps) => {
   const conversations = useHistory();
   const settings = useSettings();
 
+  useEffect(() => {
+    document.documentElement.classList.remove("click-through-active");
+    return () => {
+      document.documentElement.classList.add("click-through-active");
+    };
+  }, []);
+
   // Group conversations by date for history tab
   const groupedConversations = conversations.conversations.reduce(
     (acc, doc) => {
-      const dateKey = moment(doc.updatedAt).format("YYYY-MM-DD");
+      const dateKey = toDateKey(doc.updatedAt);
       if (!acc[dateKey]) {
         acc[dateKey] = [];
       }
@@ -137,7 +149,7 @@ const Settings = ({ onClose }: SettingsProps) => {
   );
 
   const sortedDates = Object.keys(groupedConversations).sort((a, b) =>
-    moment(b).diff(moment(a))
+    a > b ? -1 : a < b ? 1 : 0
   );
 
   // Track last scroll time for smooth behavior when holding keys
@@ -193,8 +205,8 @@ const Settings = ({ onClose }: SettingsProps) => {
   const getTabClasses = (tab: string) =>
     "w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all " +
     (activeTab === tab
-      ? "bg-white/10 text-white shadow-sm"
-      : "text-white/50 hover:text-white hover:bg-white/5");
+      ? "bg-accent text-accent-foreground shadow-sm"
+      : "text-muted-foreground hover:text-foreground hover:bg-accent/50");
 
   const handleOpenChat = (conversationId: string) => {
     setSelectedConversationId(conversationId);
@@ -205,15 +217,15 @@ const Settings = ({ onClose }: SettingsProps) => {
   };
 
   return (
-    <div className="flex flex-row w-full h-full bg-black/60 text-white rounded-2xl overflow-hidden relative pointer-events-auto border border-white/10 shadow-2xl backdrop-blur-md">
+    <div className="flex flex-row w-full h-full bg-card text-card-foreground rounded-2xl overflow-hidden relative pointer-events-auto border border-border shadow-2xl" data-clickable-rect="true">
       {/* Sidebar Navigation */}
-      <div className="flex flex-col w-56 flex-shrink-0 border-r border-white/10 bg-black/20">
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
+      <div className="flex flex-col w-56 flex-shrink-0 border-r border-border bg-muted/30">
+        <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-sm font-bold tracking-wide">Settings</h2>
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1 rounded-full text-white/50 hover:bg-white/10 hover:text-white transition-colors"
+              className="p-1 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               <XIcon className="w-4 h-4" />
             </button>
@@ -229,7 +241,7 @@ const Settings = ({ onClose }: SettingsProps) => {
               History
             </span>
           </button>
-          <div className="h-px bg-white/10 my-2" />
+          <div className="h-px bg-border my-2" />
           <button
             className={getTabClasses("general")}
             onClick={() => setActiveTab("general")}
@@ -279,10 +291,10 @@ const Settings = ({ onClose }: SettingsProps) => {
             Shortcuts
           </button>
         </div>
-        <div className="p-3 border-t border-white/10">
+        <div className="p-3 border-t border-border">
           <button
             onClick={() => invoke("exit_app")}
-            className="w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all text-red-400 hover:text-red-300 hover:bg-red-500/10 flex items-center gap-2"
+            className="w-full text-left px-3 py-2 text-sm font-medium rounded-lg transition-all text-destructive hover:text-destructive hover:bg-destructive/10 flex items-center gap-2"
           >
             <PowerIcon className="w-4 h-4" />
             Quit Application
@@ -293,7 +305,7 @@ const Settings = ({ onClose }: SettingsProps) => {
       {/* Main Content Pane */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto p-6 md:p-8 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent bg-black/30 [&_header]:hidden [&_.min-h-screen]:min-h-0 [&_.h-\[calc\(100vh-5rem\)\]]:!h-auto [&_.pr-6]:!pr-0 [&_.pt-4]:!pt-0 [&_.pb-12]:!pb-0"
+        className="flex-1 overflow-auto p-6 md:p-8 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent bg-background/50 [&_header]:hidden [&_.min-h-screen]:min-h-0 [&_.h-\[calc\(100vh-5rem\)\]]:!h-auto [&_.pr-6]:!pr-0 [&_.pt-4]:!pt-0 [&_.pb-12]:!pb-0"
       >
         <div className="max-w-2xl mx-auto flex flex-col gap-8 pb-16">
           {/* History Tab */}
@@ -319,7 +331,7 @@ const Settings = ({ onClose }: SettingsProps) => {
                     <Input
                       type="text"
                       placeholder="Search conversations..."
-                      className="pl-9 focus-visible:ring-0 focus-visible:ring-offset-0 bg-white/5 border-white/10"
+                      className="pl-9 focus-visible:ring-0 focus-visible:ring-offset-0 bg-muted/50 border-border"
                       value={conversations.search}
                       onChange={(e) => conversations.setSearch(e.target.value)}
                     />
@@ -350,8 +362,8 @@ const Settings = ({ onClose }: SettingsProps) => {
                     )
                     .map((dateKey) => (
                       <div key={dateKey} className="flex flex-col gap-2">
-                        <p className="text-xs text-white/50 select-none font-medium">
-                          {moment(dateKey).format("ddd, MMM D")}
+                        <p className="text-xs text-muted-foreground select-none font-medium">
+                          {formatDisplayDate(dateKey)}
                         </p>
                         <div className="grid grid-cols-1 gap-2">
                           {groupedConversations[dateKey]
@@ -370,7 +382,7 @@ const Settings = ({ onClose }: SettingsProps) => {
                                 data-clickable-rect="true"
                                 role="button"
                                 tabIndex={0}
-                                className="shadow-none select-none p-3 gap-0 group relative transition-all !bg-white/5 hover:!bg-white/10 !border-white/10 hover:!border-white/20 cursor-pointer"
+                                className="shadow-none select-none p-3 gap-0 group relative transition-all !bg-muted/50 hover:!bg-muted !border-border hover:!border-border/80 cursor-pointer"
                                 onClick={() => handleOpenChat(doc.id)}
                                 onKeyDown={(event) => {
                                   if (
@@ -383,21 +395,21 @@ const Settings = ({ onClose }: SettingsProps) => {
                                 }}
                               >
                                 <div className="flex items-center justify-between">
-                                  <p className="line-clamp-1 text-sm text-white/90 mr-4">
+                                  <p className="line-clamp-1 text-sm text-foreground mr-4">
                                     {doc.title}
                                   </p>
                                   <div className="flex items-center gap-1 flex-shrink-0">
                                     <Badge
                                       variant="outline"
-                                      className="text-[10px] border-white/20 text-white/60"
+                                      className="text-[10px] border-border text-muted-foreground"
                                     >
                                       {doc.messages.length} msgs
                                     </Badge>
                                     <Badge
                                       variant="outline"
-                                      className="text-[10px] border-white/20 text-white/60"
+                                      className="text-[10px] border-border text-muted-foreground"
                                     >
-                                      {moment(doc.updatedAt).format("hh:mm A")}
+                                      {formatDisplayTime(doc.updatedAt)}
                                     </Badge>
                                   </div>
                                 </div>
@@ -571,20 +583,20 @@ const ConversationView = ({
   return (
     <div className="flex flex-col h-full relative">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
+      <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border">
         <Button
           variant="ghost"
           size="icon"
           onClick={onBack}
-          className="h-8 w-8 text-white/60 hover:text-white hover:bg-white/10"
+          className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
         >
           <ArrowLeftIcon className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-white truncate">
+          <h3 className="text-sm font-semibold text-foreground truncate">
             {messages?.title || "Loading..."}
           </h3>
-          <p className="text-xs text-white/50">
+          <p className="text-xs text-muted-foreground">
             {messages?.messages.length || 0} messages
           </p>
         </div>
@@ -594,7 +606,7 @@ const ConversationView = ({
             size="sm"
             onClick={() => handleAttachToOverlay(conversationId)}
             disabled={isAttached}
-            className="h-7 text-xs text-white/60 hover:text-white hover:bg-white/10"
+            className="h-7 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
             title="Open in Overlay"
           >
             {isAttached ? (
@@ -608,7 +620,7 @@ const ConversationView = ({
             size="sm"
             onClick={(e) => handleDownload(messages, e)}
             disabled={isDownloaded}
-            className="h-7 text-xs text-white/60 hover:text-white hover:bg-white/10"
+            className="h-7 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
             title="Download"
           >
             {isDownloaded ? (
@@ -624,7 +636,7 @@ const ConversationView = ({
               handleDeleteConfirm(conversationId);
               setDeleteConfirmOpen(true);
             }}
-            className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"
+            className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
             title="Delete"
           >
             <Trash2 className="w-3 h-3" />
@@ -646,17 +658,17 @@ const ConversationView = ({
             const isUser = message.role === "user";
             const showDate =
               index === 0 ||
-              moment(message.timestamp).format("YYYY-MM-DD") !==
-                moment(array[index - 1]?.timestamp).format("YYYY-MM-DD");
+              toDateKey(message.timestamp) !==
+                toDateKey(array[index - 1]?.timestamp);
 
             return (
               <div key={message.id}>
                 {showDate && (
                   <Badge
                     variant="outline"
-                    className="flex items-center justify-center my-4 w-fit mx-auto border-white/20 text-white/60"
+                    className="flex items-center justify-center my-4 w-fit mx-auto border-border text-muted-foreground"
                   >
-                    {moment(message.timestamp).format("ddd, MMM D")}
+                    {formatDisplayDate(message.timestamp)}
                   </Badge>
                 )}
 
@@ -682,7 +694,7 @@ const ConversationView = ({
                       className={`p-3 transition-all shadow-none ${
                         isUser
                           ? "!bg-primary text-primary-foreground !border-primary rounded-tr-sm"
-                          : "!bg-white/10 !border-white/10 rounded-tl-sm"
+                          : "!bg-muted !border-border rounded-tl-sm"
                       }`}
                     >
                       <div
@@ -694,11 +706,11 @@ const ConversationView = ({
                     </Card>
                     <Badge
                       variant="outline"
-                      className={`text-[10px] bg-transparent border-none text-white/40 ${
+                      className={`text-[10px] bg-transparent border-none text-muted-foreground/70 ${
                         isUser ? "-mr-1" : "-ml-1"
                       }`}
                     >
-                      {moment(message.timestamp).format("hh:mm A")}
+                      {formatDisplayTime(message.timestamp)}
                     </Badge>
                   </div>
 
@@ -718,10 +730,10 @@ const ConversationView = ({
       )}
 
       {/* Input Footer */}
-      <div className="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md border-t border-white/10 rounded-b-xl">
+      <div className="absolute bottom-0 left-0 right-0 bg-background/80 backdrop-blur-md border-t border-border rounded-b-xl">
         {completion.error && (
           <div className="px-4 pt-3 pb-0">
-            <div className="p-2 bg-red-500/10 border border-red-500/20 rounded text-sm text-red-400">
+            <div className="p-2 bg-destructive/10 border border-destructive/20 rounded text-sm text-destructive">
               <strong>Error:</strong> {completion.error}
             </div>
           </div>
@@ -770,7 +782,7 @@ const ConversationView = ({
                 <Textarea
                   ref={completion.inputRef}
                   placeholder="Type a message..."
-                  className="pr-12 pl-2 resize-none pb-12 pt-3 bg-white/5 border-white/10 text-white placeholder:text-white/40"
+                  className="pr-12 pl-2 resize-none pb-12 pt-3 bg-muted/50 border-border text-foreground placeholder:text-muted-foreground"
                   rows={2}
                   value={completion.input}
                   onChange={(e) => completion.setInput(e.target.value)}
@@ -798,34 +810,37 @@ const ConversationView = ({
       </div>
 
       {/* Delete Confirmation Dialog */}
-      {deleteConfirmOpen && deleteConfirm && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-white/10 rounded-lg p-6 max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-2 text-white">
-              Delete Conversation
-            </h3>
-            <p className="text-sm text-white/60 mb-4">
+      <Dialog open={deleteConfirmOpen && !!deleteConfirm} onOpenChange={(open) => {
+        if (!open) {
+          cancelDelete();
+          setDeleteConfirmOpen(false);
+        }
+      }}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete Conversation</DialogTitle>
+            <DialogDescription>
               Are you sure you want to delete this conversation? This action
               cannot be undone.
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  cancelDelete();
-                  setDeleteConfirmOpen(false);
-                }}
-              >
-                Cancel
-              </Button>
-              <Button variant="destructive" size="sm" onClick={handleDelete}>
-                Delete
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                cancelDelete();
+                setDeleteConfirmOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" onClick={handleDelete}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
@@ -873,32 +888,30 @@ const DeleteChatsInline = ({
         {isDeleting ? "Deleting..." : "Delete All Chat History"}
       </Button>
 
-      {showDeleteConfirmDialog && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-zinc-900 border border-white/10 rounded-lg p-6 max-w-md mx-4">
-            <h3 className="text-lg font-semibold mb-2 text-white">
-              Delete All Chat History
-            </h3>
-            <p className="text-sm text-white/60 mb-4">
+      <Dialog open={showDeleteConfirmDialog} onOpenChange={setShowDeleteConfirmDialog}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Delete All Chat History</DialogTitle>
+            <DialogDescription>
               Are you sure you want to delete all chat history? This action
               cannot be undone and will permanently remove all stored
               conversations.
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowDeleteConfirmDialog(false)}
-              >
-                Cancel
-              </Button>
-              <Button variant="destructive" size="sm" onClick={deleteAllChats}>
-                Delete All
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDeleteConfirmDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" onClick={deleteAllChats}>
+              Delete All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

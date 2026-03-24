@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { MousePointer2 } from "lucide-react";
 
@@ -25,8 +25,6 @@ const Overlay: React.FC<OverlayProps> = ({ monitorIndex }) => {
   });
   const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
   const [cursorVisible, setCursorVisible] = useState(false);
-
-  const selectionRef = useRef<HTMLDivElement>(null);
 
   // Handle cancellation (ESC key, cancel button)
   const handleCancel = async () => {
@@ -192,7 +190,6 @@ const Overlay: React.FC<OverlayProps> = ({ monitorIndex }) => {
 
         {/* Selection Rectangle */}
         <div
-          ref={selectionRef}
           className="absolute border-2 border-primary-foreground bg-primary/10 rounded-3xl rounded-br-none pointer-events-none"
           style={{
             left: selectionStyle.left,
@@ -204,7 +201,6 @@ const Overlay: React.FC<OverlayProps> = ({ monitorIndex }) => {
           }}
         />
         <div
-          ref={selectionRef}
           className="absolute border-[0.5px] border-black bg-primary/5 rounded-3xl rounded-br-none pointer-events-none"
           style={{
             left: selectionStyle.left,

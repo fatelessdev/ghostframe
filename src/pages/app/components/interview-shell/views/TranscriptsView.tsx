@@ -88,42 +88,55 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
   return (
     <div
       ref={viewportRef}
-      className="flex-1 min-h-0 overflow-auto px-3 py-2 pb-12 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent scroll-smooth"
-      aria-label="Transcript content"
+      className="
+        font-abel flex-1 min-h-0 overflow-auto 
+        px-4 py-3 pb-14
+        scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent 
+        scroll-smooth
+        animate-in fade-in-0 duration-200
+      "
+      role="log"
+      aria-label="Live transcript"
+      aria-live="polite"
+      aria-relevant="additions"
     >
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         {orderedSegments.length === 0 ? (
-          <div className="rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-[11px] text-white/40 italic">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[12px] text-white/35 tracking-wide italic">
             Transcript will appear here once interview capture starts.
           </div>
         ) : (
-          orderedSegments.map((segment) => {
+          orderedSegments.map((segment, index) => {
             const isUser = segment.source === "user";
 
             return (
               <div
                 key={segment.id}
                 className={cn(
-                  "max-w-[88%] rounded-xl px-2.5 py-1.5 text-[11px] border",
+                  "max-w-[85%] rounded-2xl px-3.5 py-2 text-[12px] border transition-all duration-300 ease-out",
+                  "animate-in fade-in-0 slide-in-from-bottom-2",
                   isUser
                     ? "ml-auto transcript-bubble-user"
                     : "mr-auto transcript-bubble-interviewer"
                 )}
+                style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
               >
+                {/* Header with source indicator and timestamp */}
                 <div
                   className={cn(
-                    "mb-0.5 flex items-center gap-1",
+                    "mb-1 flex items-center gap-1.5",
                     isUser ? "justify-end" : "justify-start"
                   )}
                 >
                   <span
                     className={cn(
-                      "inline-flex h-1 w-1 rounded-full",
-                      isUser ? "bg-blue-400/70" : "bg-slate-400/70"
+                      "inline-flex h-1.5 w-1.5 rounded-full transition-colors duration-200",
+                      isUser ? "bg-blue-400/60" : "bg-slate-400/50",
+                      segment.isLive && "animate-pulse"
                     )}
                     aria-hidden="true"
                   />
-                  <span className="text-[9px] text-white/30 font-medium">
+                  <span className="text-[10px] text-white/25 tracking-wide">
                     {new Date(segment.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -131,7 +144,16 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                     })}
                   </span>
                 </div>
-                <p className={cn("text-white/80 leading-relaxed", segment.isLive && "animate-pulse")}>{segment.text}</p>
+
+                {/* Transcript text */}
+                <p 
+                  className={cn(
+                    "text-white/75 leading-relaxed tracking-wide",
+                    segment.isLive && "text-white/60"
+                  )}
+                >
+                  {segment.text}
+                </p>
               </div>
             );
           })

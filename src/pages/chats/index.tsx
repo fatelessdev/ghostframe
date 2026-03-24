@@ -2,7 +2,7 @@ import { Badge, Input, Card, Empty } from "@/components";
 import { useHistory, useSettings } from "@/hooks";
 import { PageLayout } from "@/layouts";
 import { MessageCircleIcon, Search } from "lucide-react";
-import moment from "moment";
+import { toDateKey, formatDisplayDate, formatDisplayTime } from "@/lib";
 import { useNavigate } from "react-router-dom";
 import { DeleteChats } from "./components";
 
@@ -13,7 +13,7 @@ const Dashboard = () => {
   // Group conversations by date
   const groupedConversations = conversations.conversations.reduce(
     (acc, doc) => {
-      const dateKey = moment(doc.updatedAt).format("YYYY-MM-DD");
+      const dateKey = toDateKey(doc.updatedAt);
       if (!acc[dateKey]) {
         acc[dateKey] = [];
       }
@@ -25,7 +25,7 @@ const Dashboard = () => {
 
   // Sort dates in descending order (most recent first)
   const sortedDates = Object.keys(groupedConversations).sort((a, b) =>
-    moment(b).diff(moment(a))
+    a > b ? -1 : a < b ? 1 : 0
   );
 
   return (
@@ -71,13 +71,13 @@ const Dashboard = () => {
               .map((dateKey) => (
                 <div key={dateKey} className="flex flex-col gap-3">
                   <p className="text-xs text-muted-foreground select-none font-medium">
-                    {moment(dateKey).format("ddd, MMM D")}
+                    {formatDisplayDate(dateKey)}
                   </p>
                   <div className="grid grid-cols-1 gap-3">
                     {groupedConversations[dateKey].map((doc) => (
                       <Card
                         key={doc.id}
-                        className="shadow-none select-none p-4 gap-0 group relative transition-all !bg-black/5 dark:!bg-white/5 hover:!border-primary/50 cursor-pointer"
+                        className="shadow-none select-none p-4 gap-0 group relative transition-all !bg-muted/50 hover:!border-primary/50 cursor-pointer"
                         onClick={() => navigate(`/chats/view/${doc.id}`)}
                       >
                         <div className="flex items-center justify-between">
@@ -89,7 +89,7 @@ const Dashboard = () => {
                               {doc.messages.length} messages
                             </Badge>
                             <Badge variant="outline" className="text-xs">
-                              {moment(doc.updatedAt).format("hh:mm A")}
+                              {formatDisplayTime(doc.updatedAt)}
                             </Badge>
                           </div>
                         </div>

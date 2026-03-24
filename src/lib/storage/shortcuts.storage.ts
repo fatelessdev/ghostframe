@@ -58,6 +58,25 @@ export const getShortcutsConfig = (): ShortcutsConfig => {
         customActions: parsed.customActions || [],
       };
 
+      let migrated = false;
+
+      if (merged.bindings.toggle_click_through && !merged.bindings.toggle_model_mode) {
+        merged.bindings.toggle_model_mode = {
+          ...merged.bindings.toggle_click_through,
+          action: "toggle_model_mode",
+        };
+        migrated = true;
+      }
+
+      if (merged.bindings.toggle_click_through) {
+        delete merged.bindings.toggle_click_through;
+        migrated = true;
+      }
+
+      if (migrated) {
+        setShortcutsConfig(merged);
+      }
+
       const screenshotBinding = merged.bindings.screenshot;
       if (screenshotBinding) {
         const platform = getPlatform();

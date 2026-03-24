@@ -74,6 +74,24 @@
   background-color: rgba(30, 30, 30, 0.9) !important;
 }
 
+/* Settings panel: fully opaque, no click-through effects */
+[data-overlay-view-mode="settings"],
+[data-overlay-view-mode="settings"] * {
+  text-shadow: none !important;
+}
+
+[data-overlay-view-mode="settings"] input,
+[data-overlay-view-mode="settings"] textarea {
+  background-color: var(--input) !important;
+  color: var(--foreground) !important;
+}
+
+[data-overlay-view-mode="settings"] [data-radix-popper-content-wrapper],
+[data-overlay-view-mode="settings"] [data-slot="popover-content"],
+[data-overlay-view-mode="settings"] [role="dialog"] {
+  pointer-events: auto !important;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -213,8 +231,9 @@
 }
 
 /* ========================================
-   TYPOGRAPHY SYSTEM - Inter Tight
-   Condensed, readable font for dense UI
+   TYPOGRAPHY SYSTEM
+   Inter Tight - Dense UI
+   Abel - Overlay UI elements
    ======================================== */
 
 html {
@@ -224,6 +243,13 @@ html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+}
+
+/* Abel font for overlay UI - clean, modern, readable */
+.font-abel {
+  font-family: "Abel", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.01em;
 }
 
 /* Base typography for overlay UI */

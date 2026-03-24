@@ -49,8 +49,6 @@ const validateAndProcessCurlProviders = (
         } catch (e) {
           return false;
         }
-
-        return true;
       })
       .map((p) => {
         const provider = { ...p, isCustom: true };
@@ -449,6 +447,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setCurrentAIModeState(mode === "P" ? "P" : "D");
   };
 
+  const toggleCurrentAIMode = () => {
+    setCurrentAIModeState((prev) => (prev === "P" ? "D" : "P"));
+  };
+
   // Setter for selected STT with validation
   const onSetSelectedSttProvider = ({
     provider,
@@ -529,6 +531,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     currentAIMode,
     onSetSelectedAIProvider,
     setCurrentAIMode,
+    toggleCurrentAIMode,
     allSttProviders,
     customSttProviders,
     selectedSttProvider,

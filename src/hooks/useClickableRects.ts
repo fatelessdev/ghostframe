@@ -15,7 +15,7 @@ export function useClickableRects(dependencies: unknown[] = []) {
 
     const updateRects = () => {
       const elements = document.querySelectorAll(
-        "button, [data-tauri-drag-region], input, textarea, select, [role='button'], [role='slider'], [data-clickable-rect='true']"
+        "button, [data-tauri-drag-region], input, textarea, select, [role='button'], [role='slider'], [data-clickable-rect='true'], [data-overlay-view-mode='settings'], [data-overlay-view-mode='settings'] *"
       );
 
       const rects: ClickableRect[] = Array.from(elements)

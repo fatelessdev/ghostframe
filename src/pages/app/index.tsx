@@ -10,7 +10,7 @@ import { PermissionFlow } from "./components/speech/PermissionFlow";
 import { useApp, useClickableRects } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
 import Settings from "@/pages/settings";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
@@ -48,7 +48,12 @@ const resolveCustomShortcutView = (
 
 const App = () => {
   const { systemAudio } = useApp();
-  const { customizable, currentAIMode, setCurrentAIMode } = useAppContext();
+  const {
+    customizable,
+    currentAIMode,
+    setCurrentAIMode,
+    toggleCurrentAIMode,
+  } = useAppContext();
   const platform = getPlatform();
 
   const [contentProtected, setContentProtected] = useState<boolean>(true);
@@ -108,7 +113,7 @@ const App = () => {
         }
 
         // Handle model toggle
-        if (actionId.trim().toLowerCase() === "toggle_click_through") {
+        if (actionId.trim().toLowerCase() === "toggle_model_mode") {
           handleToggleMode();
           return;
         }
@@ -240,13 +245,25 @@ const App = () => {
       root.classList.remove("content-protected-active");
     }
 
-    root.classList.add("click-through-active");
+    if (activeView === "settings") {
+      root.classList.remove("click-through-active");
+      // Disable click-through at the Rust level when in settings
+      invoke("set_click_through", { enabled: false }).catch((error) => {
+        console.error("Failed to disable click-through for settings:", error);
+      });
+    } else {
+      root.classList.add("click-through-active");
+      // Re-enable click-through at the Rust level when leaving settings
+      invoke("set_click_through", { enabled: true }).catch((error) => {
+        console.error("Failed to enable click-through:", error);
+      });
+    }
 
     return () => {
       root.classList.remove("content-protected-active");
       root.classList.remove("click-through-active");
     };
-  }, [contentProtected]);
+  }, [activeView, contentProtected]);
 
   useEffect(() => {
     if (isSessionActive && !contentProtected) {
@@ -280,6 +297,18 @@ const App = () => {
     setCurrentAIMode(currentAIMode === "P" ? "D" : "P");
   };
 
+  useEffect(() => {
+    const unlistenToggleModel = listen("toggle-model-mode", () => {
+      toggleCurrentAIMode();
+    });
+
+    return () => {
+      unlistenToggleModel
+        .then((fn) => fn())
+        .catch(() => {});
+    };
+  }, [toggleCurrentAIMode]);
+
     const openSettingsPanel = async () => {
       try {
         if (activeView === "settings") {
@@ -299,7 +328,6 @@ const App = () => {
       }}
       resetKeys={["app-error"]}
       onReset={() => {
-        console.log("Reset");
       }}
       >
         <div className="w-screen h-screen flex overflow-hidden justify-center items-start px-4 pt-4 pointer-events-none">
@@ -315,7 +343,6 @@ const App = () => {
                 shortcutScreenshotCount
               )}
               mode={currentAIMode}
-              contentProtectionEnabled={contentProtected}
               isCapturing={Boolean(systemAudio?.capturing)}
               onStartInterview={() => {
                   void handleStartInterview();
@@ -329,8 +356,9 @@ const App = () => {
           {activeView === "response" && isRecording ? (
             <ResponseView>
               {systemAudio?.error ? (
-                <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {systemAudio.error}
+                <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+                  <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />
+                  <span>{systemAudio.error}</span>
                 </div>
               ) : null}
 

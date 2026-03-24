@@ -641,6 +641,34 @@ pub fn get_click_through(app: tauri::AppHandle) -> bool {
     app.state::<WindowPreferencesState>().click_through()
 }
 
+/// Explicitly sets click-through mode to a specific state.
+/// Used when views need to temporarily disable click-through (e.g., settings panel).
+#[tauri::command]
+pub fn set_click_through(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let state = app.state::<WindowPreferencesState>();
+    state.set_click_through(enabled);
+    
+    if let Some(window) = app.get_webview_window("main") {
+        #[cfg(target_os = "windows")]
+        {
+            // On Windows, ensure window has focus when disabling click-through
+            if !enabled {
+                let _ = window.set_focus();
+            }
+        }
+        
+        window
+            .set_ignore_cursor_events(enabled)
+            .map_err(|e| format!("Failed to set click-through mode: {}", e))?;
+    }
+    
+    if let Err(error) = app.emit("click-through-changed", enabled) {
+        eprintln!("Failed to emit click-through-changed: {}", error);
+    }
+    
+    Ok(())
+}
+
 /// Internal helper used by command and global shortcut.
 pub fn toggle_click_through_state<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
     let state = app.state::<WindowPreferencesState>();
@@ -732,13 +760,19 @@ impl DOMRect {
 pub struct CursorEventState {
     pub clickable_rects: std::sync::Arc<std::sync::Mutex<Vec<DOMRect>>>,
     pub is_currently_ignoring: std::sync::Arc<std::sync::Mutex<bool>>,
+    pub not_hovering_frame_count: std::sync::Arc<std::sync::Mutex<u32>>,
 }
+
+/// Number of consecutive frames the cursor must be outside clickable rects
+/// before we start ignoring cursor events. At 16ms per frame, 5 frames = ~80ms.
+const IGNORE_CURSOR_DEBOUNCE_FRAMES: u32 = 5;
 
 impl Default for CursorEventState {
     fn default() -> Self {
         Self {
             clickable_rects: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             is_currently_ignoring: std::sync::Arc::new(std::sync::Mutex::new(false)),
+            not_hovering_frame_count: std::sync::Arc::new(std::sync::Mutex::new(0)),
         }
     }
 }
@@ -789,8 +823,7 @@ pub fn start_cursor_event_monitor<R: tauri::Runtime>(app: &tauri::AppHandle<R>) 
                             
                             let logic_x = rel_x as f64 / scale;
                             let logic_y = rel_y as f64 / scale;
-                            
-                            
+
                             if let Ok(rects) = state.clickable_rects.lock() {
                                 for rect in rects.iter() {
                                     if rect.contains_logical(logic_x, logic_y) {
@@ -802,12 +835,38 @@ pub fn start_cursor_event_monitor<R: tauri::Runtime>(app: &tauri::AppHandle<R>) 
                         }
                     }
 
-                    let should_ignore = !is_hovering;
-                    
-                    if let Ok(mut lock) = state.is_currently_ignoring.lock() {
-                        if *lock != should_ignore {
-                            *lock = should_ignore;
-                            let _ = window.set_ignore_cursor_events(should_ignore);
+                    // Debounce the ignore logic to avoid race conditions during React re-renders.
+                    // When cursor moves over a clickable rect, immediately enable events.
+                    // When cursor moves away, wait for several consecutive frames before ignoring.
+                    if is_hovering {
+                        // Reset the not-hovering counter
+                        if let Ok(mut count) = state.not_hovering_frame_count.lock() {
+                            *count = 0;
+                        }
+                        // Immediately enable cursor events when hovering
+                        if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                            if *lock {
+                                *lock = false;
+                                let _ = window.set_ignore_cursor_events(false);
+                            }
+                        }
+                    } else {
+                        // Increment the not-hovering counter
+                        let should_ignore = if let Ok(mut count) = state.not_hovering_frame_count.lock() {
+                            *count = count.saturating_add(1);
+                            *count >= IGNORE_CURSOR_DEBOUNCE_FRAMES
+                        } else {
+                            false
+                        };
+                        
+                        // Only ignore after debounce period
+                        if should_ignore {
+                            if let Ok(mut lock) = state.is_currently_ignoring.lock() {
+                                if !*lock {
+                                    *lock = true;
+                                    let _ = window.set_ignore_cursor_events(true);
+                                }
+                            }
                         }
                     }
                 } else {

@@ -28,6 +28,12 @@ export function AudioVisualizer({ stream, isRecording }: AudioVisualizerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const oscillatorsRef = useRef<OscillatorNode[]>([]);
   const gainNodesRef = useRef<GainNode[]>([]);
+  const isRecordingRef = useRef(isRecording);
+
+  // Keep isRecording ref in sync
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   // Cleanup function to stop visualization and close audio context
   const cleanup = () => {
@@ -57,12 +63,43 @@ export function AudioVisualizer({ stream, isRecording }: AudioVisualizerProps) {
 
   // Start or stop visualization based on recording state
   useEffect(() => {
-    if (isRecording) {
-      startVisualization();
-    } else {
+    if (!isRecording) {
       cleanup();
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    let cancelled = false;
+
+    const start = async () => {
+      try {
+        const audioContext = new AudioContext();
+        audioContextRef.current = audioContext;
+
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = AUDIO_CONFIG.FFT_SIZE;
+        analyser.smoothingTimeConstant = AUDIO_CONFIG.SMOOTHING;
+        analyserRef.current = analyser;
+
+        if (stream) {
+          const source = audioContext.createMediaStreamSource(stream);
+          source.connect(analyser);
+        } else {
+          createFakeStream(audioContext, analyser);
+        }
+
+        if (!cancelled) {
+          draw();
+        }
+      } catch (error) {
+        console.error("Error starting visualization:", error);
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+    };
   }, [stream, isRecording]);
 
   // Handle window resize
@@ -126,7 +163,9 @@ export function AudioVisualizer({ stream, isRecording }: AudioVisualizerProps) {
 
     // Animate the gain to simulate speech patterns
     const animateGain = () => {
-      if (!isRecording || !audioContextRef.current) return;
+      if (!isRecordingRef.current || !audioContextRef.current) return;
+
+      const ctx = audioContextRef.current;
 
       gainNodes.forEach((gainNode, index) => {
         // Create random fluctuations to simulate speech
@@ -138,7 +177,7 @@ export function AudioVisualizer({ stream, isRecording }: AudioVisualizerProps) {
 
         gainNode.gain.linearRampToValueAtTime(
           targetGain,
-          audioContextRef.current!.currentTime + 0.05
+          ctx.currentTime + 0.05
         );
       });
 
@@ -146,32 +185,6 @@ export function AudioVisualizer({ stream, isRecording }: AudioVisualizerProps) {
     };
 
     animateGain();
-  };
-
-  // Initialize audio context and start visualization
-  const startVisualization = async () => {
-    try {
-      const audioContext = new AudioContext();
-      audioContextRef.current = audioContext;
-
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = AUDIO_CONFIG.FFT_SIZE;
-      analyser.smoothingTimeConstant = AUDIO_CONFIG.SMOOTHING;
-      analyserRef.current = analyser;
-
-      if (stream) {
-        // Use real stream if available
-        const source = audioContext.createMediaStreamSource(stream);
-        source.connect(analyser);
-      } else {
-        // Create fake stream for visualization
-        createFakeStream(audioContext, analyser);
-      }
-
-      draw();
-    } catch (error) {
-      console.error("Error starting visualization:", error);
-    }
   };
 
   // Calculate the color intensity based on bar height
@@ -200,7 +213,7 @@ export function AudioVisualizer({ stream, isRecording }: AudioVisualizerProps) {
 
   // Main drawing function
   const draw = () => {
-    if (!isRecording) return;
+    if (!isRecordingRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");

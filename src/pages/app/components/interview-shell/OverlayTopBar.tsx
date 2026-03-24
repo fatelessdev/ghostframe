@@ -1,17 +1,9 @@
-import {
-  PlayIcon,
-  SquareIcon,
-  SettingsIcon,
-  CameraIcon,
-  ZapIcon,
-  SparklesIcon,
-} from "lucide-react";
+import { SettingsIcon } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 
 interface OverlayTopBarProps {
   screenshotCount: number;
   mode: "D" | "P";
-  contentProtectionEnabled: boolean;
   isCapturing: boolean;
   onStartInterview: () => void;
   onOpenSettings?: () => void;
@@ -19,84 +11,147 @@ interface OverlayTopBarProps {
 }
 
 export const OverlayTopBar = ({
-  screenshotCount,
   mode,
   isCapturing,
   onStartInterview,
   onOpenSettings,
   onToggleMode,
 }: OverlayTopBarProps) => {
+  // Shared styles for secondary action buttons
+  const secondaryButtonBase = `
+    group flex items-center gap-1.5
+    text-white/50 
+    px-2.5 py-1.5 
+    rounded-lg
+    transition-all duration-200 ease-out
+    hover:text-white/80 hover:bg-white/[0.04]
+    active:bg-white/[0.06] active:scale-[0.99]
+    focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
+  `;
 
   return (
-    <header className="flex items-center justify-center gap-1.5 pointer-events-none cursor-move" data-tauri-drag-region>
-      {/* Start/Stop Button */}
-      <div className="flex items-center bg-black/50 backdrop-blur-xl rounded-full px-0.5 py-0.5 border border-white/8 pointer-events-auto shadow-lg">
-        {isCapturing ? (
-          <button 
-            className="bg-red-500/15 border border-red-400/20 text-red-300 text-[10px] font-semibold tracking-tight px-2.5 py-1 rounded-full flex items-center gap-1.5 hover:bg-red-500/25 transition-all" 
-            onClick={onStartInterview}
-          >
-            <SquareIcon className="w-2 h-2 fill-current" />
-            <span>Done</span>
-          </button>
-        ) : (
-          <button 
-            className="bg-blue-500/15 border border-blue-400/20 text-blue-300 text-[10px] font-semibold tracking-tight px-2.5 py-1 rounded-full flex items-center gap-1.5 hover:bg-blue-500/25 transition-all" 
-            onClick={onStartInterview}
-          >
-            <PlayIcon className="w-2 h-2 fill-current" />
-            <span>Start</span>
-          </button>
-        )}
-      </div>
-
-      {/* Model Toggle Indicator */}
-      <button
-        onClick={onToggleMode}
-        className="flex items-center bg-black/50 backdrop-blur-xl rounded-full px-2 py-1 gap-1.5 border border-white/8 pointer-events-auto shadow-lg hover:bg-black/60 transition-all"
+    <header
+      className="flex items-center justify-center pointer-events-none cursor-move"
+      data-tauri-drag-region
+    >
+      {/* Glassmorphic floating bar using CSS variables from globals.css */}
+      <nav
+        className="
+          font-abel
+          flex items-center
+          overlay-panel-glass
+          rounded-2xl
+          pl-1.5 pr-1 py-1
+          gap-0.5
+          pointer-events-auto
+          shadow-lg shadow-black/20
+          border border-[--overlay-border-soft]
+          transition-all duration-300 ease-out
+          hover:border-[--overlay-border-highlight]
+          motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-top-2 motion-safe:duration-500
+        "
+        role="toolbar"
+        aria-label="Interview controls"
       >
-        {mode === "P" ? (
-          <>
-            <SparklesIcon className="w-2.5 h-2.5 text-amber-400" />
-            <span className="text-[9px] font-semibold text-amber-300 tracking-tight">Pro</span>
-          </>
-        ) : (
-          <>
-            <ZapIcon className="w-2.5 h-2.5 text-blue-400" />
-            <span className="text-[9px] font-semibold text-blue-300 tracking-tight">Fast</span>
-          </>
-        )}
-        <Kbd size="sm" variant="ghost">Ctrl+M</Kbd>
-      </button>
-      
-      {/* Shortcuts Bar */}
-      <div className="flex items-center bg-black/50 backdrop-blur-xl rounded-full px-2 py-1 gap-2 border border-white/8 pointer-events-auto shadow-lg">
-        {/* Screenshot with count */}
-        <div className="flex items-center gap-1 text-[10px] text-white/50">
-          <div className="relative">
-            <CameraIcon className="w-3 h-3" />
-            {screenshotCount > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 bg-blue-500 text-white text-[8px] font-bold rounded-full min-w-[12px] h-[12px] flex items-center justify-center px-0.5 leading-none">
-                {screenshotCount > 9 ? "9+" : screenshotCount}
-              </span>
-            )}
-          </div>
-          <span className="font-medium tracking-tight">Screenshot</span>
-          <Kbd size="sm" variant="ghost">Ctrl+H</Kbd>
+        {/* Mode toggle - uses blue accent */}
+        <button
+          onClick={onToggleMode}
+          className="
+            flex items-center gap-1
+            text-blue-400 hover:text-blue-300
+            px-3 py-1.5 rounded-xl
+            transition-all duration-200 ease-out
+            hover:bg-blue-500/10
+            active:scale-[0.98]
+            focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
+          "
+          aria-label={`Mode: ${mode === "P" ? "Pro" : "Fast"}. Click to toggle.`}
+        >
+          <span className="text-[12px] tracking-wide">
+            {mode === "P" ? "Pro" : "Fast"}
+          </span>
+        </button>
+
+        {/* Divider */}
+        <div className="w-px h-4 bg-gradient-to-b from-transparent via-white/[0.08] to-transparent mx-0.5" aria-hidden="true" />
+
+        {/* Start/Stop - Primary CTA using blue accent */}
+        <button
+          onClick={onStartInterview}
+          className={`
+            relative flex items-center justify-center
+            min-w-[4.5rem] px-4 py-1.5 rounded-xl
+            text-[12px] font-medium tracking-wide
+            transition-all duration-200 ease-out
+            active:scale-[0.98]
+            focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:ring-offset-black/40
+            ${
+              isCapturing
+                ? "bg-red-500/80 text-white hover:bg-red-500/90 focus-visible:ring-red-400/60"
+                : "bg-blue-500/80 text-white hover:bg-blue-500/90 focus-visible:ring-blue-400/60"
+            }
+          `}
+          aria-pressed={isCapturing}
+          aria-label={isCapturing ? "Stop interview" : "Start interview"}
+        >
+          {isCapturing ? "Stop" : "Start"}
+        </button>
+
+        {/* Divider */}
+        <div className="w-px h-4 bg-gradient-to-b from-transparent via-white/[0.08] to-transparent mx-0.5" aria-hidden="true" />
+
+        {/* Secondary actions */}
+        <div className="flex items-center gap-px">
+          <button
+            className={secondaryButtonBase}
+            aria-label="Take screenshot. Shortcut: Control plus H"
+          >
+            <span className="text-[11px]">Screenshot</span>
+            <Kbd size="sm" variant="ghost">Ctrl+H</Kbd>
+          </button>
+
+          <button
+            className={secondaryButtonBase}
+            aria-label="Solve problem. Shortcut: Control plus Enter"
+          >
+            <span className="text-[11px]">Solve</span>
+            <Kbd size="sm" variant="ghost">Ctrl+↵</Kbd>
+          </button>
+
+          <button
+            className={secondaryButtonBase}
+            aria-label="Toggle panel visibility. Shortcut: Control plus forward slash"
+          >
+            <span className="text-[11px]">Toggle</span>
+            <Kbd size="sm" variant="ghost">Ctrl+/</Kbd>
+          </button>
         </div>
-        <div className="w-px h-2.5 bg-white/10" />
-        <div className="flex items-center gap-1 text-[10px] text-white/50">
-          <span className="font-medium tracking-tight">Answer</span>
-          <Kbd size="sm" variant="ghost">Ctrl+Enter</Kbd>
-        </div>
-        <div className="w-px h-2.5 bg-white/10" />
+
+        {/* Divider */}
+        <div className="w-px h-4 bg-gradient-to-b from-transparent via-white/[0.08] to-transparent mx-0.5" aria-hidden="true" />
+
+        {/* Settings */}
         <button
           onClick={onOpenSettings}
-          className="text-white/40 hover:text-white/80 transition-colors p-0.5 rounded-full hover:bg-white/10"
+          className="
+            flex items-center justify-center
+            w-8 h-8
+            text-white/35 hover:text-white/70
+            hover:bg-white/[0.04]
+            active:bg-white/[0.06]
+            transition-all duration-200 ease-out
+            rounded-xl
+            focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
+            group
+          "
+          aria-label="Open settings"
         >
-          <SettingsIcon className="w-3 h-3" />
+          <SettingsIcon 
+            className="w-3.5 h-3.5 transition-transform duration-500 ease-out group-hover:rotate-90" 
+            strokeWidth={1.5} 
+          />
         </button>
-      </div>
+      </nav>
     </header>
   );
 };

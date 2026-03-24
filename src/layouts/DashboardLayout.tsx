@@ -11,7 +11,6 @@ export const DashboardLayout = () => {
       }}
       resetKeys={["dashboard-error"]}
       onReset={() => {
-        console.log("Reset");
       }}
     >
       <div className="relative flex h-screen w-screen overflow-hidden bg-background">

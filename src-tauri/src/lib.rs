@@ -64,6 +64,7 @@ pub fn run() {
             window::get_content_protection,
             window::toggle_click_through,
             window::get_click_through,
+            window::set_click_through,
             window::set_disguise_mode,
             window::get_disguise_mode,
             capture::capture_to_base64,

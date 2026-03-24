@@ -52,9 +52,9 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
-    id: "toggle_click_through",
-    name: "Toggle Click-Through",
-    description: "Toggle passive HUD mode (clicks pass through overlay)",
+    id: "toggle_model_mode",
+    name: "Toggle Model Mode",
+    description: "Switch between Dumb and Pro models",
     defaultKey: {
       macos: "cmd+m",
       windows: "ctrl+m",
