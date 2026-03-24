@@ -136,8 +136,8 @@
   --radius: 0.625rem;
   --cursor-type: default;
   --overlay-shell-max-width: 980px;
-  --overlay-topbar-glass: rgb(18 23 30 / 0.65);
-  --overlay-panel-glass: rgb(14 18 24 / 0.55);
+  --overlay-topbar-glass: rgb(18 23 30 / 0.74);
+  --overlay-panel-glass: rgb(14 18 24 / 0.66);
   --overlay-border-soft: rgb(255 255 255 / 0.12);
   --overlay-border-highlight: rgb(255 255 255 / 0.2);
   --overlay-shadow: 0 16px 48px rgb(2 6 23 / 0.35);
@@ -179,8 +179,8 @@
 }
 
 .dark {
-  --overlay-topbar-glass: rgb(15 18 24 / 0.6);
-  --overlay-panel-glass: rgb(11 14 20 / 0.5);
+  --overlay-topbar-glass: rgb(15 18 24 / 0.7);
+  --overlay-panel-glass: rgb(11 14 20 / 0.62);
   --overlay-border-soft: rgb(255 255 255 / 0.1);
   --overlay-border-highlight: rgb(255 255 255 / 0.18);
   --overlay-shadow: 0 20px 56px rgb(2 6 23 / 0.4);

@@ -1,5 +1,4 @@
 import { SettingsIcon } from "lucide-react";
-import { Kbd } from "@/components/ui/kbd";
 
 interface OverlayTopBarProps {
   screenshotCount: number;
@@ -11,6 +10,7 @@ interface OverlayTopBarProps {
 }
 
 export const OverlayTopBar = ({
+  screenshotCount,
   mode,
   isCapturing,
   onStartInterview,
@@ -19,12 +19,12 @@ export const OverlayTopBar = ({
 }: OverlayTopBarProps) => {
   // Shared styles for secondary action buttons
   const secondaryButtonBase = `
-    group flex items-center gap-1.5
-    text-white/50 
-    px-2.5 py-1.5 
-    rounded-lg
+    group relative flex items-center justify-center gap-1.5
+    text-white/84
+    min-w-[4.6rem] px-2.5 py-1.5
+    rounded-xl
     transition-all duration-200 ease-out
-    hover:text-white/80 hover:bg-white/[0.04]
+    hover:text-white/92 hover:bg-white/[0.06]
     active:bg-white/[0.06] active:scale-[0.99]
     focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
   `;
@@ -57,17 +57,17 @@ export const OverlayTopBar = ({
         <button
           onClick={onToggleMode}
           className="
-            flex items-center gap-1
-            text-blue-400 hover:text-blue-300
+            flex items-center justify-center gap-1.5
+            text-blue-300/95 hover:text-blue-200
             px-3 py-1.5 rounded-xl
             transition-all duration-200 ease-out
-            hover:bg-blue-500/10
+            hover:bg-blue-500/16
             active:scale-[0.98]
             focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
           "
           aria-label={`Mode: ${mode === "P" ? "Pro" : "Fast"}. Click to toggle.`}
         >
-          <span className="text-[12px] tracking-wide">
+          <span className="text-[12px] font-medium tracking-wide">
             {mode === "P" ? "Pro" : "Fast"}
           </span>
         </button>
@@ -104,26 +104,31 @@ export const OverlayTopBar = ({
         <div className="flex items-center gap-px">
           <button
             className={secondaryButtonBase}
-            aria-label="Take screenshot. Shortcut: Control plus H"
+            aria-label="Take screenshot"
           >
-            <span className="text-[11px]">Screenshot</span>
-            <Kbd size="sm" variant="ghost">Ctrl+H</Kbd>
+            <span className="text-[11px] font-medium tracking-wide">Screenshot</span>
+            {screenshotCount > 0 ? (
+              <span
+                className="absolute -top-1 -right-1 inline-flex min-w-[1.1rem] h-[1.1rem] items-center justify-center rounded-full bg-blue-500/90 px-1 text-[9px] font-semibold text-white shadow-md shadow-blue-500/30"
+                aria-label={`${screenshotCount} screenshots attached`}
+              >
+                {screenshotCount}
+              </span>
+            ) : null}
           </button>
 
           <button
             className={secondaryButtonBase}
-            aria-label="Solve problem. Shortcut: Control plus Enter"
+            aria-label="Solve problem"
           >
-            <span className="text-[11px]">Solve</span>
-            <Kbd size="sm" variant="ghost">Ctrl+↵</Kbd>
+            <span className="text-[11px] font-medium tracking-wide">Solve</span>
           </button>
 
           <button
             className={secondaryButtonBase}
-            aria-label="Toggle panel visibility. Shortcut: Control plus forward slash"
+            aria-label="Toggle panel visibility"
           >
-            <span className="text-[11px]">Toggle</span>
-            <Kbd size="sm" variant="ghost">Ctrl+/</Kbd>
+            <span className="text-[11px] font-medium tracking-wide">Toggle</span>
           </button>
         </div>
 

@@ -83,7 +83,7 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
       aria-live="polite"
     >
       {/* Content wrapper with refined typography */}
-      <div className="text-body text-white/85 leading-relaxed tracking-wide">
+      <div className="text-body text-white/90 leading-relaxed tracking-wide">
         {children}
       </div>
     </div>

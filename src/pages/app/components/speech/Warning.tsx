@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   InfoIcon,
   ChevronDownIcon,
-  KeyboardIcon,
   CameraIcon,
   MessageSquareTextIcon,
 } from "lucide-react";
@@ -10,9 +9,6 @@ import { cn } from "@/lib/utils";
 
 export const Warning = () => {
   const [isExpanded, setIsExpanded] = useState(false);
-
-  const isMac = navigator.platform.toLowerCase().includes("mac");
-  const modKey = isMac ? "⌘" : "Ctrl";
 
   return (
     <div className="rounded-lg border border-border/50 bg-muted/30 overflow-hidden">
@@ -43,32 +39,8 @@ export const Warning = () => {
               from microphone.
             </p>
             <p className="text-[10px] text-muted-foreground">
-              Press <strong>{modKey}+Enter</strong> to send current transcript +
-              screenshots to AI instantly.
+              Sending uses the latest transcript and current screenshots together.
             </p>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
-              <KeyboardIcon className="w-3 h-3 text-muted-foreground" />
-              <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                Keyboard
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div className="flex items-center justify-between p-1.5 rounded bg-muted/50">
-                <span className="text-muted-foreground">Send context</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-background border border-border font-mono">
-                  {modKey}+Enter
-                </kbd>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-muted/50">
-                <span className="text-muted-foreground">Scroll transcript</span>
-                <kbd className="px-1.5 py-0.5 rounded bg-background border border-border font-mono">
-                  ↑ / ↓
-                </kbd>
-              </div>
-            </div>
           </div>
 
           <div className="space-y-2">
