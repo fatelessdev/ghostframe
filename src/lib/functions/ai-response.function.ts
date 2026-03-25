@@ -104,20 +104,27 @@ async function waitForRetryDelay(ms: number, signal?: AbortSignal): Promise<void
   }
 
   await new Promise<void>((resolve) => {
-    const timeoutId = window.setTimeout(() => {
-      resolve();
-    }, ms);
+    let settled = false;
+    let timeoutId = 0;
 
-    if (!signal) {
-      return;
-    }
+    const settle = () => {
+      if (settled) {
+        return;
+      }
 
-    const onAbort = () => {
+      settled = true;
       window.clearTimeout(timeoutId);
+      if (signal) {
+        signal.removeEventListener("abort", settle);
+      }
       resolve();
     };
 
-    signal.addEventListener("abort", onAbort, { once: true });
+    timeoutId = window.setTimeout(settle, ms);
+
+    if (signal) {
+      signal.addEventListener("abort", settle);
+    }
   });
 }
 
