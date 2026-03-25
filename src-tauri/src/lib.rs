@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod capture;
 mod db;
+mod logs;
 mod shortcuts;
 mod window;
 use std::sync::{Arc, Mutex};
@@ -90,6 +91,7 @@ pub fn run() {
             speaker::get_audio_sample_rate,
             speaker::get_input_devices,
             speaker::get_output_devices,
+            logs::append_system_audio_log_line,
             window::set_clickable_rects,
         ])
         .setup(|app| {

@@ -62,6 +62,41 @@ import {
   type PendingCommitEcho,
 } from "@/hooks/internal/systemAudioAnswerTrigger";
 
+type RequestPreparedMeta = {
+  requestMethod: string;
+  requestBodyChars: number;
+  urlHost: string | null;
+  urlPath: string | null;
+  usedWorkerAssembly: boolean;
+};
+
+type SystemAudioLogParams = {
+  outcome: "success" | "error";
+  errorMessage?: string;
+  prompt: string;
+  imagesBase64: string[];
+  previousMessages: { role: ChatMessage["role"]; content: string }[];
+  providerId: string;
+  aiMode: "D" | "P";
+  requestAttempts: number;
+};
+
+const durationBetween = (
+  start: number | undefined,
+  end: number | undefined
+): number | null => {
+  if (typeof start !== "number" || typeof end !== "number") {
+    return null;
+  }
+
+  const duration = end - start;
+  if (!Number.isFinite(duration) || duration < 0) {
+    return null;
+  }
+
+  return Math.round(duration);
+};
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
@@ -687,6 +722,87 @@ export function useSystemAudio() {
     return buildImagesPayloadInternal(manualScreenshotsRef.current);
   }, []);
 
+  const writeSystemAudioLog = useCallback(
+    async (
+      params: SystemAudioLogParams,
+      requestMeta: RequestPreparedMeta | null
+    ) => {
+      const events = latencyEventsRef.current;
+      const answerTriggerAt = events.answer_trigger;
+      const transcriptFinalizedAt = events.transcript_finalized;
+      const promptAssembledAt = events.prompt_assembled;
+      const requestDispatchedAt = events.llm_request_dispatched;
+      const firstChunkAt = events.llm_first_chunk;
+      const streamDoneAt = events.llm_stream_done;
+      const errorAt = events.llm_error;
+
+      const screenshotSizes = params.imagesBase64.map((image) => image.length);
+      const totalImageChars = screenshotSizes.reduce((sum, size) => sum + size, 0);
+      const historyChars = params.previousMessages.reduce(
+        (sum, message) => sum + message.content.length,
+        0
+      );
+
+      const entry = {
+        timestamp: new Date().toISOString(),
+        type: "system_audio_latency",
+        outcome: params.outcome,
+        error: params.errorMessage || null,
+        providerId: params.providerId,
+        aiMode: params.aiMode,
+        promptText: params.prompt,
+        timestamps: {
+          answerTriggerAt: answerTriggerAt ?? null,
+          transcriptFinalizedAt: transcriptFinalizedAt ?? null,
+          promptAssembledAt: promptAssembledAt ?? null,
+          requestDispatchedAt: requestDispatchedAt ?? null,
+          firstChunkAt: firstChunkAt ?? null,
+          streamDoneAt: streamDoneAt ?? null,
+          errorAt: errorAt ?? null,
+        },
+        durationsMs: {
+          answerTriggerToTranscriptFinalized: durationBetween(
+            answerTriggerAt,
+            transcriptFinalizedAt
+          ),
+          transcriptFinalizedToPrompt: durationBetween(
+            transcriptFinalizedAt,
+            promptAssembledAt
+          ),
+          answerTriggerToPrompt: durationBetween(answerTriggerAt, promptAssembledAt),
+          promptToDispatch: durationBetween(promptAssembledAt, requestDispatchedAt),
+          dispatchToFirstChunk: durationBetween(requestDispatchedAt, firstChunkAt),
+          firstChunkToDone: durationBetween(firstChunkAt, streamDoneAt),
+          answerTriggerToDone: durationBetween(answerTriggerAt, streamDoneAt),
+          answerTriggerToError: durationBetween(answerTriggerAt, errorAt),
+        },
+        payloadMeta: {
+          transcriptChars: params.prompt.length,
+          screenshotCount: screenshotSizes.length,
+          screenshotBase64Chars: screenshotSizes,
+          totalScreenshotBase64Chars: totalImageChars,
+          historyMessageCount: params.previousMessages.length,
+          historyChars,
+        },
+        requestMeta: {
+          method: requestMeta?.requestMethod ?? null,
+          requestBodyChars: requestMeta?.requestBodyChars ?? null,
+          urlHost: requestMeta?.urlHost ?? null,
+          urlPath: requestMeta?.urlPath ?? null,
+          workerAssembled: requestMeta?.usedWorkerAssembly ?? null,
+          requestAttempts: params.requestAttempts,
+        },
+      };
+
+      try {
+        await tauriCommands.appendSystemAudioLogLine(JSON.stringify(entry));
+      } catch (logError) {
+        console.warn("Failed to append system audio latency log:", logError);
+      }
+    },
+    []
+  );
+
   const consumeQueuedAnswerTrigger = useCallback((): string | null => {
     const queued = queuedAnswerTriggerRef.current;
     queuedAnswerTriggerRef.current = null;
@@ -753,6 +869,8 @@ export function useSystemAudio() {
         setError("AI provider config not found.");
         return false;
       }
+      const providerId =
+        provider.id ?? selectedAIProvider.provider ?? "unknown";
 
       const fullPrompt = userMessage.trim();
       if (!fullPrompt) {
@@ -788,6 +906,7 @@ export function useSystemAudio() {
 
       const timestamp = Date.now();
       const previousMessages = getPreviousMessages();
+      let requestPreparedMeta: RequestPreparedMeta | null = null;
       recordLatencyMark("prompt_assembled", Date.now());
 
       const userChatMessage: ChatMessage = {
@@ -811,6 +930,7 @@ export function useSystemAudio() {
       let fullResponse = "";
       let firstChunkRecorded = false;
       let requestDispatched = false;
+      let requestAttempts = 0;
       try {
         for await (const chunk of fetchAIResponse({
           provider,
@@ -821,7 +941,11 @@ export function useSystemAudio() {
           imagesBase64,
           aiMode: currentAIMode,
           signal: controller.signal,
-          onRequestDispatched: () => {
+          onRequestPrepared: (meta) => {
+            requestPreparedMeta = meta;
+          },
+          onRequestDispatched: (attempt) => {
+            requestAttempts = Math.max(requestAttempts, attempt);
             if (requestDispatched) {
               return;
             }
@@ -856,6 +980,10 @@ export function useSystemAudio() {
           }
         }
 
+        if (requestAttempts === 0 && requestDispatched) {
+          requestAttempts = 1;
+        }
+
         if (aiResponseFlushFrameRef.current !== null) {
           window.cancelAnimationFrame(aiResponseFlushFrameRef.current);
           aiResponseFlushFrameRef.current = null;
@@ -886,10 +1014,37 @@ export function useSystemAudio() {
           return clearManualScreenshotsState(previous, manualScreenshotsRef);
         });
         recordLatencyMark("llm_stream_done", Date.now());
+
+        await writeSystemAudioLog({
+          outcome: "success",
+          prompt: fullPrompt,
+          imagesBase64,
+          previousMessages,
+          providerId,
+          aiMode: currentAIMode,
+          requestAttempts,
+        }, requestPreparedMeta);
+
         return true;
       } catch (aiError) {
         if (!controller.signal.aborted) {
           recordLatencyMark("llm_error", Date.now());
+        }
+        if (requestAttempts === 0 && requestDispatched) {
+          requestAttempts = 1;
+        }
+        if (!controller.signal.aborted) {
+          await writeSystemAudioLog({
+            outcome: "error",
+            errorMessage:
+              aiError instanceof Error ? aiError.message : "Failed to generate AI response",
+            prompt: fullPrompt,
+            imagesBase64,
+            previousMessages,
+            providerId,
+            aiMode: currentAIMode,
+            requestAttempts,
+          }, requestPreparedMeta);
         }
         if (!controller.signal.aborted) {
           setError(
@@ -915,6 +1070,7 @@ export function useSystemAudio() {
       getPreviousMessages,
       recordLatencyMark,
       selectedAIProvider,
+      writeSystemAudioLog,
     ]
   );
 

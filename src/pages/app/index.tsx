@@ -442,7 +442,7 @@ const App = () => {
         >
 
           {activeView === "response" && canShowResponseView ? (
-            <ResponseView latencySnapshot={systemAudio?.latencySnapshot}>
+            <ResponseView>
               {systemAudio?.error ? (
                 <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
                   <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />

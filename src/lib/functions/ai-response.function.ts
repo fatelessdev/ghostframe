@@ -263,6 +263,28 @@ function parseRetryAfterMs(value: string | null): number | null {
   return null;
 }
 
+function extractRequestUrlMeta(url: string): {
+  host: string | null;
+  path: string | null;
+} {
+  if (!url) {
+    return { host: null, path: null };
+  }
+
+  try {
+    const parsed = new URL(url);
+    return {
+      host: parsed.host || null,
+      path: parsed.pathname || "/",
+    };
+  } catch {
+    return {
+      host: null,
+      path: null,
+    };
+  }
+}
+
 function getRetryDelayMs(attempt: number, retryAfterMs: number | null): number {
   if (retryAfterMs !== null) {
     return Math.min(API_REQUEST_RETRY_MAX_DELAY_MS, Math.max(0, retryAfterMs));
@@ -453,6 +475,13 @@ export async function* fetchAIResponse(params: {
   imagesBase64?: string[];
   signal?: AbortSignal;
   aiMode?: "D" | "P";
+  onRequestPrepared?: (meta: {
+    requestMethod: string;
+    requestBodyChars: number;
+    urlHost: string | null;
+    urlPath: string | null;
+    usedWorkerAssembly: boolean;
+  }) => void;
   onRequestDispatched?: (attempt: number) => void;
 }): AsyncIterable<string> {
   try {
@@ -465,6 +494,7 @@ export async function* fetchAIResponse(params: {
       imagesBase64 = [],
       signal,
       aiMode = DEFAULT_AI_MODE,
+      onRequestPrepared,
       onRequestDispatched,
     } = params;
 
@@ -540,6 +570,7 @@ export async function* fetchAIResponse(params: {
     let url: string;
     let headers: Record<string, string>;
     const requestMethod = (curlJson.method || "POST").toUpperCase();
+    let usedWorkerAssembly = false;
 
     if (
       shouldUsePromptAssemblyWorker({
@@ -564,6 +595,7 @@ export async function* fetchAIResponse(params: {
           signal
         );
         requestBody = assembled.requestBody;
+        usedWorkerAssembly = true;
         url = assembled.url;
         headers = assembled.headers;
       } catch (workerError) {
@@ -681,6 +713,19 @@ export async function* fetchAIResponse(params: {
 
       requestBody =
         requestMethod === "GET" ? undefined : JSON.stringify(bodyObj);
+    }
+
+    if (onRequestPrepared) {
+      try {
+        const { host, path } = extractRequestUrlMeta(url);
+        onRequestPrepared({
+          requestMethod,
+          requestBodyChars: requestBody?.length ?? 0,
+          urlHost: host,
+          urlPath: path,
+          usedWorkerAssembly,
+        });
+      } catch {}
     }
 
     const fetchFunction = url?.includes("http") ? fetch : tauriFetch;

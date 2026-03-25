@@ -39,4 +39,7 @@ export const tauriCommands = {
   exitApp: async (): Promise<void> => {
     await invoke("exit_app");
   },
+  appendSystemAudioLogLine: async (line: string): Promise<void> => {
+    await invoke("append_system_audio_log_line", { line });
+  },
 };
