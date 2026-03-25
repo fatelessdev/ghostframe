@@ -2,6 +2,7 @@ import { normalizeTranscription } from "@/lib/utils";
 import { type TranscriptSegment, type TranscriptSource } from "@/types";
 
 const MAX_TRANSCRIPT_SEGMENTS = 300;
+const MAX_TRANSCRIPT_PROMPT_SEGMENTS = 120;
 
 export const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && value.message) {
@@ -195,9 +196,16 @@ export function mergeTranscriptForPrompt(
   segments: TranscriptSegment[],
   cutoffAt?: number
 ): string {
-  return segments
+  const committedSegments = segments
     .filter((item) => !item.isLive)
-    .filter((item) => (typeof cutoffAt === "number" ? item.timestamp <= cutoffAt : true))
+    .filter((item) => (typeof cutoffAt === "number" ? item.timestamp <= cutoffAt : true));
+
+  const compactedSegments =
+    committedSegments.length > MAX_TRANSCRIPT_PROMPT_SEGMENTS
+      ? committedSegments.slice(-MAX_TRANSCRIPT_PROMPT_SEGMENTS)
+      : committedSegments;
+
+  return compactedSegments
     .map((item) => {
       const label = item.source === "interviewer" ? "Interviewer" : "User";
       return `${label}: "${item.text}"`;

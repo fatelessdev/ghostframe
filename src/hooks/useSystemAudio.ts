@@ -92,6 +92,7 @@ const SYSTEM_AUDIO_CAPTURE_STATUS_TIMEOUT_MS = 2500;
 const SYSTEM_AUDIO_CAPTURE_STATUS_POLL_MS = 125;
 const REALTIME_ERROR_THROTTLE_MS = 900;
 const REALTIME_DROP_WARNING_COOLDOWN_MS = 2000;
+const MAX_AI_RESPONSE_BUFFER_CHARS = 12_000;
 
 const initialConversation = (): ChatConversation => ({
   id: generateConversationId("sysaudio"),
@@ -635,6 +636,10 @@ export function useSystemAudio() {
           signal: controller.signal,
         })) {
           fullResponse += chunk;
+
+          if (fullResponse.length > MAX_AI_RESPONSE_BUFFER_CHARS) {
+            fullResponse = fullResponse.slice(-MAX_AI_RESPONSE_BUFFER_CHARS);
+          }
 
           aiResponseBufferRef.current += chunk;
           if (aiResponseFlushFrameRef.current === null) {
