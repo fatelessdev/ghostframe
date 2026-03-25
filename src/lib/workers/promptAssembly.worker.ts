@@ -11,6 +11,8 @@ type WorkerRequest = {
     bodyObj: unknown;
     url: string;
     headers: Record<string, string>;
+    requestMethod: string;
+    enableStreaming: boolean;
     history: Message[];
     userMessage: string;
     imagesBase64: string[];
@@ -22,7 +24,7 @@ type WorkerResponse = {
   id: number;
   ok: true;
   payload: {
-    bodyObj: unknown;
+    requestBody?: string;
     url: string;
     headers: Record<string, string>;
   };
@@ -91,6 +93,26 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       bodyObj = deepVariableReplacer(bodyObj, payload.allVariables);
     }
 
+    if (
+      payload.enableStreaming &&
+      bodyObj &&
+      typeof bodyObj === "object" &&
+      payload.requestMethod !== "GET"
+    ) {
+      const mutableBody = bodyObj as Record<string, unknown>;
+      const streamKey = Object.keys(mutableBody).find(
+        (key) => key.toLowerCase() === "stream"
+      );
+      if (streamKey) {
+        mutableBody[streamKey] = true;
+      } else {
+        mutableBody.stream = true;
+      }
+    }
+
+    const requestBody =
+      payload.requestMethod === "GET" ? undefined : JSON.stringify(bodyObj);
+
     const url = hasTemplateVariables(payload.url)
       ? deepVariableReplacer(payload.url, payload.allVariables)
       : payload.url;
@@ -107,7 +129,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       id,
       ok: true,
       payload: {
-        bodyObj,
+        requestBody,
         url,
         headers,
       },

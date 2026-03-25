@@ -31,6 +31,8 @@ type PromptAssemblyWorkerRequestPayload = {
   bodyObj: unknown;
   url: string;
   headers: Record<string, string>;
+  requestMethod: string;
+  enableStreaming: boolean;
   history: Message[];
   userMessage: string;
   imagesBase64: string[];
@@ -59,7 +61,7 @@ type PromptAssemblyWorkerSuccess = {
   id: number;
   ok: true;
   payload: {
-    bodyObj: unknown;
+    requestBody?: string;
     url: string;
     headers: Record<string, string>;
   };
@@ -127,7 +129,7 @@ function getPromptAssemblyWorker(): Worker {
 async function assemblePromptPayloadInWorker(
   payload: PromptAssemblyWorkerRequestPayload,
   signal?: AbortSignal
-): Promise<{ bodyObj: unknown; url: string; headers: Record<string, string> }> {
+): Promise<{ requestBody?: string; url: string; headers: Record<string, string> }> {
   if (signal?.aborted) {
     throw new DOMException("Operation aborted", "AbortError");
   }
@@ -534,8 +536,10 @@ export async function* fetchAIResponse(params: {
 
     const baseBody = curlJson.data ? cloneCurlPayload(curlJson.data) : {};
     let bodyObj: any;
+    let requestBody: string | undefined;
     let url: string;
     let headers: Record<string, string>;
+    const requestMethod = (curlJson.method || "POST").toUpperCase();
 
     if (
       shouldUsePromptAssemblyWorker({
@@ -550,6 +554,8 @@ export async function* fetchAIResponse(params: {
             bodyObj: baseBody,
             url: curlJson.url || "",
             headers: (curlJson.header || {}) as Record<string, string>,
+            requestMethod,
+            enableStreaming: Boolean(provider?.streaming),
             history: compactedHistory,
             userMessage,
             imagesBase64,
@@ -557,7 +563,7 @@ export async function* fetchAIResponse(params: {
           },
           signal
         );
-        bodyObj = assembled.bodyObj;
+        requestBody = assembled.requestBody;
         url = assembled.url;
         headers = assembled.headers;
       } catch (workerError) {
@@ -566,6 +572,10 @@ export async function* fetchAIResponse(params: {
         }
 
         bodyObj = baseBody;
+        if (hasTemplateVariables(bodyObj)) {
+          bodyObj = deepVariableReplacer(bodyObj, allVariables);
+        }
+
         const messagesKey = Object.keys(bodyObj).find((key) =>
           ["messages", "contents", "conversation", "history"].includes(key)
         );
@@ -596,10 +606,6 @@ export async function* fetchAIResponse(params: {
           }
         }
 
-        if (hasTemplateVariables(bodyObj)) {
-          bodyObj = deepVariableReplacer(bodyObj, allVariables);
-        }
-
         const rawUrl = curlJson.url || "";
         url = hasTemplateVariables(rawUrl)
           ? deepVariableReplacer(rawUrl, allVariables)
@@ -612,6 +618,10 @@ export async function* fetchAIResponse(params: {
       }
     } else {
       bodyObj = baseBody;
+      if (hasTemplateVariables(bodyObj)) {
+        bodyObj = deepVariableReplacer(bodyObj, allVariables);
+      }
+
       const messagesKey = Object.keys(bodyObj).find((key) =>
         ["messages", "contents", "conversation", "history"].includes(key)
       );
@@ -642,10 +652,6 @@ export async function* fetchAIResponse(params: {
         }
       }
 
-      if (hasTemplateVariables(bodyObj)) {
-        bodyObj = deepVariableReplacer(bodyObj, allVariables);
-      }
-
       const rawUrl = curlJson.url || "";
       url = hasTemplateVariables(rawUrl)
         ? deepVariableReplacer(rawUrl, allVariables)
@@ -659,24 +665,25 @@ export async function* fetchAIResponse(params: {
 
     headers["Content-Type"] = "application/json";
 
-    if (provider?.streaming) {
-      if (typeof bodyObj === "object" && bodyObj !== null) {
-        const streamKey = Object.keys(bodyObj).find(
-          (k) => k.toLowerCase() === "stream"
-        );
-        if (streamKey) {
-          bodyObj[streamKey] = true;
-        } else {
-          bodyObj.stream = true;
+    if (requestBody === undefined) {
+      if (provider?.streaming) {
+        if (typeof bodyObj === "object" && bodyObj !== null) {
+          const streamKey = Object.keys(bodyObj).find(
+            (k) => k.toLowerCase() === "stream"
+          );
+          if (streamKey) {
+            bodyObj[streamKey] = true;
+          } else {
+            bodyObj.stream = true;
+          }
         }
       }
+
+      requestBody =
+        requestMethod === "GET" ? undefined : JSON.stringify(bodyObj);
     }
 
     const fetchFunction = url?.includes("http") ? fetch : tauriFetch;
-
-    const requestMethod = (curlJson.method || "POST").toUpperCase();
-    const requestBody =
-      requestMethod === "GET" ? undefined : JSON.stringify(bodyObj);
     let response;
 
     for (let attempt = 1; attempt <= API_REQUEST_MAX_ATTEMPTS; attempt++) {
