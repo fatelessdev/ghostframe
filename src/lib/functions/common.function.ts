@@ -1,12 +1,25 @@
 import { Message } from "@/types";
 
-export function getByPath(obj: any, path: string): any {
-  if (!path) return obj;
-  return path
+const pathSegmentsCache = new Map<string, string[]>();
+
+function getPathSegments(path: string): string[] {
+  const cached = pathSegmentsCache.get(path);
+  if (cached) {
+    return cached;
+  }
+
+  const segments = path
     .replace(/\[/g, ".")
     .replace(/\]/g, "")
-    .split(".")
-    .reduce((o, k) => (o || {})[k], obj);
+    .split(".");
+
+  pathSegmentsCache.set(path, segments);
+  return segments;
+}
+
+export function getByPath(obj: any, path: string): any {
+  if (!path) return obj;
+  return getPathSegments(path).reduce((o, k) => (o || {})[k], obj);
 }
 
 export function setByPath(obj: any, path: string, value: any): void {
