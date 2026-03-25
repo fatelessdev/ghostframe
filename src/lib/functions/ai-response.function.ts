@@ -41,6 +41,19 @@ type PromptAssemblyWorkerRequest = {
   payload: PromptAssemblyWorkerRequestPayload;
 };
 
+type PromptAssemblyWorkerMessage = {
+  role: "system" | "user" | "assistant";
+  content:
+    | string
+    | Array<{
+        type: string;
+        text?: string;
+        image_url?: { url: string };
+        source?: any;
+        inline_data?: any;
+      }>;
+};
+
 type PromptAssemblyWorkerSuccess = {
   id: number;
   ok: true;
@@ -313,6 +326,62 @@ function cloneCurlPayload<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+function estimateMessageSize(message: Message): number {
+  const content = message.content;
+  if (typeof content === "string") {
+    return content.length;
+  }
+
+  let size = 0;
+  for (const part of content) {
+    if (typeof part.text === "string") {
+      size += part.text.length;
+      continue;
+    }
+
+    if (part.image_url?.url) {
+      size += Math.min(part.image_url.url.length, 256);
+      continue;
+    }
+
+    if (part.source || part.inline_data) {
+      size += 256;
+    }
+  }
+
+  return size;
+}
+
+function compactHistoryForPromptAssembly(history: Message[]): Message[] {
+  const HISTORY_MAX_MESSAGES = 14;
+  const HISTORY_MAX_ESTIMATED_CHARS = 10000;
+
+  if (history.length <= HISTORY_MAX_MESSAGES) {
+    return history;
+  }
+
+  const compacted: Message[] = [];
+  let estimatedChars = 0;
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    const nextSize = estimateMessageSize(message);
+
+    if (compacted.length >= HISTORY_MAX_MESSAGES) {
+      break;
+    }
+
+    if (compacted.length > 0 && estimatedChars + nextSize > HISTORY_MAX_ESTIMATED_CHARS) {
+      break;
+    }
+
+    compacted.push(message);
+    estimatedChars += nextSize;
+  }
+
+  return compacted.reverse();
+}
+
 function resolveAIProviderVariables(
   variables: Record<string, string>,
   aiMode: "D" | "P"
@@ -435,6 +504,9 @@ export async function* fetchAIResponse(params: {
     if (!userMessage) {
       throw new Error("User message is required");
     }
+
+    const compactedHistory = compactHistoryForPromptAssembly(history);
+
     if (imagesBase64.length > 0 && !provider.curl.includes("{{IMAGE}}")) {
       throw new Error(
         `Provider ${provider?.id ?? "unknown"} does not support image input`
@@ -459,7 +531,7 @@ export async function* fetchAIResponse(params: {
     if (
       shouldUsePromptAssemblyWorker({
         bodyObj: baseBody,
-        history,
+        history: compactedHistory,
         imagesBase64,
       })
     ) {
@@ -469,7 +541,7 @@ export async function* fetchAIResponse(params: {
             bodyObj: baseBody,
             url: curlJson.url || "",
             headers: (curlJson.header || {}) as Record<string, string>,
-            history,
+            history: compactedHistory,
             userMessage,
             imagesBase64,
             allVariables,
@@ -490,13 +562,29 @@ export async function* fetchAIResponse(params: {
         );
 
         if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
-          const finalMessages = buildDynamicMessages(
-            bodyObj[messagesKey],
-            history,
-            userMessage,
-            imagesBase64
-          );
-          bodyObj[messagesKey] = finalMessages;
+          const messageTemplate = bodyObj[messagesKey] as any[];
+          const templateHasTextPlaceholder = messageTemplate.some((templateItem) => {
+            return hasTemplateVariables(templateItem) &&
+              JSON.stringify(templateItem).includes("{{TEXT}}");
+          });
+
+          if (templateHasTextPlaceholder) {
+            const finalMessages = buildDynamicMessages(
+              messageTemplate,
+              compactedHistory,
+              userMessage,
+              imagesBase64
+            );
+            bodyObj[messagesKey] = finalMessages;
+          } else {
+            bodyObj[messagesKey] = [
+              ...compactedHistory,
+              {
+                role: "user",
+                content: userMessage,
+              } as PromptAssemblyWorkerMessage,
+            ];
+          }
         }
 
         if (hasTemplateVariables(bodyObj)) {
@@ -520,13 +608,29 @@ export async function* fetchAIResponse(params: {
       );
 
       if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
-        const finalMessages = buildDynamicMessages(
-          bodyObj[messagesKey],
-          history,
-          userMessage,
-          imagesBase64
-        );
-        bodyObj[messagesKey] = finalMessages;
+        const messageTemplate = bodyObj[messagesKey] as any[];
+        const templateHasTextPlaceholder = messageTemplate.some((templateItem) => {
+          return hasTemplateVariables(templateItem) &&
+            JSON.stringify(templateItem).includes("{{TEXT}}");
+        });
+
+        if (templateHasTextPlaceholder) {
+          const finalMessages = buildDynamicMessages(
+            messageTemplate,
+            compactedHistory,
+            userMessage,
+            imagesBase64
+          );
+          bodyObj[messagesKey] = finalMessages;
+        } else {
+          bodyObj[messagesKey] = [
+            ...compactedHistory,
+            {
+              role: "user",
+              content: userMessage,
+            } as PromptAssemblyWorkerMessage,
+          ];
+        }
       }
 
       if (hasTemplateVariables(bodyObj)) {

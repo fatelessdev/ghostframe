@@ -60,12 +60,28 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       );
 
       if (messagesKey && Array.isArray(mutableBody[messagesKey])) {
-        mutableBody[messagesKey] = buildDynamicMessages(
-          mutableBody[messagesKey] as any[],
-          payload.history,
-          payload.userMessage,
-          payload.imagesBase64
-        );
+        const messagesTemplate = mutableBody[messagesKey] as any[];
+        const templateHasTextPlaceholder = messagesTemplate.some((templateItem) => {
+          return hasTemplateVariables(templateItem) &&
+            JSON.stringify(templateItem).includes("{{TEXT}}");
+        });
+
+        if (templateHasTextPlaceholder) {
+          mutableBody[messagesKey] = buildDynamicMessages(
+            messagesTemplate,
+            payload.history,
+            payload.userMessage,
+            payload.imagesBase64
+          );
+        } else {
+          mutableBody[messagesKey] = [
+            ...payload.history,
+            {
+              role: "user",
+              content: payload.userMessage,
+            },
+          ];
+        }
       }
 
       bodyObj = mutableBody;
