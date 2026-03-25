@@ -1,14 +1,19 @@
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { useOverlayScroll } from "../OverlayPanel";
+import { type SystemAudioLatencySnapshot } from "@/types";
 
 const RESPONSE_SCROLL_STEP = 120;
 
 interface ResponseViewProps {
   children: ReactNode;
+  latencySnapshot?: SystemAudioLatencySnapshot;
 }
 
-export const ResponseView = ({ children }: ResponseViewProps) => {
+export const ResponseView = ({
+  children,
+  latencySnapshot,
+}: ResponseViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const { setScrollRef, scrollState } = useOverlayScroll();
   const canScrollUpRef = useRef(false);
@@ -76,6 +81,26 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
     unregisterResponseScrollUpCallback,
   ]);
 
+  const latencyLine = useMemo(() => {
+    if (!latencySnapshot || latencySnapshot.sampleCount === 0) {
+      return null;
+    }
+
+    const prompt = latencySnapshot.answerTriggerToPromptMs.p95;
+    const first = latencySnapshot.answerTriggerToFirstChunkMs.p95;
+    const done = latencySnapshot.answerTriggerToDoneMs.p95;
+    const stream = latencySnapshot.firstChunkToDoneMs.p95;
+
+    const renderValue = (value: number | null): string => {
+      if (value === null) {
+        return "--";
+      }
+      return `${value}ms`;
+    };
+
+    return `p95 prompt ${renderValue(prompt)} | first ${renderValue(first)} | done ${renderValue(done)} | stream ${renderValue(stream)} (${latencySnapshot.sampleCount} sample${latencySnapshot.sampleCount === 1 ? "" : "s"})`;
+  }, [latencySnapshot]);
+
   return (
     <div
       ref={viewportRef}
@@ -89,6 +114,12 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
       aria-label="AI response"
       aria-live="polite"
     >
+      {latencyLine ? (
+        <div className="mb-2 rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-1 text-[10px] tracking-wide text-white/50">
+          {latencyLine}
+        </div>
+      ) : null}
+
       {/* Content wrapper with refined typography */}
       <div className="text-body text-white/90 leading-relaxed tracking-wide">
         {children}

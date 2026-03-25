@@ -18,6 +18,9 @@ import {
 import { DEFAULT_SYSTEM_PROMPT } from "@/config";
 import {
   type SystemAudioInterviewSettings,
+  type SystemAudioLatencyMetric,
+  type SystemAudioLatencySnapshot,
+  type SystemAudioLatencyStage,
   type TranscriptSegment,
   type TranscriptSource,
 } from "@/types";
@@ -93,6 +96,7 @@ const SYSTEM_AUDIO_CAPTURE_STATUS_POLL_MS = 125;
 const REALTIME_ERROR_THROTTLE_MS = 900;
 const REALTIME_DROP_WARNING_COOLDOWN_MS = 2000;
 const MAX_AI_RESPONSE_BUFFER_CHARS = 12_000;
+const LATENCY_SAMPLES_LIMIT = 30;
 
 const initialConversation = (): ChatConversation => ({
   id: generateConversationId("sysaudio"),
@@ -101,6 +105,58 @@ const initialConversation = (): ChatConversation => ({
   createdAt: 0,
   updatedAt: 0,
 });
+
+const createEmptyLatencyMetric = (): SystemAudioLatencyMetric => ({
+  latest: null,
+  p50: null,
+  p95: null,
+  p99: null,
+});
+
+const initialLatencySnapshot = (): SystemAudioLatencySnapshot => ({
+  startedAt: 0,
+  sampleCount: 0,
+  answerTriggerToPromptMs: createEmptyLatencyMetric(),
+  answerTriggerToFirstChunkMs: createEmptyLatencyMetric(),
+  answerTriggerToDoneMs: createEmptyLatencyMetric(),
+  promptToFirstChunkMs: createEmptyLatencyMetric(),
+  firstChunkToDoneMs: createEmptyLatencyMetric(),
+});
+
+const createEmptyLatencySamples = (): Record<string, number[]> => ({
+  answerTriggerToPromptMs: [],
+  answerTriggerToFirstChunkMs: [],
+  answerTriggerToDoneMs: [],
+  promptToFirstChunkMs: [],
+  firstChunkToDoneMs: [],
+});
+
+const computePercentile = (values: number[], percentile: number): number | null => {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.max(0, Math.floor((percentile / 100) * (sorted.length - 1)))
+  );
+
+  return sorted[index] ?? null;
+};
+
+const buildLatencyMetric = (values: number[]): SystemAudioLatencyMetric => {
+  if (values.length === 0) {
+    return createEmptyLatencyMetric();
+  }
+
+  return {
+    latest: values[values.length - 1] ?? null,
+    p50: computePercentile(values, 50),
+    p95: computePercentile(values, 95),
+    p99: computePercentile(values, 99),
+  };
+};
 
 export type useSystemAudioType = ReturnType<typeof useSystemAudio>;
 
@@ -140,6 +196,9 @@ export function useSystemAudio() {
   >(null);
   const [cacheUpdatedAt, setCacheUpdatedAt] = useState<number | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [latencySnapshot, setLatencySnapshot] = useState<SystemAudioLatencySnapshot>(
+    initialLatencySnapshot
+  );
 
   const [conversation, setConversation] = useState<ChatConversation>(
     initialConversation
@@ -170,6 +229,10 @@ export function useSystemAudio() {
   const aiResponseFlushFrameRef = useRef<number | null>(null);
   const aiResponseBufferRef = useRef("");
   const pipelineBusyRef = useRef(false);
+  const latencyEventsRef = useRef<Partial<Record<SystemAudioLatencyStage, number>>>({});
+  const latencySamplesRef = useRef<Record<string, number[]>>(
+    createEmptyLatencySamples()
+  );
 
   const cachedScreenshotRef = useRef<string | null>(null);
   const periodicScreenshotIntervalRef = useRef<number | null>(null);
@@ -429,6 +492,85 @@ export function useSystemAudio() {
     stopMicCaptureInternal(micRefs);
   }, [micRefs]);
 
+  const recordLatencyMark = useCallback(
+    (stage: SystemAudioLatencyStage, atMs: number = Date.now()) => {
+      latencyEventsRef.current[stage] = atMs;
+
+      const answerTriggerAt = latencyEventsRef.current.answer_trigger;
+      if (!answerTriggerAt) {
+        return;
+      }
+
+      const promptAt = latencyEventsRef.current.prompt_assembled;
+      const firstChunkAt = latencyEventsRef.current.llm_first_chunk;
+      const doneAt = latencyEventsRef.current.llm_stream_done;
+
+      const nextSamples: Record<string, number[]> = {
+        answerTriggerToPromptMs: [...latencySamplesRef.current.answerTriggerToPromptMs],
+        answerTriggerToFirstChunkMs: [
+          ...latencySamplesRef.current.answerTriggerToFirstChunkMs,
+        ],
+        answerTriggerToDoneMs: [...latencySamplesRef.current.answerTriggerToDoneMs],
+        promptToFirstChunkMs: [...latencySamplesRef.current.promptToFirstChunkMs],
+        firstChunkToDoneMs: [...latencySamplesRef.current.firstChunkToDoneMs],
+      };
+
+      const pushSample = (key: keyof typeof nextSamples, value: number | null) => {
+        if (value === null || !Number.isFinite(value) || value < 0) {
+          return;
+        }
+
+        nextSamples[key].push(Math.round(value));
+        if (nextSamples[key].length > LATENCY_SAMPLES_LIMIT) {
+          nextSamples[key] = nextSamples[key].slice(-LATENCY_SAMPLES_LIMIT);
+        }
+      };
+
+      if (stage === "prompt_assembled" && promptAt) {
+        pushSample("answerTriggerToPromptMs", promptAt - answerTriggerAt);
+      }
+
+      if (stage === "llm_first_chunk" && firstChunkAt) {
+        pushSample("answerTriggerToFirstChunkMs", firstChunkAt - answerTriggerAt);
+        if (promptAt) {
+          pushSample("promptToFirstChunkMs", firstChunkAt - promptAt);
+        }
+      }
+
+      if (stage === "llm_stream_done" && doneAt) {
+        pushSample("answerTriggerToDoneMs", doneAt - answerTriggerAt);
+        if (firstChunkAt) {
+          pushSample("firstChunkToDoneMs", doneAt - firstChunkAt);
+        }
+      }
+
+      latencySamplesRef.current = nextSamples;
+
+      const sampleCount = Math.max(
+        nextSamples.answerTriggerToPromptMs.length,
+        nextSamples.answerTriggerToFirstChunkMs.length,
+        nextSamples.answerTriggerToDoneMs.length,
+        nextSamples.promptToFirstChunkMs.length,
+        nextSamples.firstChunkToDoneMs.length
+      );
+
+      setLatencySnapshot({
+        startedAt: answerTriggerAt,
+        sampleCount,
+        answerTriggerToPromptMs: buildLatencyMetric(
+          nextSamples.answerTriggerToPromptMs
+        ),
+        answerTriggerToFirstChunkMs: buildLatencyMetric(
+          nextSamples.answerTriggerToFirstChunkMs
+        ),
+        answerTriggerToDoneMs: buildLatencyMetric(nextSamples.answerTriggerToDoneMs),
+        promptToFirstChunkMs: buildLatencyMetric(nextSamples.promptToFirstChunkMs),
+        firstChunkToDoneMs: buildLatencyMetric(nextSamples.firstChunkToDoneMs),
+      });
+    },
+    []
+  );
+
   const schedulePeriodicScreenshotCapture = useCallback(() => {
     if (periodicScreenshotIntervalRef.current !== null) {
       return;
@@ -585,6 +727,16 @@ export function useSystemAudio() {
         return false;
       }
 
+      if (!latencyEventsRef.current.answer_trigger) {
+        const fallbackStart = Date.now();
+        latencyEventsRef.current = {
+          answer_trigger: fallbackStart,
+        };
+        recordLatencyMark("answer_trigger", fallbackStart);
+      }
+
+      recordLatencyMark("prompt_assembled", Date.now());
+
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -626,6 +778,7 @@ export function useSystemAudio() {
       });
 
       let fullResponse = "";
+      let firstChunkRecorded = false;
       try {
         for await (const chunk of fetchAIResponse({
           provider,
@@ -637,6 +790,11 @@ export function useSystemAudio() {
           aiMode: currentAIMode,
           signal: controller.signal,
         })) {
+          if (!firstChunkRecorded) {
+            firstChunkRecorded = true;
+            recordLatencyMark("llm_first_chunk", Date.now());
+          }
+
           fullResponse += chunk;
 
           if (fullResponse.length > MAX_AI_RESPONSE_BUFFER_CHARS) {
@@ -687,8 +845,12 @@ export function useSystemAudio() {
         setManualScreenshots((previous) => {
           return clearManualScreenshotsState(previous, manualScreenshotsRef);
         });
+        recordLatencyMark("llm_stream_done", Date.now());
         return true;
       } catch (aiError) {
+        if (!controller.signal.aborted) {
+          recordLatencyMark("llm_error", Date.now());
+        }
         if (!controller.signal.aborted) {
           setError(
             aiError instanceof Error
@@ -700,6 +862,7 @@ export function useSystemAudio() {
       } finally {
         setIsAIProcessing(false);
         pipelineBusyRef.current = false;
+        latencyEventsRef.current = {};
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
@@ -710,6 +873,7 @@ export function useSystemAudio() {
       currentAIMode,
       getEffectiveSystemPrompt,
       getPreviousMessages,
+      recordLatencyMark,
       selectedAIProvider,
     ]
   );
@@ -726,8 +890,13 @@ export function useSystemAudio() {
       setIsProcessing(true);
       setError("");
 
+      const triggerTs = Date.now();
+      latencyEventsRef.current = {
+        answer_trigger: triggerTs,
+      };
+      recordLatencyMark("answer_trigger", triggerTs);
+
       try {
-        const triggerTs = Date.now();
         let prompt = "";
 
         if (capturing) {
@@ -770,6 +939,7 @@ export function useSystemAudio() {
       buildImagesPayload,
       capturing,
       clearPendingRealtimeState,
+      recordLatencyMark,
       runAI,
     ]
   );
@@ -1367,6 +1537,7 @@ export function useSystemAudio() {
     removeManualScreenshot,
     cachedScreenshotPreview,
     cacheAgeLabel,
+    latencySnapshot,
     isCapturingScreenshot,
     handleCaptureScreenshot,
     onAnswerTrigger,

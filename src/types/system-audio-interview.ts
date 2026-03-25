@@ -27,3 +27,27 @@ export interface TranscriptSegment {
   timestamp: number;
   isLive: boolean;
 }
+
+export type SystemAudioLatencyStage =
+  | "answer_trigger"
+  | "prompt_assembled"
+  | "llm_first_chunk"
+  | "llm_stream_done"
+  | "llm_error";
+
+export interface SystemAudioLatencyMetric {
+  latest: number | null;
+  p50: number | null;
+  p95: number | null;
+  p99: number | null;
+}
+
+export interface SystemAudioLatencySnapshot {
+  startedAt: number;
+  sampleCount: number;
+  answerTriggerToPromptMs: SystemAudioLatencyMetric;
+  answerTriggerToFirstChunkMs: SystemAudioLatencyMetric;
+  answerTriggerToDoneMs: SystemAudioLatencyMetric;
+  promptToFirstChunkMs: SystemAudioLatencyMetric;
+  firstChunkToDoneMs: SystemAudioLatencyMetric;
+}
