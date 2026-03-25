@@ -432,10 +432,16 @@ export function useSystemAudio() {
     }
 
     periodicScreenshotIntervalRef.current = window.setInterval(async () => {
+      const interviewerBacklog = interviewerRealtimeRef.current.queue.length;
+      const userBacklog = userRealtimeRef.current.queue.length;
+      const hasRealtimeBacklog = interviewerBacklog > 0 || userBacklog > 0;
+
       if (
         !captureRef.current ||
         periodicScreenshotInFlightRef.current ||
-        pipelineBusyRef.current
+        pipelineBusyRef.current ||
+        answerTriggerInFlightRef.current ||
+        hasRealtimeBacklog
       ) {
         return;
       }
