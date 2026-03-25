@@ -35,7 +35,6 @@ import {
 import {
   closeRealtimeHandle as closeRealtimeHandleInternal,
   createRealtimeHandle,
-  getRealtimeQueueLength,
   sendRealtimeChunk as sendRealtimeChunkInternal,
   type RealtimeHandle,
 } from "@/hooks/internal/systemAudioRealtime";
@@ -55,7 +54,6 @@ import {
   buildImagesPayload as buildImagesPayloadInternal,
   clearManualScreenshotsState,
   createManualScreenshot,
-  getCacheAgeLabel,
   type ManualScreenshot,
 } from "@/hooks/internal/systemAudioScreenshots";
 import {
@@ -81,7 +79,6 @@ type ChatConversation = {
 
 type CaptureTrigger = "manual" | "shortcut" | "setup";
 
-const SYSTEM_AUDIO_SCREENSHOT_INTERVAL_MS = 2000;
 const PENDING_COMMIT_ECHO_TTL_MS = 5000;
 const REALTIME_MAX_CONNECT_ATTEMPTS = 3;
 const REALTIME_RETRY_DELAY_MS = 900;
@@ -194,10 +191,6 @@ export function useSystemAudio() {
   const [manualScreenshots, setManualScreenshots] = useState<ManualScreenshot[]>(
     []
   );
-  const [cachedScreenshotPreview, setCachedScreenshotPreview] = useState<
-    string | null
-  >(null);
-  const [cacheUpdatedAt, setCacheUpdatedAt] = useState<number | null>(null);
   const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
   const [latencySnapshot, setLatencySnapshot] = useState<SystemAudioLatencySnapshot>(
     initialLatencySnapshot
@@ -237,9 +230,6 @@ export function useSystemAudio() {
     createEmptyLatencySamples()
   );
 
-  const cachedScreenshotRef = useRef<string | null>(null);
-  const periodicScreenshotIntervalRef = useRef<number | null>(null);
-  const periodicScreenshotInFlightRef = useRef(false);
   const manualScreenshotsRef = useRef<ManualScreenshot[]>([]);
 
   const interviewerRealtimeRef = useRef<RealtimeHandle>(
@@ -592,47 +582,6 @@ export function useSystemAudio() {
     []
   );
 
-  const schedulePeriodicScreenshotCapture = useCallback(() => {
-    if (periodicScreenshotIntervalRef.current !== null) {
-      return;
-    }
-
-    periodicScreenshotIntervalRef.current = window.setInterval(async () => {
-      const interviewerBacklog = getRealtimeQueueLength(interviewerRealtimeRef.current);
-      const userBacklog = getRealtimeQueueLength(userRealtimeRef.current);
-      const hasRealtimeBacklog = interviewerBacklog > 0 || userBacklog > 0;
-
-      if (
-        !captureRef.current ||
-        periodicScreenshotInFlightRef.current ||
-        pipelineBusyRef.current ||
-        answerTriggerInFlightRef.current ||
-        hasRealtimeBacklog
-      ) {
-        return;
-      }
-
-      periodicScreenshotInFlightRef.current = true;
-      try {
-        const base64 = await tauriCommands.captureToBase64();
-        cachedScreenshotRef.current = base64;
-        setCachedScreenshotPreview(base64);
-        setCacheUpdatedAt(Date.now());
-      } catch (captureError) {
-        console.warn("Periodic screenshot capture failed:", captureError);
-      } finally {
-        periodicScreenshotInFlightRef.current = false;
-      }
-    }, SYSTEM_AUDIO_SCREENSHOT_INTERVAL_MS);
-  }, []);
-
-  const stopPeriodicScreenshotCapture = useCallback(() => {
-    if (periodicScreenshotIntervalRef.current !== null) {
-      window.clearInterval(periodicScreenshotIntervalRef.current);
-      periodicScreenshotIntervalRef.current = null;
-    }
-  }, []);
-
   const waitForBackendCaptureState = useCallback(
     async (expected: boolean): Promise<boolean> => {
       return waitForCaptureState({
@@ -680,10 +629,7 @@ export function useSystemAudio() {
   }, []);
 
   const buildImagesPayload = useCallback((): string[] => {
-    return buildImagesPayloadInternal(
-      cachedScreenshotRef.current,
-      manualScreenshotsRef.current
-    );
+    return buildImagesPayloadInternal(manualScreenshotsRef.current);
   }, []);
 
   const saveConversationDebounced = useCallback(
@@ -1176,7 +1122,6 @@ export function useSystemAudio() {
           await connectRealtime(userRealtimeRef.current, "user", MIC_SAMPLE_RATE, signal);
         })(),
       ]);
-      schedulePeriodicScreenshotCapture();
 
       startPhase = "restart_system_audio_capture";
       await restartSystemAudioCaptureWithRetry({
@@ -1199,7 +1144,6 @@ export function useSystemAudio() {
         startError
       );
       closeRealtimeSystems(`start_failed:${startPhase}`);
-      stopPeriodicScreenshotCapture();
       setCapturing(false);
       captureRef.current = false;
       if (captureAbortControllerRef.current === controller) {
@@ -1218,10 +1162,8 @@ export function useSystemAudio() {
     closeRealtimeSystems,
     connectRealtime,
     resetInterviewState,
-    schedulePeriodicScreenshotCapture,
     selectedAudioDevices.output.id,
     startMicCapture,
-    stopPeriodicScreenshotCapture,
     vadConfig,
     waitForBackendCaptureState,
   ]);
@@ -1246,7 +1188,6 @@ export function useSystemAudio() {
       }
 
       closeRealtimeSystems(`stop_capture:${trigger}`);
-      stopPeriodicScreenshotCapture();
 
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -1262,9 +1203,6 @@ export function useSystemAudio() {
       setIsAIProcessing(false);
       setIsPopoverOpen(false);
       setError("");
-      setCacheUpdatedAt(null);
-      setCachedScreenshotPreview(null);
-      cachedScreenshotRef.current = null;
       resetInterviewState();
     } catch (stopError) {
       setError(
@@ -1278,7 +1216,6 @@ export function useSystemAudio() {
   }, [
     closeRealtimeSystems,
     resetInterviewState,
-    stopPeriodicScreenshotCapture,
     waitForBackendCaptureState,
   ]);
 
@@ -1462,7 +1399,6 @@ export function useSystemAudio() {
       );
       unregisterScreenshotCallback();
       closeRealtimeSystems("unmount");
-      stopPeriodicScreenshotCapture();
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -1483,7 +1419,6 @@ export function useSystemAudio() {
     };
   }, [
     closeRealtimeSystems,
-    stopPeriodicScreenshotCapture,
     unregisterScreenshotCallback,
   ]);
 
@@ -1522,10 +1457,6 @@ export function useSystemAudio() {
     });
   }, [resetInterviewState]);
 
-  const cacheAgeLabel = useMemo(() => {
-    return getCacheAgeLabel(cacheUpdatedAt);
-  }, [cacheUpdatedAt]);
-
   return {
     capturing,
     isProcessing,
@@ -1556,8 +1487,6 @@ export function useSystemAudio() {
     transcriptSegments: liveTranscript,
     manualScreenshots,
     removeManualScreenshot,
-    cachedScreenshotPreview,
-    cacheAgeLabel,
     latencySnapshot,
     isCapturingScreenshot,
     handleCaptureScreenshot,
@@ -1565,6 +1494,5 @@ export function useSystemAudio() {
     scrollAreaRef,
     maxManualScreenshots,
     updateMaxManualScreenshots,
-    screenshotIntervalMs: SYSTEM_AUDIO_SCREENSHOT_INTERVAL_MS,
   };
 }

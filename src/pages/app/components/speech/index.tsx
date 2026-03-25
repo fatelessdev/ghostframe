@@ -15,7 +15,6 @@ import {
   PlusIcon,
   XIcon,
   SendIcon,
-  TimerIcon,
 } from "lucide-react";
 import { PermissionFlow } from "./PermissionFlow";
 import { ResultsSection } from "./ResultsSection";
@@ -50,13 +49,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
     transcriptSegments,
     manualScreenshots,
     removeManualScreenshot,
-    cachedScreenshotPreview,
-    cacheAgeLabel,
     isCapturingScreenshot,
     handleCaptureScreenshot,
     onAnswerTrigger,
     scrollAreaRef,
-    screenshotIntervalMs,
   } = props;
 
   const { supportsImages } = useApp();
@@ -183,13 +179,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                       Dual STT Live
                     </span>
-                    <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
-                      <TimerIcon className="w-3 h-3" />
-                      Screenshot cache {Math.round(screenshotIntervalMs / 1000)}s
-                    </span>
-                    <span className="inline-flex rounded-full border border-border px-2 py-0.5">
-                      {cacheAgeLabel}
-                    </span>
                   </div>
                 )}
 
@@ -279,20 +268,6 @@ export const SystemAudio = (props: useSystemAudioType) => {
                 ) : (
                   <>
                     <RollingTranscript transcriptSegments={transcriptSegments} />
-
-                    {cachedScreenshotPreview ? (
-                      <div className="rounded-md border border-border/60 bg-muted/20 p-2 flex items-center gap-2">
-                        <img
-                          src={`data:image/png;base64,${cachedScreenshotPreview}`}
-                          alt="Latest cached screenshot"
-                          className="h-12 w-20 object-cover rounded"
-                        />
-                        <div className="text-[10px] text-muted-foreground">
-                          <p className="font-medium text-foreground">Auto screenshot cache</p>
-                          <p>{cacheAgeLabel}</p>
-                        </div>
-                      </div>
-                    ) : null}
 
                     {manualScreenshots.length > 0 ? (
                       <div className="rounded-md border border-border/60 bg-muted/10 p-2 space-y-2">

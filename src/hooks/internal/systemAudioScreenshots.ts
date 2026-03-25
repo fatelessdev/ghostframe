@@ -39,36 +39,13 @@ export const clearManualScreenshotsState = (
 };
 
 export const buildImagesPayload = (
-  cachedScreenshotBase64: string | null,
   manualScreenshots: ManualScreenshot[]
 ): string[] => {
   const images: string[] = [];
-
-  if (cachedScreenshotBase64) {
-    images.push(cachedScreenshotBase64);
-  }
 
   for (const screenshot of manualScreenshots) {
     images.push(screenshot.base64);
   }
 
   return images;
-};
-
-export const getCacheAgeLabel = (
-  cacheUpdatedAt: number | null,
-  now: number = Date.now()
-): string => {
-  if (!cacheUpdatedAt) {
-    return "No cache yet";
-  }
-
-  const age = now - cacheUpdatedAt;
-  if (age < 2000) {
-    return "Fresh (<2s)";
-  }
-  if (age < 6000) {
-    return "Warm (<6s)";
-  }
-  return "Stale";
 };

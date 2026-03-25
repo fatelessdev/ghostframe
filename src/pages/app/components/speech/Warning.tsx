@@ -51,8 +51,8 @@ export const Warning = () => {
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground rounded-md bg-muted/30 p-2">
-              A screenshot is cached every 2 seconds in the background for zero
-              send-time delay. Manual screenshots are additive and also attached.
+              Screenshots are attached only when you take them manually (for
+              example, via Ctrl+H).
             </p>
           </div>
 
