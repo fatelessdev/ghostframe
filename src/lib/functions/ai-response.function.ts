@@ -1,6 +1,6 @@
 import {
   buildStreamingContentPaths,
-  buildDynamicMessages,
+  buildDynamicMessagesFastPath,
   deepVariableReplacer,
   extractVariables,
   getByPath,
@@ -23,6 +23,7 @@ const RETRYABLE_API_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 5
 const API_REQUEST_MAX_ATTEMPTS = 3;
 const API_REQUEST_RETRY_BASE_DELAY_MS = 180;
 const API_REQUEST_RETRY_MAX_DELAY_MS = 2400;
+const WORKER_IMAGE_SIZE_LIMIT_CHARS = 2_000_000;
 let promptAssemblyWorker: Worker | null = null;
 let promptAssemblyRequestSeq = 0;
 
@@ -79,6 +80,14 @@ function shouldUsePromptAssemblyWorker(payload: {
   history: Message[];
   imagesBase64: string[];
 }): boolean {
+  const totalImageChars = payload.imagesBase64.reduce((sum, image) => {
+    return sum + image.length;
+  }, 0);
+
+  if (totalImageChars > WORKER_IMAGE_SIZE_LIMIT_CHARS) {
+    return false;
+  }
+
   if (payload.imagesBase64.length > 0) {
     return true;
   }
@@ -569,7 +578,7 @@ export async function* fetchAIResponse(params: {
           });
 
           if (templateHasTextPlaceholder) {
-            const finalMessages = buildDynamicMessages(
+            const finalMessages = buildDynamicMessagesFastPath(
               messageTemplate,
               compactedHistory,
               userMessage,
@@ -615,7 +624,7 @@ export async function* fetchAIResponse(params: {
         });
 
         if (templateHasTextPlaceholder) {
-          const finalMessages = buildDynamicMessages(
+          const finalMessages = buildDynamicMessagesFastPath(
             messageTemplate,
             compactedHistory,
             userMessage,

@@ -1,5 +1,5 @@
 import {
-  buildDynamicMessages,
+  buildDynamicMessagesFastPath,
   deepVariableReplacer,
   hasTemplateVariables,
 } from "@/lib/functions/common.function";
@@ -67,7 +67,7 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         });
 
         if (templateHasTextPlaceholder) {
-          mutableBody[messagesKey] = buildDynamicMessages(
+          mutableBody[messagesKey] = buildDynamicMessagesFastPath(
             messagesTemplate,
             payload.history,
             payload.userMessage,

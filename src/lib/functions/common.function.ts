@@ -163,6 +163,47 @@ export function processUserMessageTemplate(
   return imageReplacer(result);
 }
 
+export function processUserMessageTemplateFastPath(
+  template: any,
+  userMessage: string,
+  imagesBase64: string[] = []
+): any {
+  const templateString = fastStringify(template);
+  const hasText = templateString.includes("{{TEXT}}");
+  const hasImage = templateString.includes("{{IMAGE}}");
+
+  if (!hasImage) {
+    if (!hasText) {
+      return template;
+    }
+
+    return deepVariableReplacer(template, { TEXT: userMessage });
+  }
+
+  if (!Array.isArray(template)) {
+    return processUserMessageTemplate(template, userMessage, imagesBase64);
+  }
+
+  const cloned = template.map((item) => deepVariableReplacer(item, { TEXT: userMessage }));
+  const imageTemplateIndex = cloned.findIndex((item) => {
+    return hasTemplateVariables(item) && fastStringify(item).includes("{{IMAGE}}");
+  });
+
+  if (imageTemplateIndex === -1) {
+    return cloned;
+  }
+
+  const imageTemplate = cloned[imageTemplateIndex];
+  const before = cloned.slice(0, imageTemplateIndex);
+  const after = cloned.slice(imageTemplateIndex + 1);
+
+  const imageParts = imagesBase64.map((image) => {
+    return deepVariableReplacer(imageTemplate, { IMAGE: image });
+  });
+
+  return [...before, ...imageParts, ...after];
+}
+
 /**
  * Builds a dynamic messages array from a template, incorporating history and the current user message.
  * @param messagesTemplate The message template array from the cURL configuration.
@@ -190,6 +231,33 @@ export function buildDynamicMessages(
   const userMessageTemplate = messagesTemplate[userMessageTemplateIndex];
 
   const newUserMessage = processUserMessageTemplate(
+    userMessageTemplate,
+    userMessage,
+    imagesBase64
+  );
+
+  return [...prefixMessages, ...history, newUserMessage, ...suffixMessages];
+}
+
+export function buildDynamicMessagesFastPath(
+  messagesTemplate: any[],
+  history: Message[],
+  userMessage: string,
+  imagesBase64: string[] = []
+): any[] {
+  const userMessageTemplateIndex = messagesTemplate.findIndex((m) => {
+    return fastStringify(m).includes("{{TEXT}}");
+  });
+
+  if (userMessageTemplateIndex === -1) {
+    return [...history, { role: "user", content: userMessage }];
+  }
+
+  const prefixMessages = messagesTemplate.slice(0, userMessageTemplateIndex);
+  const suffixMessages = messagesTemplate.slice(userMessageTemplateIndex + 1);
+  const userMessageTemplate = messagesTemplate[userMessageTemplateIndex];
+
+  const newUserMessage = processUserMessageTemplateFastPath(
     userMessageTemplate,
     userMessage,
     imagesBase64

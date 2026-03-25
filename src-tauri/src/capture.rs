@@ -10,6 +10,29 @@ use tauri::Emitter;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
+const MAX_CAPTURE_DIMENSION: u32 = 1600;
+
+fn downscale_rgba_if_needed(image: image::RgbaImage) -> image::RgbaImage {
+    let width = image.width();
+    let height = image.height();
+
+    let max_dim = width.max(height);
+    if max_dim <= MAX_CAPTURE_DIMENSION {
+        return image;
+    }
+
+    let scale = MAX_CAPTURE_DIMENSION as f64 / max_dim as f64;
+    let target_width = ((width as f64 * scale).round() as u32).max(1);
+    let target_height = ((height as f64 * scale).round() as u32).max(1);
+
+    image::imageops::resize(
+        &image,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Triangle,
+    )
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SelectionCoords {
     pub x: u32,
@@ -375,6 +398,7 @@ pub async fn capture_to_base64(window: tauri::WebviewWindow) -> Result<String, S
         let image = monitor
             .capture_image()
             .map_err(|e| format!("Failed to capture image: {}", e))?;
+        let image = downscale_rgba_if_needed(image);
         let mut png_buffer = Vec::new();
         PngEncoder::new(&mut png_buffer)
             .write_image(
