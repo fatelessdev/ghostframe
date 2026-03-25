@@ -223,6 +223,7 @@ export function useSystemAudio() {
     {}
   );
   const answerTriggerInFlightRef = useRef(false);
+  const queuedAnswerTriggerRef = useRef<{ typedInstruction: string } | null>(null);
   const segmentsRef = useRef<TranscriptSegment[]>([]);
   const transcriptFlushFrameRef = useRef<number | null>(null);
   const latestPartialInterviewerRef = useRef<string>("");
@@ -686,6 +687,16 @@ export function useSystemAudio() {
     return buildImagesPayloadInternal(manualScreenshotsRef.current);
   }, []);
 
+  const consumeQueuedAnswerTrigger = useCallback((): string | null => {
+    const queued = queuedAnswerTriggerRef.current;
+    queuedAnswerTriggerRef.current = null;
+    if (!queued) {
+      return null;
+    }
+
+    return queued.typedInstruction;
+  }, []);
+
   const saveConversationDebounced = useCallback(
     (nextConversation: ChatConversation) => {
       if (saveTimeoutRef.current) {
@@ -911,11 +922,10 @@ export function useSystemAudio() {
     async (typedInstruction?: string): Promise<boolean> => {
       const trimmedInstruction = typedInstruction?.trim() ?? "";
 
-      if ((!capturing && !trimmedInstruction) || answerTriggerInFlightRef.current) {
+      if (!capturing && !trimmedInstruction) {
         return false;
       }
 
-      answerTriggerInFlightRef.current = true;
       setIsProcessing(true);
       setError("");
 
@@ -961,7 +971,6 @@ export function useSystemAudio() {
 
         return sent;
       } finally {
-        answerTriggerInFlightRef.current = false;
         setIsProcessing(false);
       }
     },
@@ -1299,17 +1308,61 @@ export function useSystemAudio() {
 
   const onAnswerTrigger = useCallback(
     async (typedInstruction?: string): Promise<boolean> => {
-      if (capturing) {
-        commitBothStreams();
-        commitLatestPartialTranscripts({
-          latestPartialInterviewerRef,
-          latestPartialUserRef,
-          pendingCommitEchoRef,
-          appendCommittedTranscript,
-        });
+      const initialInstruction = typedInstruction?.trim() ?? "";
+
+      if (!capturing && !initialInstruction) {
+        return false;
       }
 
-      return processPendingAnswer(typedInstruction);
+      if (answerTriggerInFlightRef.current) {
+        queuedAnswerTriggerRef.current = {
+          typedInstruction: initialInstruction,
+        };
+
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+        }
+
+        return false;
+      }
+
+      answerTriggerInFlightRef.current = true;
+      let queuedInstruction = initialInstruction;
+      let sentAny = false;
+
+      try {
+        while (true) {
+          if (capturing) {
+            commitBothStreams();
+            commitLatestPartialTranscripts({
+              latestPartialInterviewerRef,
+              latestPartialUserRef,
+              pendingCommitEchoRef,
+              appendCommittedTranscript,
+            });
+          }
+
+          const sent = await processPendingAnswer(queuedInstruction);
+          sentAny = sentAny || sent;
+
+          const nextQueuedInstruction = consumeQueuedAnswerTrigger();
+          if (nextQueuedInstruction === null) {
+            break;
+          }
+
+          queuedInstruction = nextQueuedInstruction;
+
+          if (!capturing && !queuedInstruction) {
+            break;
+          }
+        }
+
+        return sentAny;
+      } finally {
+        answerTriggerInFlightRef.current = false;
+        queuedAnswerTriggerRef.current = null;
+      }
+
     },
     [
       appendCommittedTranscript,
