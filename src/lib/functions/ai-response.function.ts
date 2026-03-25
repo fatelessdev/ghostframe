@@ -23,6 +23,160 @@ const RETRYABLE_API_STATUS_CODES = new Set([408, 409, 425, 429, 500, 502, 503, 5
 const API_REQUEST_MAX_ATTEMPTS = 3;
 const API_REQUEST_RETRY_BASE_DELAY_MS = 180;
 const API_REQUEST_RETRY_MAX_DELAY_MS = 2400;
+let promptAssemblyWorker: Worker | null = null;
+let promptAssemblyRequestSeq = 0;
+
+type PromptAssemblyWorkerRequestPayload = {
+  bodyObj: unknown;
+  url: string;
+  headers: Record<string, string>;
+  history: Message[];
+  userMessage: string;
+  imagesBase64: string[];
+  allVariables: Record<string, string>;
+};
+
+type PromptAssemblyWorkerRequest = {
+  id: number;
+  payload: PromptAssemblyWorkerRequestPayload;
+};
+
+type PromptAssemblyWorkerSuccess = {
+  id: number;
+  ok: true;
+  payload: {
+    bodyObj: unknown;
+    url: string;
+    headers: Record<string, string>;
+  };
+};
+
+type PromptAssemblyWorkerFailure = {
+  id: number;
+  ok: false;
+  error: string;
+};
+
+type PromptAssemblyWorkerResponse =
+  | PromptAssemblyWorkerSuccess
+  | PromptAssemblyWorkerFailure;
+
+function shouldUsePromptAssemblyWorker(payload: {
+  bodyObj: unknown;
+  history: Message[];
+  imagesBase64: string[];
+}): boolean {
+  if (payload.imagesBase64.length > 0) {
+    return true;
+  }
+
+  if (payload.history.length >= 6) {
+    return true;
+  }
+
+  if (!payload.bodyObj || typeof payload.bodyObj !== "object") {
+    return false;
+  }
+
+  const body = payload.bodyObj as Record<string, unknown>;
+  const messages = body.messages;
+  if (Array.isArray(messages) && messages.length >= 6) {
+    return true;
+  }
+
+  return false;
+}
+
+function getPromptAssemblyWorker(): Worker {
+  if (promptAssemblyWorker) {
+    return promptAssemblyWorker;
+  }
+
+  promptAssemblyWorker = new Worker(
+    new URL("@/lib/workers/promptAssembly.worker.ts", import.meta.url),
+    {
+      type: "module",
+    }
+  );
+
+  return promptAssemblyWorker;
+}
+
+async function assemblePromptPayloadInWorker(
+  payload: PromptAssemblyWorkerRequestPayload,
+  signal?: AbortSignal
+): Promise<{ bodyObj: unknown; url: string; headers: Record<string, string> }> {
+  if (signal?.aborted) {
+    throw new DOMException("Operation aborted", "AbortError");
+  }
+
+  const worker = getPromptAssemblyWorker();
+  const requestId = ++promptAssemblyRequestSeq;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      worker.removeEventListener("message", onMessage as EventListener);
+      worker.removeEventListener("error", onError as EventListener);
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    };
+
+    const finish = (fn: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const onMessage = (event: MessageEvent<PromptAssemblyWorkerResponse>) => {
+      const data = event.data;
+      if (!data || data.id !== requestId) {
+        return;
+      }
+
+      if (data.ok) {
+        finish(() => {
+          resolve(data.payload);
+        });
+        return;
+      }
+
+      finish(() => {
+        reject(new Error(data.error || "Prompt assembly worker failed"));
+      });
+    };
+
+    const onError = (event: ErrorEvent) => {
+      finish(() => {
+        reject(new Error(event.message || "Prompt assembly worker crashed"));
+      });
+    };
+
+    const onAbort = () => {
+      finish(() => {
+        reject(new DOMException("Operation aborted", "AbortError"));
+      });
+    };
+
+    worker.addEventListener("message", onMessage as EventListener);
+    worker.addEventListener("error", onError as EventListener);
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    const request: PromptAssemblyWorkerRequest = {
+      id: requestId,
+      payload,
+    };
+    worker.postMessage(request);
+  });
+}
 
 function isAbortRequestError(error: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) {
@@ -287,21 +441,6 @@ export async function* fetchAIResponse(params: {
       );
     }
 
-    let bodyObj: any = curlJson.data ? cloneCurlPayload(curlJson.data) : {};
-    const messagesKey = Object.keys(bodyObj).find((key) =>
-      ["messages", "contents", "conversation", "history"].includes(key)
-    );
-
-    if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
-      const finalMessages = buildDynamicMessages(
-        bodyObj[messagesKey],
-        history,
-        userMessage,
-        imagesBase64
-      );
-      bodyObj[messagesKey] = finalMessages;
-    }
-
     const allVariables = {
       ...Object.fromEntries(
         Object.entries(resolvedProviderVariables).map(([key, value]) => [
@@ -312,19 +451,99 @@ export async function* fetchAIResponse(params: {
       SYSTEM_PROMPT: enhancedSystemPrompt || "",
     };
 
-    if (hasTemplateVariables(bodyObj)) {
-      bodyObj = deepVariableReplacer(bodyObj, allVariables);
+    const baseBody = curlJson.data ? cloneCurlPayload(curlJson.data) : {};
+    let bodyObj: any;
+    let url: string;
+    let headers: Record<string, string>;
+
+    if (
+      shouldUsePromptAssemblyWorker({
+        bodyObj: baseBody,
+        history,
+        imagesBase64,
+      })
+    ) {
+      try {
+        const assembled = await assemblePromptPayloadInWorker(
+          {
+            bodyObj: baseBody,
+            url: curlJson.url || "",
+            headers: (curlJson.header || {}) as Record<string, string>,
+            history,
+            userMessage,
+            imagesBase64,
+            allVariables,
+          },
+          signal
+        );
+        bodyObj = assembled.bodyObj;
+        url = assembled.url;
+        headers = assembled.headers;
+      } catch (workerError) {
+        if (isAbortRequestError(workerError, signal)) {
+          return;
+        }
+
+        bodyObj = baseBody;
+        const messagesKey = Object.keys(bodyObj).find((key) =>
+          ["messages", "contents", "conversation", "history"].includes(key)
+        );
+
+        if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
+          const finalMessages = buildDynamicMessages(
+            bodyObj[messagesKey],
+            history,
+            userMessage,
+            imagesBase64
+          );
+          bodyObj[messagesKey] = finalMessages;
+        }
+
+        if (hasTemplateVariables(bodyObj)) {
+          bodyObj = deepVariableReplacer(bodyObj, allVariables);
+        }
+
+        const rawUrl = curlJson.url || "";
+        url = hasTemplateVariables(rawUrl)
+          ? deepVariableReplacer(rawUrl, allVariables)
+          : rawUrl;
+
+        const rawHeaders = (curlJson.header || {}) as Record<string, string>;
+        headers = hasTemplateVariables(rawHeaders)
+          ? deepVariableReplacer(rawHeaders, allVariables)
+          : rawHeaders;
+      }
+    } else {
+      bodyObj = baseBody;
+      const messagesKey = Object.keys(bodyObj).find((key) =>
+        ["messages", "contents", "conversation", "history"].includes(key)
+      );
+
+      if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
+        const finalMessages = buildDynamicMessages(
+          bodyObj[messagesKey],
+          history,
+          userMessage,
+          imagesBase64
+        );
+        bodyObj[messagesKey] = finalMessages;
+      }
+
+      if (hasTemplateVariables(bodyObj)) {
+        bodyObj = deepVariableReplacer(bodyObj, allVariables);
+      }
+
+      const rawUrl = curlJson.url || "";
+      url = hasTemplateVariables(rawUrl)
+        ? deepVariableReplacer(rawUrl, allVariables)
+        : rawUrl;
+
+      const rawHeaders = (curlJson.header || {}) as Record<string, string>;
+      headers = hasTemplateVariables(rawHeaders)
+        ? deepVariableReplacer(rawHeaders, allVariables)
+        : rawHeaders;
     }
 
-    const rawUrl = curlJson.url || "";
-    const url = hasTemplateVariables(rawUrl)
-      ? deepVariableReplacer(rawUrl, allVariables)
-      : rawUrl;
-
-    const rawHeaders = curlJson.header || {};
-    const headers = hasTemplateVariables(rawHeaders)
-      ? deepVariableReplacer(rawHeaders, allVariables)
-      : rawHeaders;
     headers["Content-Type"] = "application/json";
 
     if (provider?.streaming) {

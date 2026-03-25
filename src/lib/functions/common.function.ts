@@ -2,6 +2,7 @@ import { Message } from "@/types";
 
 const pathSegmentsCache = new Map<string, string[]>();
 const jsonStringifyCache = new WeakMap<object, string>();
+const templatePresenceCache = new WeakMap<object, boolean>();
 const TEMPLATE_VARIABLE_PATTERN = /\{\{[A-Z_]+\}\}/;
 
 function fastStringify(value: unknown): string {
@@ -207,33 +208,66 @@ export function deepVariableReplacer(
   node: any,
   variables: Record<string, string>
 ): any {
-  if (typeof node === "string") {
-    if (!node.includes("{{")) {
-      return node;
-    }
+  const replacements = Object.entries(variables).map(([key, value]) => {
+    return {
+      placeholder: `{{${key}}}`,
+      value,
+    };
+  });
 
-    let result = node;
-    for (const [key, value] of Object.entries(variables)) {
-      const placeholder = `{{${key}}}`;
-      if (!result.includes(placeholder)) {
-        continue;
+  const replaceNode = (current: any): any => {
+    if (typeof current === "string") {
+      if (!current.includes("{{")) {
+        return current;
       }
 
-      result = result.split(placeholder).join(value);
+      let result = current;
+      for (const replacement of replacements) {
+        if (!result.includes(replacement.placeholder)) {
+          continue;
+        }
+
+        result = result.split(replacement.placeholder).join(replacement.value);
+      }
+      return result;
     }
-    return result;
-  }
-  if (Array.isArray(node)) {
-    return node.map((item) => deepVariableReplacer(item, variables));
-  }
-  if (node && typeof node === "object") {
-    const newNode: { [key: string]: any } = {};
-    for (const key in node) {
-      newNode[key] = deepVariableReplacer(node[key], variables);
+
+    if (Array.isArray(current)) {
+      if (!hasTemplateVariables(current)) {
+        return current;
+      }
+
+      return current.map((item) => {
+        if (!hasTemplateVariables(item)) {
+          return item;
+        }
+
+        return replaceNode(item);
+      });
     }
-    return newNode;
-  }
-  return node;
+
+    if (current && typeof current === "object") {
+      if (!hasTemplateVariables(current)) {
+        return current;
+      }
+
+      const newNode: { [key: string]: any } = {};
+      for (const key in current) {
+        const value = current[key];
+        if (!hasTemplateVariables(value)) {
+          newNode[key] = value;
+          continue;
+        }
+
+        newNode[key] = replaceNode(value);
+      }
+      return newNode;
+    }
+
+    return current;
+  };
+
+  return replaceNode(node);
 }
 
 export function hasTemplateVariables(node: unknown): boolean {
@@ -246,21 +280,37 @@ export function hasTemplateVariables(node: unknown): boolean {
   }
 
   if (Array.isArray(node)) {
+    const cached = templatePresenceCache.get(node);
+    if (typeof cached === "boolean") {
+      return cached;
+    }
+
     for (const value of node) {
       if (hasTemplateVariables(value)) {
+        templatePresenceCache.set(node, true);
         return true;
       }
     }
 
+    templatePresenceCache.set(node, false);
     return false;
   }
 
   if (node && typeof node === "object") {
-    for (const value of Object.values(node as Record<string, unknown>)) {
+    const objectNode = node as Record<string, unknown>;
+    const cached = templatePresenceCache.get(objectNode);
+    if (typeof cached === "boolean") {
+      return cached;
+    }
+
+    for (const value of Object.values(objectNode)) {
       if (hasTemplateVariables(value)) {
+        templatePresenceCache.set(objectNode, true);
         return true;
       }
     }
+
+    templatePresenceCache.set(objectNode, false);
   }
 
   return false;

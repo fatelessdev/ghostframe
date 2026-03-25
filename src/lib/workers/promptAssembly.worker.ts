@@ -1,0 +1,109 @@
+import {
+  buildDynamicMessages,
+  deepVariableReplacer,
+  hasTemplateVariables,
+} from "@/lib/functions/common.function";
+import type { Message } from "@/types";
+
+type WorkerRequest = {
+  id: number;
+  payload: {
+    bodyObj: unknown;
+    url: string;
+    headers: Record<string, string>;
+    history: Message[];
+    userMessage: string;
+    imagesBase64: string[];
+    allVariables: Record<string, string>;
+  };
+};
+
+type WorkerResponse = {
+  id: number;
+  ok: true;
+  payload: {
+    bodyObj: unknown;
+    url: string;
+    headers: Record<string, string>;
+  };
+};
+
+type WorkerError = {
+  id: number;
+  ok: false;
+  error: string;
+};
+
+const normalizeHeaders = (headers: unknown): Record<string, string> => {
+  if (!headers || typeof headers !== "object") {
+    return {};
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+    normalized[key] = typeof value === "string" ? value : String(value ?? "");
+  }
+
+  return normalized;
+};
+
+self.onmessage = (event: MessageEvent<WorkerRequest>) => {
+  const { id, payload } = event.data;
+
+  try {
+    const baseBody = payload.bodyObj;
+    let bodyObj = baseBody;
+    if (bodyObj && typeof bodyObj === "object") {
+      const mutableBody = bodyObj as Record<string, unknown>;
+      const messagesKey = Object.keys(mutableBody).find((key) =>
+        ["messages", "contents", "conversation", "history"].includes(key)
+      );
+
+      if (messagesKey && Array.isArray(mutableBody[messagesKey])) {
+        mutableBody[messagesKey] = buildDynamicMessages(
+          mutableBody[messagesKey] as any[],
+          payload.history,
+          payload.userMessage,
+          payload.imagesBase64
+        );
+      }
+
+      bodyObj = mutableBody;
+    }
+
+    if (hasTemplateVariables(bodyObj)) {
+      bodyObj = deepVariableReplacer(bodyObj, payload.allVariables);
+    }
+
+    const url = hasTemplateVariables(payload.url)
+      ? deepVariableReplacer(payload.url, payload.allVariables)
+      : payload.url;
+
+    const headersWithVars = normalizeHeaders(payload.headers);
+    const headers = hasTemplateVariables(headersWithVars)
+      ? (deepVariableReplacer(headersWithVars, payload.allVariables) as Record<
+          string,
+          string
+        >)
+      : headersWithVars;
+
+    const response: WorkerResponse = {
+      id,
+      ok: true,
+      payload: {
+        bodyObj,
+        url,
+        headers,
+      },
+    };
+
+    self.postMessage(response);
+  } catch (error) {
+    const errorResponse: WorkerError = {
+      id,
+      ok: false,
+      error: error instanceof Error ? error.message : "Prompt assembly worker error",
+    };
+    self.postMessage(errorResponse);
+  }
+};
