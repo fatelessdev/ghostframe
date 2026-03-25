@@ -41,11 +41,25 @@ export const clearManualScreenshotsState = (
 export const buildImagesPayload = (
   manualScreenshots: ManualScreenshot[]
 ): string[] => {
+  const IMAGE_PAYLOAD_CHAR_LIMIT = 2_400_000;
   const images: string[] = [];
+  let usedChars = 0;
 
-  for (const screenshot of manualScreenshots) {
+  for (let i = manualScreenshots.length - 1; i >= 0; i -= 1) {
+    const screenshot = manualScreenshots[i];
+    if (!screenshot) {
+      continue;
+    }
+
+    const size = screenshot.base64.length;
+    if (images.length > 0 && usedChars + size > IMAGE_PAYLOAD_CHAR_LIMIT) {
+      break;
+    }
+
     images.push(screenshot.base64);
+    usedChars += size;
   }
 
+  images.reverse();
   return images;
 };

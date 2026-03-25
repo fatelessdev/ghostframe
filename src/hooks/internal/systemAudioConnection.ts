@@ -46,6 +46,8 @@ type ConnectSystemAudioRealtimeOptions = {
   onInfo: (message: string) => void;
   onWarn: (message: string) => void;
   onReconnectError: (error: unknown) => void;
+  onReconnectScheduled?: (source: TranscriptSource, delayMs: number) => void;
+  onReconnectOpened?: (source: TranscriptSource, attempt: number) => void;
 };
 
 const isExpectedSocketClose = (
@@ -131,6 +133,8 @@ export const connectSystemAudioRealtime = async (
     onInfo,
     onWarn,
     onReconnectError,
+    onReconnectScheduled,
+    onReconnectOpened,
   } = options;
 
   const candidateBaseUris = toUniqueBaseUris([
@@ -277,6 +281,7 @@ export const connectSystemAudioRealtime = async (
             sessionResolved = true;
             handle.ready = true;
             handle.connectAttempts = 0;
+            onReconnectOpened?.(source, attempt);
             onReady();
             flushRealtimeQueue(handle);
             onInfo(`[SystemAudio][${source}] session started @${sampleRate}Hz`);
@@ -393,6 +398,7 @@ export const connectSystemAudioRealtime = async (
               if (shouldReconnect && !handle.reconnecting) {
                 handle.reconnecting = true;
                 const reconnectDelayMs = getRetryDelayMs(retryDelayMs, attempt);
+                onReconnectScheduled?.(source, reconnectDelayMs);
                 handle.reconnectTimeoutId = window.setTimeout(() => {
                   handle.reconnectTimeoutId = null;
                   if (signal.aborted) {

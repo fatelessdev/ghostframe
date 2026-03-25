@@ -70,6 +70,42 @@ type RequestPreparedMeta = {
   usedWorkerAssembly: boolean;
 };
 
+type QueueDepthHistogram = {
+  empty: number;
+  low: number;
+  medium: number;
+  high: number;
+  saturated: number;
+};
+
+const createEmptyQueueDepthHistogram = (): QueueDepthHistogram => ({
+  empty: 0,
+  low: 0,
+  medium: 0,
+  high: 0,
+  saturated: 0,
+});
+
+const bucketQueueDepth = (depth: number): keyof QueueDepthHistogram => {
+  if (depth <= 0) {
+    return "empty";
+  }
+
+  if (depth <= 5) {
+    return "low";
+  }
+
+  if (depth <= 15) {
+    return "medium";
+  }
+
+  if (depth <= 30) {
+    return "high";
+  }
+
+  return "saturated";
+};
+
 type SystemAudioLogParams = {
   outcome: "success" | "error";
   errorMessage?: string;
@@ -79,6 +115,24 @@ type SystemAudioLogParams = {
   providerId: string;
   aiMode: "D" | "P";
   requestAttempts: number;
+  streamStats: {
+    queuePeakInterviewer: number;
+    queuePeakUser: number;
+    queueDepthHistogramInterviewer: QueueDepthHistogram;
+    queueDepthHistogramUser: QueueDepthHistogram;
+    droppedInterviewer: number;
+    droppedUser: number;
+    reconnectScheduled: number;
+    reconnectOpened: number;
+    reconnectDelayMsSamples: number[];
+    wsEvents: number;
+    wsEventsInterviewer: number;
+    wsEventsUser: number;
+    triggerQueued: number;
+    triggerReplaced: number;
+    triggerDropped: number;
+    triggerAbortRequested: number;
+  };
 };
 
 const durationBetween = (
@@ -273,6 +327,22 @@ export function useSystemAudio() {
   const latencySamplesRef = useRef<Record<string, number[]>>(
     createEmptyLatencySamples()
   );
+  const wsBoundaryLastMarkedAtRef = useRef(0);
+  const lastRealtimeWsReceivedAtRef = useRef<number | null>(null);
+  const queueDepthPeakRef = useRef<Partial<Record<TranscriptSource, number>>>({});
+  const queueDepthHistogramRef = useRef<
+    Partial<Record<TranscriptSource, QueueDepthHistogram>>
+  >({});
+  const droppedChunksAtStartRef = useRef<Partial<Record<TranscriptSource, number>>>({});
+  const reconnectScheduledCountRef = useRef(0);
+  const reconnectOpenedCountRef = useRef(0);
+  const reconnectDelaySamplesRef = useRef<number[]>([]);
+  const wsEventsCountRef = useRef(0);
+  const wsEventsBySourceRef = useRef<Partial<Record<TranscriptSource, number>>>({});
+  const triggerQueuedCountRef = useRef(0);
+  const triggerReplacedCountRef = useRef(0);
+  const triggerDroppedCountRef = useRef(0);
+  const triggerAbortRequestedCountRef = useRef(0);
 
   const manualScreenshotsRef = useRef<ManualScreenshot[]>([]);
 
@@ -503,8 +573,30 @@ export function useSystemAudio() {
 
   const pushRealtimeChunk = useCallback(
     (handle: RealtimeHandle, chunk: { sample_rate: number; audio_base64: string }) => {
+      wsEventsCountRef.current += 1;
+      wsEventsBySourceRef.current[handle.label] =
+        (wsEventsBySourceRef.current[handle.label] || 0) + 1;
+      const wsMarkNow = Date.now();
+      lastRealtimeWsReceivedAtRef.current = wsMarkNow;
+      if (wsMarkNow - wsBoundaryLastMarkedAtRef.current > 120) {
+        wsBoundaryLastMarkedAtRef.current = wsMarkNow;
+        latencyEventsRef.current.realtime_ws_received = wsMarkNow;
+      }
+
       const droppedBefore = handle.droppedQueueChunks;
       sendRealtimeChunkInternal(handle, chunk, REALTIME_QUEUE_LIMIT);
+
+      const queueDepth = Math.max(0, handle.queue.length - handle.queueHead);
+      const previousPeak = queueDepthPeakRef.current[handle.label] || 0;
+      if (queueDepth > previousPeak) {
+        queueDepthPeakRef.current[handle.label] = queueDepth;
+      }
+
+      const sourceHistogram =
+        queueDepthHistogramRef.current[handle.label] || createEmptyQueueDepthHistogram();
+      const queueDepthBucket = bucketQueueDepth(queueDepth);
+      sourceHistogram[queueDepthBucket] += 1;
+      queueDepthHistogramRef.current[handle.label] = sourceHistogram;
 
       if (handle.droppedQueueChunks <= droppedBefore) {
         return;
@@ -742,6 +834,13 @@ export function useSystemAudio() {
         (sum, message) => sum + message.content.length,
         0
       );
+      const droppedTotal =
+        params.streamStats.droppedInterviewer + params.streamStats.droppedUser;
+      const droppedRate =
+        params.streamStats.wsEvents > 0
+          ? droppedTotal / params.streamStats.wsEvents
+          : 0;
+      const droppedRateRounded = Math.round(droppedRate * 10000) / 10000;
 
       const entry = {
         timestamp: new Date().toISOString(),
@@ -761,6 +860,10 @@ export function useSystemAudio() {
           errorAt: errorAt ?? null,
         },
         durationsMs: {
+          wsReceiveToAnswerTrigger: durationBetween(
+            events.realtime_ws_received,
+            answerTriggerAt
+          ),
           answerTriggerToTranscriptFinalized: durationBetween(
             answerTriggerAt,
             transcriptFinalizedAt
@@ -792,6 +895,37 @@ export function useSystemAudio() {
           workerAssembled: requestMeta?.usedWorkerAssembly ?? null,
           requestAttempts: params.requestAttempts,
         },
+        streamMeta: {
+          wsEvents: params.streamStats.wsEvents,
+          wsEventsInterviewer: params.streamStats.wsEventsInterviewer,
+          wsEventsUser: params.streamStats.wsEventsUser,
+          queuePeakInterviewer: params.streamStats.queuePeakInterviewer,
+          queuePeakUser: params.streamStats.queuePeakUser,
+          queueDepthHistogramInterviewer:
+            params.streamStats.queueDepthHistogramInterviewer,
+          queueDepthHistogramUser: params.streamStats.queueDepthHistogramUser,
+          droppedInterviewer: params.streamStats.droppedInterviewer,
+          droppedUser: params.streamStats.droppedUser,
+          droppedTotal,
+          droppedRate: droppedRateRounded,
+          reconnectScheduled: params.streamStats.reconnectScheduled,
+          reconnectOpened: params.streamStats.reconnectOpened,
+          reconnectDelayMsSamples: params.streamStats.reconnectDelayMsSamples,
+          triggerQueued: params.streamStats.triggerQueued,
+          triggerReplaced: params.streamStats.triggerReplaced,
+          triggerDropped: params.streamStats.triggerDropped,
+          triggerAbortRequested: params.streamStats.triggerAbortRequested,
+          thresholdFlags: {
+            queuePressureHigh:
+              params.streamStats.queuePeakInterviewer >= 30 ||
+              params.streamStats.queuePeakUser >= 30,
+            droppedRateHigh: droppedRate >= 0.03,
+            reconnectChurnHigh: params.streamStats.reconnectScheduled >= 2,
+            triggerBurstHigh:
+              params.streamStats.triggerQueued >= 2 ||
+              params.streamStats.triggerReplaced >= 1,
+          },
+        },
       };
 
       try {
@@ -802,6 +936,41 @@ export function useSystemAudio() {
     },
     []
   );
+
+  const collectStreamStats = useCallback(() => {
+    return {
+      queuePeakInterviewer: queueDepthPeakRef.current.interviewer || 0,
+      queuePeakUser: queueDepthPeakRef.current.user || 0,
+      queueDepthHistogramInterviewer: {
+        ...createEmptyQueueDepthHistogram(),
+        ...(queueDepthHistogramRef.current.interviewer || {}),
+      },
+      queueDepthHistogramUser: {
+        ...createEmptyQueueDepthHistogram(),
+        ...(queueDepthHistogramRef.current.user || {}),
+      },
+      droppedInterviewer: Math.max(
+        0,
+        interviewerRealtimeRef.current.droppedQueueChunks -
+          (droppedChunksAtStartRef.current.interviewer || 0)
+      ),
+      droppedUser: Math.max(
+        0,
+        userRealtimeRef.current.droppedQueueChunks -
+          (droppedChunksAtStartRef.current.user || 0)
+      ),
+      reconnectScheduled: reconnectScheduledCountRef.current,
+      reconnectOpened: reconnectOpenedCountRef.current,
+      reconnectDelayMsSamples: [...reconnectDelaySamplesRef.current],
+      wsEvents: wsEventsCountRef.current,
+      wsEventsInterviewer: wsEventsBySourceRef.current.interviewer || 0,
+      wsEventsUser: wsEventsBySourceRef.current.user || 0,
+      triggerQueued: triggerQueuedCountRef.current,
+      triggerReplaced: triggerReplacedCountRef.current,
+      triggerDropped: triggerDroppedCountRef.current,
+      triggerAbortRequested: triggerAbortRequestedCountRef.current,
+    };
+  }, []);
 
   const consumeQueuedAnswerTrigger = useCallback((): string | null => {
     const queued = queuedAnswerTriggerRef.current;
@@ -907,6 +1076,30 @@ export function useSystemAudio() {
       const timestamp = Date.now();
       const previousMessages = getPreviousMessages();
       let requestPreparedMeta: RequestPreparedMeta | null = null;
+      droppedChunksAtStartRef.current = {
+        interviewer: interviewerRealtimeRef.current.droppedQueueChunks,
+        user: userRealtimeRef.current.droppedQueueChunks,
+      };
+      queueDepthPeakRef.current = {
+        interviewer: 0,
+        user: 0,
+      };
+      queueDepthHistogramRef.current = {
+        interviewer: createEmptyQueueDepthHistogram(),
+        user: createEmptyQueueDepthHistogram(),
+      };
+      reconnectScheduledCountRef.current = 0;
+      reconnectOpenedCountRef.current = 0;
+      reconnectDelaySamplesRef.current = [];
+      wsEventsCountRef.current = 0;
+      wsEventsBySourceRef.current = {
+        interviewer: 0,
+        user: 0,
+      };
+      triggerQueuedCountRef.current = 0;
+      triggerReplacedCountRef.current = 0;
+      triggerDroppedCountRef.current = 0;
+      triggerAbortRequestedCountRef.current = 0;
       recordLatencyMark("prompt_assembled", Date.now());
 
       const userChatMessage: ChatMessage = {
@@ -1023,6 +1216,7 @@ export function useSystemAudio() {
           providerId,
           aiMode: currentAIMode,
           requestAttempts,
+          streamStats: collectStreamStats(),
         }, requestPreparedMeta);
 
         return true;
@@ -1044,6 +1238,7 @@ export function useSystemAudio() {
             providerId,
             aiMode: currentAIMode,
             requestAttempts,
+            streamStats: collectStreamStats(),
           }, requestPreparedMeta);
         }
         if (!controller.signal.aborted) {
@@ -1068,6 +1263,7 @@ export function useSystemAudio() {
       currentAIMode,
       getEffectiveSystemPrompt,
       getPreviousMessages,
+      collectStreamStats,
       recordLatencyMark,
       selectedAIProvider,
       writeSystemAudioLog,
@@ -1086,9 +1282,15 @@ export function useSystemAudio() {
       setError("");
 
       const triggerTs = Date.now();
-      latencyEventsRef.current = {
-        answer_trigger: triggerTs,
-      };
+      const lastRealtimeWsReceivedAt = lastRealtimeWsReceivedAtRef.current;
+      latencyEventsRef.current = lastRealtimeWsReceivedAt
+        ? {
+            answer_trigger: triggerTs,
+            realtime_ws_received: lastRealtimeWsReceivedAt,
+          }
+        : {
+            answer_trigger: triggerTs,
+          };
       recordLatencyMark("answer_trigger", triggerTs);
 
       try {
@@ -1267,6 +1469,16 @@ export function useSystemAudio() {
         },
         onReconnectError: (error) => {
           console.error(`Failed to reconnect ${source} realtime:`, error);
+        },
+        onReconnectScheduled: (_reconnectSource, delayMs) => {
+          reconnectScheduledCountRef.current += 1;
+          reconnectDelaySamplesRef.current.push(Math.round(delayMs));
+          if (reconnectDelaySamplesRef.current.length > 12) {
+            reconnectDelaySamplesRef.current = reconnectDelaySamplesRef.current.slice(-12);
+          }
+        },
+        onReconnectOpened: () => {
+          reconnectOpenedCountRef.current += 1;
         },
       });
     },
@@ -1471,11 +1683,19 @@ export function useSystemAudio() {
       }
 
       if (answerTriggerInFlightRef.current) {
+        if (queuedAnswerTriggerRef.current) {
+          triggerReplacedCountRef.current += 1;
+          triggerDroppedCountRef.current += 1;
+        } else {
+          triggerQueuedCountRef.current += 1;
+        }
+
         queuedAnswerTriggerRef.current = {
           typedInstruction: initialInstruction,
         };
 
         if (abortControllerRef.current) {
+          triggerAbortRequestedCountRef.current += 1;
           abortControllerRef.current.abort();
         }
 

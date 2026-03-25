@@ -26,6 +26,8 @@ const API_REQUEST_RETRY_MAX_DELAY_MS = 2400;
 const WORKER_IMAGE_SIZE_LIMIT_CHARS = 2_000_000;
 let promptAssemblyWorker: Worker | null = null;
 let promptAssemblyRequestSeq = 0;
+let streamParserWorker: Worker | null = null;
+let streamParserRequestSeq = 0;
 
 type PromptAssemblyWorkerRequestPayload = {
   bodyObj: unknown;
@@ -77,6 +79,37 @@ type PromptAssemblyWorkerResponse =
   | PromptAssemblyWorkerSuccess
   | PromptAssemblyWorkerFailure;
 
+type StreamParserWorkerRequestPayload = {
+  textChunk: string;
+  buffer: string;
+  responseContentPath: string;
+  flush: boolean;
+};
+
+type StreamParserWorkerRequest = {
+  id: number;
+  payload: StreamParserWorkerRequestPayload;
+};
+
+type StreamParserWorkerSuccess = {
+  id: number;
+  ok: true;
+  payload: {
+    deltas: string[];
+    nextBuffer: string;
+  };
+};
+
+type StreamParserWorkerFailure = {
+  id: number;
+  ok: false;
+  error: string;
+};
+
+type StreamParserWorkerResponse =
+  | StreamParserWorkerSuccess
+  | StreamParserWorkerFailure;
+
 function shouldUsePromptAssemblyWorker(payload: {
   bodyObj: unknown;
   history: Message[];
@@ -124,6 +157,21 @@ function getPromptAssemblyWorker(): Worker {
   );
 
   return promptAssemblyWorker;
+}
+
+function getStreamParserWorker(): Worker {
+  if (streamParserWorker) {
+    return streamParserWorker;
+  }
+
+  streamParserWorker = new Worker(
+    new URL("@/lib/workers/streamParser.worker.ts", import.meta.url),
+    {
+      type: "module",
+    }
+  );
+
+  return streamParserWorker;
 }
 
 async function assemblePromptPayloadInWorker(
@@ -195,6 +243,82 @@ async function assemblePromptPayloadInWorker(
     }
 
     const request: PromptAssemblyWorkerRequest = {
+      id: requestId,
+      payload,
+    };
+    worker.postMessage(request);
+  });
+}
+
+async function parseStreamingChunkInWorker(
+  payload: StreamParserWorkerRequestPayload,
+  signal?: AbortSignal
+): Promise<{ deltas: string[]; nextBuffer: string }> {
+  if (signal?.aborted) {
+    throw new DOMException("Operation aborted", "AbortError");
+  }
+
+  const worker = getStreamParserWorker();
+  const requestId = ++streamParserRequestSeq;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      worker.removeEventListener("message", onMessage as EventListener);
+      worker.removeEventListener("error", onError as EventListener);
+      if (signal) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    };
+
+    const finish = (fn: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const onMessage = (event: MessageEvent<StreamParserWorkerResponse>) => {
+      const data = event.data;
+      if (!data || data.id !== requestId) {
+        return;
+      }
+
+      if (data.ok) {
+        finish(() => {
+          resolve(data.payload);
+        });
+        return;
+      }
+
+      finish(() => {
+        reject(new Error(data.error || "Stream parser worker failed"));
+      });
+    };
+
+    const onError = (event: ErrorEvent) => {
+      finish(() => {
+        reject(new Error(event.message || "Stream parser worker crashed"));
+      });
+    };
+
+    const onAbort = () => {
+      finish(() => {
+        reject(new DOMException("Operation aborted", "AbortError"));
+      });
+    };
+
+    worker.addEventListener("message", onMessage as EventListener);
+    worker.addEventListener("error", onError as EventListener);
+    if (signal) {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    const request: StreamParserWorkerRequest = {
       id: requestId,
       payload,
     };
@@ -817,7 +941,6 @@ export async function* fetchAIResponse(params: {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    const streamingContentPaths = buildStreamingContentPaths(responseContentPath);
 
     while (true) {
       if (signal?.aborted) {
@@ -847,14 +970,59 @@ export async function* fetchAIResponse(params: {
         return;
       }
 
-      buffer += decoder.decode(value, { stream: true });
+      const textChunk = decoder.decode(value, { stream: true });
 
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data:")) {
+      try {
+        const parsedChunk = await parseStreamingChunkInWorker(
+          {
+            textChunk,
+            buffer,
+            responseContentPath,
+            flush: false,
+          },
+          signal
+        );
+        buffer = parsedChunk.nextBuffer;
+        for (const delta of parsedChunk.deltas) {
+          yield delta;
+        }
+      } catch (workerError) {
+        if (isAbortRequestError(workerError, signal)) {
+          reader.cancel();
+          return;
+        }
+
+        buffer += textChunk;
+      }
+    }
+
+    if (buffer) {
+      try {
+        const parsedFlush = await parseStreamingChunkInWorker(
+          {
+            textChunk: "",
+            buffer,
+            responseContentPath,
+            flush: true,
+          },
+          signal
+        );
+        for (const delta of parsedFlush.deltas) {
+          yield delta;
+        }
+      } catch {
+        const lines = buffer.split("\n");
+        const streamingContentPaths = buildStreamingContentPaths(responseContentPath);
+        for (const line of lines) {
+          if (!line.startsWith("data:")) {
+            continue;
+          }
+
           const trimmed = line.substring(5).trim();
-          if (!trimmed || trimmed === "[DONE]") continue;
+          if (!trimmed || trimmed === "[DONE]") {
+            continue;
+          }
+
           try {
             const parsed = JSON.parse(trimmed);
             const delta = getStreamingContent(
@@ -865,8 +1033,8 @@ export async function* fetchAIResponse(params: {
             if (delta) {
               yield delta;
             }
-          } catch (e) {
-            // Ignore parsing errors for partial JSON chunks
+          } catch {
+            // no-op
           }
         }
       }

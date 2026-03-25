@@ -30,6 +30,7 @@ export interface TranscriptSegment {
 
 export type SystemAudioLatencyStage =
   | "answer_trigger"
+  | "realtime_ws_received"
   | "transcript_finalized"
   | "prompt_assembled"
   | "llm_request_dispatched"
