@@ -86,7 +86,11 @@ export const ResponseView = ({
       return null;
     }
 
+    const finalize = latencySnapshot.answerTriggerToTranscriptFinalizedMs.p95;
+    const finalizeToPrompt = latencySnapshot.transcriptFinalizedToPromptMs.p95;
     const prompt = latencySnapshot.answerTriggerToPromptMs.p95;
+    const dispatch = latencySnapshot.promptToDispatchMs.p95;
+    const dispatchToFirst = latencySnapshot.dispatchToFirstChunkMs.p95;
     const first = latencySnapshot.answerTriggerToFirstChunkMs.p95;
     const done = latencySnapshot.answerTriggerToDoneMs.p95;
     const stream = latencySnapshot.firstChunkToDoneMs.p95;
@@ -98,7 +102,7 @@ export const ResponseView = ({
       return `${value}ms`;
     };
 
-    return `p95 prompt ${renderValue(prompt)} | first ${renderValue(first)} | done ${renderValue(done)} | stream ${renderValue(stream)} (${latencySnapshot.sampleCount} sample${latencySnapshot.sampleCount === 1 ? "" : "s"})`;
+    return `p95 finalize ${renderValue(finalize)} | finalize->prompt ${renderValue(finalizeToPrompt)} | prompt ${renderValue(prompt)} | dispatch ${renderValue(dispatch)} | dispatch->first ${renderValue(dispatchToFirst)} | first ${renderValue(first)} | done ${renderValue(done)} | stream ${renderValue(stream)} (${latencySnapshot.sampleCount} sample${latencySnapshot.sampleCount === 1 ? "" : "s"})`;
   }, [latencySnapshot]);
 
   return (

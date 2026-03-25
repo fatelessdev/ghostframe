@@ -30,7 +30,9 @@ export interface TranscriptSegment {
 
 export type SystemAudioLatencyStage =
   | "answer_trigger"
+  | "transcript_finalized"
   | "prompt_assembled"
+  | "llm_request_dispatched"
   | "llm_first_chunk"
   | "llm_stream_done"
   | "llm_error";
@@ -45,7 +47,11 @@ export interface SystemAudioLatencyMetric {
 export interface SystemAudioLatencySnapshot {
   startedAt: number;
   sampleCount: number;
+  answerTriggerToTranscriptFinalizedMs: SystemAudioLatencyMetric;
+  transcriptFinalizedToPromptMs: SystemAudioLatencyMetric;
   answerTriggerToPromptMs: SystemAudioLatencyMetric;
+  promptToDispatchMs: SystemAudioLatencyMetric;
+  dispatchToFirstChunkMs: SystemAudioLatencyMetric;
   answerTriggerToFirstChunkMs: SystemAudioLatencyMetric;
   answerTriggerToDoneMs: SystemAudioLatencyMetric;
   promptToFirstChunkMs: SystemAudioLatencyMetric;

@@ -218,6 +218,7 @@ export async function* fetchAIResponse(params: {
   imagesBase64?: string[];
   signal?: AbortSignal;
   aiMode?: "D" | "P";
+  onRequestDispatched?: (attempt: number) => void;
 }): AsyncIterable<string> {
   try {
     const {
@@ -229,6 +230,7 @@ export async function* fetchAIResponse(params: {
       imagesBase64 = [],
       signal,
       aiMode = DEFAULT_AI_MODE,
+      onRequestDispatched,
     } = params;
 
     if (signal?.aborted) {
@@ -341,6 +343,12 @@ export async function* fetchAIResponse(params: {
       }
 
       try {
+        if (onRequestDispatched) {
+          try {
+            onRequestDispatched(attempt);
+          } catch {}
+        }
+
         response = await fetchFunction(url, {
           method: requestMethod,
           headers,

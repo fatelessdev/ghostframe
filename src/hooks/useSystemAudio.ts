@@ -116,7 +116,11 @@ const createEmptyLatencyMetric = (): SystemAudioLatencyMetric => ({
 const initialLatencySnapshot = (): SystemAudioLatencySnapshot => ({
   startedAt: 0,
   sampleCount: 0,
+  answerTriggerToTranscriptFinalizedMs: createEmptyLatencyMetric(),
+  transcriptFinalizedToPromptMs: createEmptyLatencyMetric(),
   answerTriggerToPromptMs: createEmptyLatencyMetric(),
+  promptToDispatchMs: createEmptyLatencyMetric(),
+  dispatchToFirstChunkMs: createEmptyLatencyMetric(),
   answerTriggerToFirstChunkMs: createEmptyLatencyMetric(),
   answerTriggerToDoneMs: createEmptyLatencyMetric(),
   promptToFirstChunkMs: createEmptyLatencyMetric(),
@@ -124,7 +128,11 @@ const initialLatencySnapshot = (): SystemAudioLatencySnapshot => ({
 });
 
 const createEmptyLatencySamples = (): Record<string, number[]> => ({
+  answerTriggerToTranscriptFinalizedMs: [],
+  transcriptFinalizedToPromptMs: [],
   answerTriggerToPromptMs: [],
+  promptToDispatchMs: [],
+  dispatchToFirstChunkMs: [],
   answerTriggerToFirstChunkMs: [],
   answerTriggerToDoneMs: [],
   promptToFirstChunkMs: [],
@@ -512,12 +520,22 @@ export function useSystemAudio() {
         return;
       }
 
+      const transcriptFinalizedAt = latencyEventsRef.current.transcript_finalized;
       const promptAt = latencyEventsRef.current.prompt_assembled;
+      const dispatchedAt = latencyEventsRef.current.llm_request_dispatched;
       const firstChunkAt = latencyEventsRef.current.llm_first_chunk;
       const doneAt = latencyEventsRef.current.llm_stream_done;
 
       const nextSamples: Record<string, number[]> = {
+        answerTriggerToTranscriptFinalizedMs: [
+          ...latencySamplesRef.current.answerTriggerToTranscriptFinalizedMs,
+        ],
+        transcriptFinalizedToPromptMs: [
+          ...latencySamplesRef.current.transcriptFinalizedToPromptMs,
+        ],
         answerTriggerToPromptMs: [...latencySamplesRef.current.answerTriggerToPromptMs],
+        promptToDispatchMs: [...latencySamplesRef.current.promptToDispatchMs],
+        dispatchToFirstChunkMs: [...latencySamplesRef.current.dispatchToFirstChunkMs],
         answerTriggerToFirstChunkMs: [
           ...latencySamplesRef.current.answerTriggerToFirstChunkMs,
         ],
@@ -537,14 +555,36 @@ export function useSystemAudio() {
         }
       };
 
+      if (stage === "transcript_finalized" && transcriptFinalizedAt) {
+        pushSample(
+          "answerTriggerToTranscriptFinalizedMs",
+          transcriptFinalizedAt - answerTriggerAt
+        );
+      }
+
       if (stage === "prompt_assembled" && promptAt) {
         pushSample("answerTriggerToPromptMs", promptAt - answerTriggerAt);
+        if (transcriptFinalizedAt) {
+          pushSample(
+            "transcriptFinalizedToPromptMs",
+            promptAt - transcriptFinalizedAt
+          );
+        }
+      }
+
+      if (stage === "llm_request_dispatched" && dispatchedAt) {
+        if (promptAt) {
+          pushSample("promptToDispatchMs", dispatchedAt - promptAt);
+        }
       }
 
       if (stage === "llm_first_chunk" && firstChunkAt) {
         pushSample("answerTriggerToFirstChunkMs", firstChunkAt - answerTriggerAt);
         if (promptAt) {
           pushSample("promptToFirstChunkMs", firstChunkAt - promptAt);
+        }
+        if (dispatchedAt) {
+          pushSample("dispatchToFirstChunkMs", firstChunkAt - dispatchedAt);
         }
       }
 
@@ -558,7 +598,11 @@ export function useSystemAudio() {
       latencySamplesRef.current = nextSamples;
 
       const sampleCount = Math.max(
+        nextSamples.answerTriggerToTranscriptFinalizedMs.length,
+        nextSamples.transcriptFinalizedToPromptMs.length,
         nextSamples.answerTriggerToPromptMs.length,
+        nextSamples.promptToDispatchMs.length,
+        nextSamples.dispatchToFirstChunkMs.length,
         nextSamples.answerTriggerToFirstChunkMs.length,
         nextSamples.answerTriggerToDoneMs.length,
         nextSamples.promptToFirstChunkMs.length,
@@ -568,8 +612,18 @@ export function useSystemAudio() {
       setLatencySnapshot({
         startedAt: answerTriggerAt,
         sampleCount,
+        answerTriggerToTranscriptFinalizedMs: buildLatencyMetric(
+          nextSamples.answerTriggerToTranscriptFinalizedMs
+        ),
+        transcriptFinalizedToPromptMs: buildLatencyMetric(
+          nextSamples.transcriptFinalizedToPromptMs
+        ),
         answerTriggerToPromptMs: buildLatencyMetric(
           nextSamples.answerTriggerToPromptMs
+        ),
+        promptToDispatchMs: buildLatencyMetric(nextSamples.promptToDispatchMs),
+        dispatchToFirstChunkMs: buildLatencyMetric(
+          nextSamples.dispatchToFirstChunkMs
         ),
         answerTriggerToFirstChunkMs: buildLatencyMetric(
           nextSamples.answerTriggerToFirstChunkMs
@@ -702,8 +756,6 @@ export function useSystemAudio() {
         recordLatencyMark("answer_trigger", fallbackStart);
       }
 
-      recordLatencyMark("prompt_assembled", Date.now());
-
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -725,6 +777,7 @@ export function useSystemAudio() {
 
       const timestamp = Date.now();
       const previousMessages = getPreviousMessages();
+      recordLatencyMark("prompt_assembled", Date.now());
 
       const userChatMessage: ChatMessage = {
         id: generateMessageId("user", timestamp),
@@ -746,6 +799,7 @@ export function useSystemAudio() {
 
       let fullResponse = "";
       let firstChunkRecorded = false;
+      let requestDispatched = false;
       try {
         for await (const chunk of fetchAIResponse({
           provider,
@@ -756,6 +810,14 @@ export function useSystemAudio() {
           imagesBase64,
           aiMode: currentAIMode,
           signal: controller.signal,
+          onRequestDispatched: () => {
+            if (requestDispatched) {
+              return;
+            }
+
+            requestDispatched = true;
+            recordLatencyMark("llm_request_dispatched", Date.now());
+          },
         })) {
           if (!firstChunkRecorded) {
             firstChunkRecorded = true;
@@ -887,6 +949,8 @@ export function useSystemAudio() {
         } else {
           prompt = trimmedInstruction;
         }
+
+        recordLatencyMark("transcript_finalized", Date.now());
 
         const imagesBase64 = buildImagesPayload();
         const sent = await runAI(prompt, imagesBase64);
