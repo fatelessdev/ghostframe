@@ -35,6 +35,7 @@ import {
 import {
   closeRealtimeHandle as closeRealtimeHandleInternal,
   createRealtimeHandle,
+  getRealtimeQueueLength,
   sendRealtimeChunk as sendRealtimeChunkInternal,
   type RealtimeHandle,
 } from "@/hooks/internal/systemAudioRealtime";
@@ -597,8 +598,8 @@ export function useSystemAudio() {
     }
 
     periodicScreenshotIntervalRef.current = window.setInterval(async () => {
-      const interviewerBacklog = interviewerRealtimeRef.current.queue.length;
-      const userBacklog = userRealtimeRef.current.queue.length;
+      const interviewerBacklog = getRealtimeQueueLength(interviewerRealtimeRef.current);
+      const userBacklog = getRealtimeQueueLength(userRealtimeRef.current);
       const hasRealtimeBacklog = interviewerBacklog > 0 || userBacklog > 0;
 
       if (

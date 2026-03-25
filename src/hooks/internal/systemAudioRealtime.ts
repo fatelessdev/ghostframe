@@ -19,6 +19,7 @@ export type RealtimeHandle = {
   lastSentAtMs: number;
   uncommittedAudioMs: number;
   queue: RealtimeAudioChunkEvent[];
+  queueHead: number;
   droppedQueueChunks: number;
 };
 
@@ -61,8 +62,32 @@ export const createRealtimeHandle = (label: TranscriptSource): RealtimeHandle =>
     lastSentAtMs: 0,
     uncommittedAudioMs: 0,
     queue: [],
+    queueHead: 0,
     droppedQueueChunks: 0,
   };
+};
+
+export const getRealtimeQueueLength = (handle: RealtimeHandle): number => {
+  return Math.max(0, handle.queue.length - handle.queueHead);
+};
+
+const compactRealtimeQueue = (handle: RealtimeHandle): void => {
+  if (handle.queueHead <= 0) {
+    return;
+  }
+
+  if (handle.queueHead >= handle.queue.length) {
+    handle.queue = [];
+    handle.queueHead = 0;
+    return;
+  }
+
+  if (handle.queueHead < 256 && handle.queueHead * 2 < handle.queue.length) {
+    return;
+  }
+
+  handle.queue = handle.queue.slice(handle.queueHead);
+  handle.queueHead = 0;
 };
 
 export const flushRealtimeQueue = (handle: RealtimeHandle): void => {
@@ -70,8 +95,9 @@ export const flushRealtimeQueue = (handle: RealtimeHandle): void => {
     return;
   }
 
-  while (handle.queue.length > 0) {
-    const chunk = handle.queue.shift();
+  while (handle.queueHead < handle.queue.length) {
+    const chunk = handle.queue[handle.queueHead];
+    handle.queueHead += 1;
     if (!chunk) {
       break;
     }
@@ -86,6 +112,8 @@ export const flushRealtimeQueue = (handle: RealtimeHandle): void => {
       chunk.sample_rate
     );
   }
+
+  compactRealtimeQueue(handle);
 };
 
 export const sendRealtimeChunk = (
@@ -95,10 +123,13 @@ export const sendRealtimeChunk = (
 ): void => {
   if (!handle.connection || !handle.ready) {
     handle.queue.push(chunk);
-    if (handle.queue.length > queueLimit) {
-      handle.queue.shift();
+
+    if (getRealtimeQueueLength(handle) > queueLimit) {
+      handle.queueHead += 1;
       handle.droppedQueueChunks += 1;
+      compactRealtimeQueue(handle);
     }
+
     return;
   }
 
@@ -132,6 +163,7 @@ export const closeRealtimeHandle = (
 
   handle.ready = false;
   handle.queue = [];
+  handle.queueHead = 0;
   if (!preserveReconnect) {
     handle.shouldReconnect = false;
   }
