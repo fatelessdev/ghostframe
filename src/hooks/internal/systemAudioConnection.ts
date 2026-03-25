@@ -65,59 +65,17 @@ const delay = async (ms: number): Promise<void> => {
   await new Promise((resolve) => window.setTimeout(resolve, ms));
 };
 
-const tokenCache = new Map<string, { token: string; cachedAt: number }>();
-const tokenRequestCache = new Map<string, Promise<string>>();
-const TOKEN_CACHE_TTL_MS = 50_000;
 const silencePcm16Cache = new Map<string, string>();
-
-const buildTokenCacheKey = (
-  apiKey: string,
-  model: string,
-  tokenBaseUrl: string
-): string => {
-  return `${apiKey}::${model}::${tokenBaseUrl}`;
-};
 
 const getRealtimeToken = async (
   apiKey: string,
   model: string,
   tokenBaseUrl: string
 ): Promise<string> => {
-  const tokenCacheKey = buildTokenCacheKey(apiKey, model, tokenBaseUrl);
-  const cachedToken = tokenCache.get(tokenCacheKey);
-  const now = Date.now();
-  const tokenIsFresh =
-    !!cachedToken && now - cachedToken.cachedAt < TOKEN_CACHE_TTL_MS;
-
-  if (tokenIsFresh) {
-    return cachedToken.token;
-  }
-
-  const inFlightRequest = tokenRequestCache.get(tokenCacheKey);
-  if (inFlightRequest) {
-    return inFlightRequest;
-  }
-
-  let requestPromise: Promise<string>;
-  requestPromise = fetchElevenLabsRealtimeToken(apiKey, {
+  return fetchElevenLabsRealtimeToken(apiKey, {
     model,
     tokenBaseUrl,
-  })
-    .then((token) => {
-      tokenCache.set(tokenCacheKey, {
-        token,
-        cachedAt: Date.now(),
-      });
-      return token;
-    })
-    .finally(() => {
-      if (tokenRequestCache.get(tokenCacheKey) === requestPromise) {
-        tokenRequestCache.delete(tokenCacheKey);
-      }
-    });
-
-  tokenRequestCache.set(tokenCacheKey, requestPromise);
-  return requestPromise;
+  });
 };
 
 const getRetryDelayMs = (baseDelayMs: number, attempt: number): number => {
