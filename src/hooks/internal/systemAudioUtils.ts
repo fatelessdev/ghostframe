@@ -79,6 +79,23 @@ export function float32ToPcm16Base64(frame: Float32Array): string {
   return btoa(chunks.join(""));
 }
 
+export function pcm16BufferToBase64(buffer: ArrayBuffer): string {
+  if (buffer.byteLength === 0) {
+    return "";
+  }
+
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000;
+  const chunks: string[] = [];
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    chunks.push(String.fromCharCode(...chunk));
+  }
+
+  return btoa(chunks.join(""));
+}
+
 function createSegment(
   source: TranscriptSource,
   text: string,

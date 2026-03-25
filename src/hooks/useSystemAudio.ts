@@ -184,6 +184,7 @@ export function useSystemAudio() {
 
   const micMediaStreamRef = useRef<MediaStream | null>(null);
   const micAudioContextRef = useRef<AudioContext | null>(null);
+  const micWorkletNodeRef = useRef<AudioWorkletNode | null>(null);
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const micSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const micPreBufferRef = useRef<string[]>([]);
@@ -414,6 +415,7 @@ export function useSystemAudio() {
     () => ({
       micMediaStreamRef,
       micAudioContextRef,
+      micWorkletNodeRef,
       micProcessorRef,
       micSourceNodeRef,
       micPreBufferRef,

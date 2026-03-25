@@ -1,13 +1,24 @@
 import type { MutableRefObject } from "react";
-import { float32ToPcm16Base64, toErrorMessage } from "@/hooks/internal/systemAudioUtils";
+import {
+  float32ToPcm16Base64,
+  pcm16BufferToBase64,
+  toErrorMessage,
+} from "@/hooks/internal/systemAudioUtils";
 
 export const MIC_SAMPLE_RATE = 16000;
 const MIC_FRAME_SIZE = 1024;
 const MIC_PREBUFFER_LIMIT = 12;
+const MIC_RMS_THRESHOLD = 0.01;
+const MIC_WORKLET_PROCESSOR_NAME = "ghostframe-mic-processor";
+const MIC_WORKLET_MODULE_URL = new URL(
+  "./systemAudioMic.worklet.js",
+  import.meta.url
+).href;
 
 type MicCaptureRefs = {
   micMediaStreamRef: MutableRefObject<MediaStream | null>;
   micAudioContextRef: MutableRefObject<AudioContext | null>;
+  micWorkletNodeRef: MutableRefObject<AudioWorkletNode | null>;
   micProcessorRef: MutableRefObject<ScriptProcessorNode | null>;
   micSourceNodeRef: MutableRefObject<MediaStreamAudioSourceNode | null>;
   micPreBufferRef: MutableRefObject<string[]>;
@@ -25,6 +36,122 @@ type StartMicCaptureOptions = {
 type MicConstraintAttempt = {
   label: string;
   constraints: MediaStreamConstraints;
+};
+
+type MicWorkletFrameMessage = {
+  type: "frame";
+  pcm16: ArrayBuffer;
+  rms: number;
+};
+
+const isMicWorkletFrameMessage = (
+  value: unknown
+): value is MicWorkletFrameMessage => {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Partial<MicWorkletFrameMessage>;
+  return (
+    candidate.type === "frame" &&
+    candidate.pcm16 instanceof ArrayBuffer &&
+    typeof candidate.rms === "number"
+  );
+};
+
+const sendMicFrameWithVad = (
+  refs: MicCaptureRefs,
+  sendChunk: (chunk: { sample_rate: number; audio_base64: string }) => void,
+  frameBase64: string,
+  rms: number
+): void => {
+  if (rms > MIC_RMS_THRESHOLD) {
+    refs.userSpeechLikelyRef.current = true;
+    sendChunk({
+      sample_rate: MIC_SAMPLE_RATE,
+      audio_base64: frameBase64,
+    });
+    return;
+  }
+
+  if (!refs.userSpeechLikelyRef.current) {
+    return;
+  }
+
+  refs.micPreBufferRef.current.push(frameBase64);
+  if (refs.micPreBufferRef.current.length > MIC_PREBUFFER_LIMIT) {
+    refs.micPreBufferRef.current.shift();
+  }
+
+  for (const buffered of refs.micPreBufferRef.current) {
+    sendChunk({
+      sample_rate: MIC_SAMPLE_RATE,
+      audio_base64: buffered,
+    });
+  }
+
+  refs.micPreBufferRef.current = [];
+  refs.userSpeechLikelyRef.current = false;
+};
+
+const startMicAudioWorkletCapture = async (
+  context: AudioContext,
+  sourceNode: MediaStreamAudioSourceNode,
+  captureRef: MutableRefObject<boolean>,
+  refs: MicCaptureRefs,
+  sendChunk: (chunk: { sample_rate: number; audio_base64: string }) => void
+): Promise<boolean> => {
+  if (!context.audioWorklet) {
+    return false;
+  }
+
+  try {
+    await context.audioWorklet.addModule(MIC_WORKLET_MODULE_URL);
+
+    const workletNode = new AudioWorkletNode(context, MIC_WORKLET_PROCESSOR_NAME, {
+      numberOfInputs: 1,
+      numberOfOutputs: 0,
+      channelCount: 1,
+      channelCountMode: "explicit",
+      channelInterpretation: "speakers",
+    });
+
+    refs.micWorkletNodeRef.current = workletNode;
+
+    workletNode.port.onmessage = (event: MessageEvent<unknown>) => {
+      if (!captureRef.current) {
+        return;
+      }
+
+      if (!isMicWorkletFrameMessage(event.data)) {
+        return;
+      }
+
+      const frameBase64 = pcm16BufferToBase64(event.data.pcm16);
+      if (!frameBase64) {
+        return;
+      }
+
+      sendMicFrameWithVad(refs, sendChunk, frameBase64, event.data.rms);
+    };
+
+    sourceNode.connect(workletNode);
+    return true;
+  } catch (workletError) {
+    console.warn(
+      `[SystemAudio] microphone AudioWorklet unavailable, falling back to ScriptProcessorNode: ${toErrorMessage(
+        workletError
+      )}`
+    );
+
+    if (refs.micWorkletNodeRef.current) {
+      refs.micWorkletNodeRef.current.port.onmessage = null;
+      refs.micWorkletNodeRef.current.disconnect();
+      refs.micWorkletNodeRef.current = null;
+    }
+
+    return false;
+  }
 };
 
 const buildMicConstraintAttempts = (
@@ -141,6 +268,12 @@ const resolveMicrophoneStream = async (
 };
 
 export const stopMicCapture = (refs: MicCaptureRefs): void => {
+  if (refs.micWorkletNodeRef.current) {
+    refs.micWorkletNodeRef.current.port.onmessage = null;
+    refs.micWorkletNodeRef.current.disconnect();
+    refs.micWorkletNodeRef.current = null;
+  }
+
   if (refs.micProcessorRef.current) {
     refs.micProcessorRef.current.disconnect();
     refs.micProcessorRef.current.onaudioprocess = null;
@@ -167,6 +300,22 @@ export const stopMicCapture = (refs: MicCaptureRefs): void => {
   refs.userSpeechLikelyRef.current = false;
 };
 
+const sendScriptProcessorFrame = (
+  refs: MicCaptureRefs,
+  sendChunk: (chunk: { sample_rate: number; audio_base64: string }) => void,
+  frame: Float32Array
+): void => {
+  let energy = 0;
+  for (let i = 0; i < frame.length; i++) {
+    const sample = frame[i];
+    energy += sample * sample;
+  }
+
+  const rms = Math.sqrt(energy / frame.length);
+  const frameBase64 = float32ToPcm16Base64(frame);
+  sendMicFrameWithVad(refs, sendChunk, frameBase64, rms);
+};
+
 export const startMicCapture = async ({
   selectedInputId,
   captureRef,
@@ -183,6 +332,18 @@ export const startMicCapture = async ({
 
   const sourceNode = context.createMediaStreamSource(stream);
   refs.micSourceNodeRef.current = sourceNode;
+
+  const startedWithWorklet = await startMicAudioWorkletCapture(
+    context,
+    sourceNode,
+    captureRef,
+    refs,
+    sendChunk
+  );
+
+  if (startedWithWorklet) {
+    return;
+  }
 
   const processor = context.createScriptProcessor(MIC_FRAME_SIZE, 1, 1);
   refs.micProcessorRef.current = processor;
@@ -203,35 +364,7 @@ export const startMicCapture = async ({
     while (merged.length >= MIC_FRAME_SIZE) {
       const frame = merged.slice(0, MIC_FRAME_SIZE);
       merged = merged.slice(MIC_FRAME_SIZE);
-
-      const rms = Math.sqrt(
-        frame.reduce((acc, sample) => acc + sample * sample, 0) / frame.length
-      );
-
-      const frameBase64 = float32ToPcm16Base64(frame);
-
-      if (rms > 0.01) {
-        refs.userSpeechLikelyRef.current = true;
-        sendChunk({
-          sample_rate: MIC_SAMPLE_RATE,
-          audio_base64: frameBase64,
-        });
-      } else if (refs.userSpeechLikelyRef.current) {
-        refs.micPreBufferRef.current.push(frameBase64);
-        if (refs.micPreBufferRef.current.length > MIC_PREBUFFER_LIMIT) {
-          refs.micPreBufferRef.current.shift();
-        }
-
-        for (const buffered of refs.micPreBufferRef.current) {
-          sendChunk({
-            sample_rate: MIC_SAMPLE_RATE,
-            audio_base64: buffered,
-          });
-        }
-
-        refs.micPreBufferRef.current = [];
-        refs.userSpeechLikelyRef.current = false;
-      }
+      sendScriptProcessorFrame(refs, sendChunk, frame);
     }
 
     refs.micFrameBufferRef.current = merged;
