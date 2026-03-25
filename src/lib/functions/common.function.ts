@@ -2,6 +2,7 @@ import { Message } from "@/types";
 
 const pathSegmentsCache = new Map<string, string[]>();
 const jsonStringifyCache = new WeakMap<object, string>();
+const TEMPLATE_VARIABLE_PATTERN = /\{\{[A-Z_]+\}\}/;
 
 function fastStringify(value: unknown): string {
   if (!value || typeof value !== "object") {
@@ -207,9 +208,18 @@ export function deepVariableReplacer(
   variables: Record<string, string>
 ): any {
   if (typeof node === "string") {
+    if (!node.includes("{{")) {
+      return node;
+    }
+
     let result = node;
     for (const [key, value] of Object.entries(variables)) {
-      result = result.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), value);
+      const placeholder = `{{${key}}}`;
+      if (!result.includes(placeholder)) {
+        continue;
+      }
+
+      result = result.split(placeholder).join(value);
     }
     return result;
   }
@@ -224,6 +234,36 @@ export function deepVariableReplacer(
     return newNode;
   }
   return node;
+}
+
+export function hasTemplateVariables(node: unknown): boolean {
+  if (typeof node === "string") {
+    if (!node.includes("{{")) {
+      return false;
+    }
+
+    return TEMPLATE_VARIABLE_PATTERN.test(node);
+  }
+
+  if (Array.isArray(node)) {
+    for (const value of node) {
+      if (hasTemplateVariables(value)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  if (node && typeof node === "object") {
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      if (hasTemplateVariables(value)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 export function buildStreamingContentPaths(defaultPath: string): string[] {

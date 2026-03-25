@@ -4,6 +4,7 @@ import {
   deepVariableReplacer,
   extractVariables,
   getByPath,
+  hasTemplateVariables,
   getStreamingContent,
 } from "./common.function";
 import { Message, TYPE_PROVIDER } from "@/types";
@@ -311,10 +312,19 @@ export async function* fetchAIResponse(params: {
       SYSTEM_PROMPT: enhancedSystemPrompt || "",
     };
 
-    bodyObj = deepVariableReplacer(bodyObj, allVariables);
-    let url = deepVariableReplacer(curlJson.url || "", allVariables);
+    if (hasTemplateVariables(bodyObj)) {
+      bodyObj = deepVariableReplacer(bodyObj, allVariables);
+    }
 
-    const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
+    const rawUrl = curlJson.url || "";
+    const url = hasTemplateVariables(rawUrl)
+      ? deepVariableReplacer(rawUrl, allVariables)
+      : rawUrl;
+
+    const rawHeaders = curlJson.header || {};
+    const headers = hasTemplateVariables(rawHeaders)
+      ? deepVariableReplacer(rawHeaders, allVariables)
+      : rawHeaders;
     headers["Content-Type"] = "application/json";
 
     if (provider?.streaming) {
