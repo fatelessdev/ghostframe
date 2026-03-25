@@ -162,10 +162,13 @@ export const closeRealtimeHandle = (
   }
 
   handle.ready = false;
-  handle.queue = [];
-  handle.queueHead = 0;
   if (!preserveReconnect) {
+    handle.queue = [];
+    handle.queueHead = 0;
+    handle.droppedQueueChunks = 0;
     handle.shouldReconnect = false;
+  } else {
+    compactRealtimeQueue(handle);
   }
   handle.reconnecting = false;
   handle.connectAttempts = 0;
@@ -175,7 +178,6 @@ export const closeRealtimeHandle = (
   handle.lastSentAtMs = 0;
   handle.uncommittedAudioMs = 0;
   handle.connectionId = null;
-  handle.droppedQueueChunks = 0;
 
   if (handle.connection) {
     options.onClosing?.(
