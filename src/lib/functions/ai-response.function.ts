@@ -1,4 +1,5 @@
 import {
+  buildStreamingContentPaths,
   buildDynamicMessages,
   deepVariableReplacer,
   extractVariables,
@@ -250,6 +251,8 @@ export async function* fetchAIResponse(params: {
       }`);
     }
 
+    const responseContentPath = provider.responseContentPath || "";
+
     if (!provider?.streaming) {
       let json;
       try {
@@ -259,8 +262,7 @@ export async function* fetchAIResponse(params: {
           parseError instanceof Error ? parseError.message : "Unknown error"
         }`);
       }
-      const content =
-        getByPath(json, provider?.responseContentPath || "") || "";
+      const content = getByPath(json, responseContentPath) || "";
       yield content;
       return;
     }
@@ -272,6 +274,7 @@ export async function* fetchAIResponse(params: {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    const streamingContentPaths = buildStreamingContentPaths(responseContentPath);
 
     while (true) {
       if (signal?.aborted) {
@@ -313,7 +316,8 @@ export async function* fetchAIResponse(params: {
             const parsed = JSON.parse(trimmed);
             const delta = getStreamingContent(
               parsed,
-              provider?.responseContentPath || ""
+              responseContentPath,
+              streamingContentPaths
             );
             if (delta) {
               yield delta;

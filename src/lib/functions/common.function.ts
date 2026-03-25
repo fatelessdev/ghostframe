@@ -193,6 +193,27 @@ export function deepVariableReplacer(
   return node;
 }
 
+export function buildStreamingContentPaths(defaultPath: string): string[] {
+  const possiblePaths: string[] = [];
+
+  const pushPath = (path: string) => {
+    if (!path || possiblePaths.includes(path)) {
+      return;
+    }
+
+    possiblePaths.push(path);
+  };
+
+  pushPath(defaultPath.replace(".message.", ".delta."));
+  pushPath("choices[0].delta.content");
+  pushPath("candidates[0].content.parts[0].text");
+  pushPath("delta.text");
+  pushPath("text");
+  pushPath(defaultPath);
+
+  return possiblePaths;
+}
+
 /**
  * Extracts content from a streaming API response chunk by trying a series of common JSON paths.
  * This makes the system more resilient to variations in streaming formats.
@@ -202,21 +223,10 @@ export function deepVariableReplacer(
  */
 export function getStreamingContent(
   chunk: any,
-  defaultPath: string
+  defaultPath: string,
+  precomputedPaths?: readonly string[]
 ): string | null {
-  // A set of possible paths to check for streaming content.
-  // Using a Set automatically handles duplicates.
-  const possiblePaths = new Set([
-    // 1. First, try a common modification for OpenAI-like providers.
-    defaultPath.replace(".message.", ".delta."),
-    // 2. Then, add other common patterns.
-    "choices[0].delta.content", // OpenAI, Groq, Mistral, Perplexity
-    "candidates[0].content.parts[0].text", // Gemini
-    "delta.text", // Claude
-    "text", // Cohere
-    // 3. Finally, use the original path as a fallback (for Gemini and others).
-    defaultPath,
-  ]);
+  const possiblePaths = precomputedPaths ?? buildStreamingContentPaths(defaultPath);
 
   for (const path of possiblePaths) {
     // Skip empty or null paths
