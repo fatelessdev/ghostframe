@@ -1,6 +1,22 @@
 import { Message } from "@/types";
 
 const pathSegmentsCache = new Map<string, string[]>();
+const jsonStringifyCache = new WeakMap<object, string>();
+
+function fastStringify(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  const cached = jsonStringifyCache.get(value as object);
+  if (cached) {
+    return cached;
+  }
+
+  const serialized = JSON.stringify(value);
+  jsonStringifyCache.set(value as object, serialized);
+  return serialized;
+}
 
 function getPathSegments(path: string): string[] {
   const cached = pathSegmentsCache.get(path);
@@ -92,6 +108,10 @@ export function processUserMessageTemplate(
   userMessage: string,
   imagesBase64: string[] = []
 ): any {
+  if (!fastStringify(template).includes("{{IMAGE}}")) {
+    return deepVariableReplacer(template, { TEXT: userMessage });
+  }
+
   const escapeForJson = (value: string) =>
     JSON.stringify(value ?? "").slice(1, -1);
 
@@ -103,9 +123,9 @@ export function processUserMessageTemplate(
 
   const imageReplacer = (node: any): any => {
     if (Array.isArray(node)) {
-      const imageTemplateIndex = node.findIndex((item) =>
-        JSON.stringify(item).includes("{{IMAGE}}")
-      );
+      const imageTemplateIndex = node.findIndex((item) => {
+        return fastStringify(item).includes("{{IMAGE}}");
+      });
 
       if (imageTemplateIndex > -1) {
         const imageTemplate = node[imageTemplateIndex];
@@ -155,9 +175,9 @@ export function buildDynamicMessages(
   userMessage: string,
   imagesBase64: string[] = []
 ): any[] {
-  const userMessageTemplateIndex = messagesTemplate.findIndex((m) =>
-    JSON.stringify(m).includes("{{TEXT}}")
-  );
+  const userMessageTemplateIndex = messagesTemplate.findIndex((m) => {
+    return fastStringify(m).includes("{{TEXT}}");
+  });
 
   if (userMessageTemplateIndex === -1) {
     return [...history, { role: "user", content: userMessage }]; // Fallback
