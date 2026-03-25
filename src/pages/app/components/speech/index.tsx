@@ -113,7 +113,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
       return <LoaderIcon className="animate-spin" />;
     }
     if (capturing) {
-      return <AudioLinesIcon className="text-emerald-500 animate-pulse" />;
+      return <AudioLinesIcon className="text-emerald-500" />;
     }
     return <HeadphonesIcon />;
   };
@@ -180,7 +180,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                 ) : (
                   <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                     <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-500/10 px-2 py-0.5 text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                       Dual STT Live
                     </span>
                     <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">

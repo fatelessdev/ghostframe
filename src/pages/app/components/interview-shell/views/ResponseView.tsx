@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { useOverlayScroll } from "../OverlayPanel";
 
-const RESPONSE_SCROLL_STEP = 120; // Smaller step for smoother feel
+const RESPONSE_SCROLL_STEP = 120;
 
 interface ResponseViewProps {
   children: ReactNode;
@@ -10,8 +10,9 @@ interface ResponseViewProps {
 
 export const ResponseView = ({ children }: ResponseViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const { setScrollRef } = useOverlayScroll();
-  const lastScrollTimeRef = useRef<number>(0);
+  const { setScrollRef, scrollState } = useOverlayScroll();
+  const canScrollUpRef = useRef(false);
+  const canScrollDownRef = useRef(false);
   const {
     registerResponseScrollUpCallback,
     registerResponseScrollDownCallback,
@@ -25,29 +26,36 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
     return () => setScrollRef(null);
   }, [setScrollRef]);
 
+  useEffect(() => {
+    canScrollUpRef.current = scrollState.canScrollUp;
+    canScrollDownRef.current = scrollState.canScrollDown;
+  }, [scrollState.canScrollDown, scrollState.canScrollUp]);
+
   const scrollResponse = useCallback((delta: number) => {
     const viewport = viewportRef.current;
     if (!viewport) {
       return;
     }
 
-    // Use instant scroll for repeated calls (smoother when holding key)
-    const now = Date.now();
-    const timeSinceLastScroll = now - lastScrollTimeRef.current;
-    const behavior = timeSinceLastScroll < 200 ? "instant" : "smooth";
-    lastScrollTimeRef.current = now;
-
     viewport.scrollBy({
       top: delta,
-      behavior: behavior as ScrollBehavior,
+      behavior: "auto",
     });
   }, []);
 
   const handleScrollResponseUp = useCallback(() => {
+    if (!canScrollUpRef.current) {
+      return;
+    }
+
     scrollResponse(-RESPONSE_SCROLL_STEP);
   }, [scrollResponse]);
 
   const handleScrollResponseDown = useCallback(() => {
+    if (!canScrollDownRef.current) {
+      return;
+    }
+
     scrollResponse(RESPONSE_SCROLL_STEP);
   }, [scrollResponse]);
 
@@ -75,7 +83,6 @@ export const ResponseView = ({ children }: ResponseViewProps) => {
         font-abel flex-1 min-h-0 overflow-auto 
         px-4 py-3 pb-14
         scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent 
-        scroll-smooth
         animate-in fade-in-0 duration-200
       "
       role="region"

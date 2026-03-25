@@ -92,7 +92,7 @@ export const ResultsSection = ({
               <div
                 key={segment.id}
                 className={cn(
-                  "max-w-[92%] rounded-xl px-3 py-2 text-xs border border-dashed animate-pulse",
+                  "max-w-[92%] rounded-xl px-3 py-2 text-xs border border-dashed",
                   isUser
                     ? "ml-auto transcript-bubble-user"
                     : "mr-auto transcript-bubble-interviewer"
@@ -142,7 +142,7 @@ export const ResultsSection = ({
             >
               <Markdown>{lastAIResponse}</Markdown>
               {isAIProcessing ? (
-                <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-1 align-middle" />
+                <span className="inline-block w-2 h-4 bg-primary/70 ml-1 align-middle" />
               ) : null}
             </div>
           )}

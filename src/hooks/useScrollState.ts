@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, RefObject } from "react";
+import { useState, useCallback, useEffect, useRef, RefObject } from "react";
 
 export interface ScrollState {
   canScrollUp: boolean;
@@ -15,6 +15,7 @@ const SCROLL_THRESHOLD = 2; // pixels tolerance for edge detection
 export const useScrollState = (
   ref: RefObject<HTMLElement | null>
 ): ScrollState => {
+  const frameRef = useRef<number | null>(null);
   const [state, setState] = useState<ScrollState>({
     canScrollUp: false,
     canScrollDown: false,
@@ -36,7 +37,7 @@ export const useScrollState = (
     const isAtTop = scrollTop <= SCROLL_THRESHOLD;
     const isAtBottom = scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD;
 
-    setState({
+    const nextState: ScrollState = {
       canScrollUp: hasOverflow && !isAtTop,
       canScrollDown: hasOverflow && !isAtBottom,
       hasOverflow,
@@ -44,6 +45,22 @@ export const useScrollState = (
       isAtBottom,
       scrollHeight,
       clientHeight,
+    };
+
+    setState((previous) => {
+      if (
+        previous.canScrollUp === nextState.canScrollUp &&
+        previous.canScrollDown === nextState.canScrollDown &&
+        previous.hasOverflow === nextState.hasOverflow &&
+        previous.isAtTop === nextState.isAtTop &&
+        previous.isAtBottom === nextState.isAtBottom &&
+        previous.scrollHeight === nextState.scrollHeight &&
+        previous.clientHeight === nextState.clientHeight
+      ) {
+        return previous;
+      }
+
+      return nextState;
     });
   }, [ref]);
 
@@ -53,22 +70,28 @@ export const useScrollState = (
       return;
     }
 
-    // Initial state
-    updateScrollState();
+    const scheduleUpdate = () => {
+      if (frameRef.current !== null) {
+        return;
+      }
 
-    // Listen for scroll events
-    element.addEventListener("scroll", updateScrollState, { passive: true });
+      frameRef.current = window.requestAnimationFrame(() => {
+        frameRef.current = null;
+        updateScrollState();
+      });
+    };
 
-    // Listen for content size changes
+    scheduleUpdate();
+
+    element.addEventListener("scroll", scheduleUpdate, { passive: true });
+
     const resizeObserver = new ResizeObserver(() => {
-      updateScrollState();
+      scheduleUpdate();
     });
     resizeObserver.observe(element);
 
-    // Also observe children for content changes
     const mutationObserver = new MutationObserver(() => {
-      // Delay slightly to allow DOM to settle
-      requestAnimationFrame(updateScrollState);
+      scheduleUpdate();
     });
     mutationObserver.observe(element, {
       childList: true,
@@ -77,9 +100,13 @@ export const useScrollState = (
     });
 
     return () => {
-      element.removeEventListener("scroll", updateScrollState);
+      element.removeEventListener("scroll", scheduleUpdate);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
     };
   }, [ref, updateScrollState]);
 

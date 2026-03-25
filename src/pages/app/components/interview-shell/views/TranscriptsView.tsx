@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { cn } from "@/lib/utils";
 import { TranscriptSegment } from "@/types";
@@ -8,12 +8,15 @@ interface TranscriptsViewProps {
   transcriptSegments: TranscriptSegment[];
 }
 
-const TRANSCRIPT_SCROLL_STEP = 120; // Smaller step for smoother feel
+const TRANSCRIPT_SCROLL_STEP = 120;
+const STICKY_BOTTOM_THRESHOLD = 48;
 
 export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const { setScrollRef } = useOverlayScroll();
-  const lastScrollTimeRef = useRef<number>(0);
+  const { setScrollRef, scrollState } = useOverlayScroll();
+  const shouldAutoStickRef = useRef(true);
+  const canScrollUpRef = useRef(false);
+  const canScrollDownRef = useRef(false);
   const {
     registerResponseScrollUpCallback,
     registerResponseScrollDownCallback,
@@ -21,9 +24,7 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
     unregisterResponseScrollDownCallback,
   } = useGlobalShortcuts();
 
-  const orderedSegments = useMemo(() => {
-    return transcriptSegments.slice().sort((a, b) => a.timestamp - b.timestamp);
-  }, [transcriptSegments]);
+  const orderedSegments = transcriptSegments;
 
   // Register viewport ref with parent for scroll state tracking
   useEffect(() => {
@@ -37,9 +38,34 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       return;
     }
 
+    const syncAutoStick = () => {
+      const distanceToBottom =
+        viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+      shouldAutoStickRef.current = distanceToBottom <= STICKY_BOTTOM_THRESHOLD;
+    };
+
+    syncAutoStick();
+    viewport.addEventListener("scroll", syncAutoStick, { passive: true });
+
+    return () => {
+      viewport.removeEventListener("scroll", syncAutoStick);
+    };
+  }, []);
+
+  useEffect(() => {
+    canScrollUpRef.current = scrollState.canScrollUp;
+    canScrollDownRef.current = scrollState.canScrollDown;
+  }, [scrollState.canScrollDown, scrollState.canScrollUp]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || !shouldAutoStickRef.current) {
+      return;
+    }
+
     viewport.scrollTo({
       top: viewport.scrollHeight,
-      behavior: "smooth",
+      behavior: "auto",
     });
   }, [orderedSegments.length]);
 
@@ -49,24 +75,26 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       return;
     }
 
-    // Use instant scroll for repeated calls (smoother when holding key)
-    const now = Date.now();
-    const timeSinceLastScroll = now - lastScrollTimeRef.current;
-    const behavior = timeSinceLastScroll < 200 ? "instant" : "smooth";
-    lastScrollTimeRef.current = now;
-
     viewport.scrollBy({
       top: delta,
-      behavior: behavior as ScrollBehavior,
+      behavior: "auto",
     });
   }, []);
 
   useEffect(() => {
     const handleScrollUp = () => {
+      if (!canScrollUpRef.current) {
+        return;
+      }
+
       scrollTranscript(-TRANSCRIPT_SCROLL_STEP);
     };
 
     const handleScrollDown = () => {
+      if (!canScrollDownRef.current) {
+        return;
+      }
+
       scrollTranscript(TRANSCRIPT_SCROLL_STEP);
     };
 
@@ -92,7 +120,6 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
         font-abel flex-1 min-h-0 overflow-auto 
         px-4 py-3 pb-14
         scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent 
-        scroll-smooth
         animate-in fade-in-0 duration-200
       "
       role="log"
@@ -106,20 +133,18 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
             Transcript will appear here once interview capture starts.
           </div>
         ) : (
-          orderedSegments.map((segment, index) => {
+          orderedSegments.map((segment) => {
             const isUser = segment.source === "user";
 
             return (
               <div
                 key={segment.id}
                 className={cn(
-                  "max-w-[85%] rounded-2xl px-3.5 py-2 text-[12px] border transition-all duration-300 ease-out",
-                  "animate-in fade-in-0 slide-in-from-bottom-2",
+                  "max-w-[85%] rounded-2xl px-3.5 py-2 text-[12px] border",
                   isUser
                     ? "ml-auto transcript-bubble-user"
                     : "mr-auto transcript-bubble-interviewer"
                 )}
-                style={{ animationDelay: `${Math.min(index * 30, 150)}ms` }}
               >
                 {/* Header with source indicator and timestamp */}
                 <div
@@ -130,9 +155,9 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                 >
                   <span
                     className={cn(
-                      "inline-flex h-1.5 w-1.5 rounded-full transition-colors duration-200",
+                      "inline-flex h-1.5 w-1.5 rounded-full",
                       isUser ? "bg-blue-400/60" : "bg-slate-400/50",
-                      segment.isLive && "animate-pulse"
+                      segment.isLive && "opacity-80"
                     )}
                     aria-hidden="true"
                   />
