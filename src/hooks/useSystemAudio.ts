@@ -90,6 +90,8 @@ const SYSTEM_AUDIO_START_RETRY_LIMIT = 3;
 const SYSTEM_AUDIO_START_RETRY_DELAY_MS = 350;
 const SYSTEM_AUDIO_CAPTURE_STATUS_TIMEOUT_MS = 2500;
 const SYSTEM_AUDIO_CAPTURE_STATUS_POLL_MS = 125;
+const REALTIME_ERROR_THROTTLE_MS = 900;
+const REALTIME_DROP_WARNING_COOLDOWN_MS = 2000;
 
 const initialConversation = (): ChatConversation => ({
   id: generateConversationId("sysaudio"),
@@ -152,13 +154,21 @@ export function useSystemAudio() {
   const stopCaptureInFlightRef = useRef(false);
   const lastSystemAudioToggleAtRef = useRef(0);
   const realtimeConnectionSeqRef = useRef(0);
+  const lastRealtimeErrorAtRef = useRef<number>(0);
+  const lastDroppedQueueWarningAtRef = useRef<Partial<Record<TranscriptSource, number>>>(
+    {}
+  );
   const answerTriggerInFlightRef = useRef(false);
   const segmentsRef = useRef<TranscriptSegment[]>([]);
+  const transcriptFlushFrameRef = useRef<number | null>(null);
   const latestPartialInterviewerRef = useRef<string>("");
   const latestPartialUserRef = useRef<string>("");
   const pendingCommitEchoRef = useRef<
     Partial<Record<TranscriptSource, PendingCommitEcho>>
   >({});
+  const aiResponseFlushFrameRef = useRef<number | null>(null);
+  const aiResponseBufferRef = useRef("");
+  const pipelineBusyRef = useRef(false);
 
   const cachedScreenshotRef = useRef<string | null>(null);
   const periodicScreenshotIntervalRef = useRef<number | null>(null);
@@ -179,9 +189,7 @@ export function useSystemAudio() {
   const micFrameBufferRef = useRef<Float32Array>(new Float32Array(0));
   const userSpeechLikelyRef = useRef(false);
 
-  const liveTranscript = useMemo(() => {
-    return segments.slice().sort((a, b) => a.timestamp - b.timestamp);
-  }, [segments]);
+  const liveTranscript = segments;
 
   const lastCommittedPrompt = useMemo(() => {
     return mergeTranscriptForPrompt(segments);
@@ -283,8 +291,20 @@ export function useSystemAudio() {
   const applySegmentUpdate = useCallback(
     (updater: (current: TranscriptSegment[]) => TranscriptSegment[]) => {
       const next = updater(segmentsRef.current);
+
+      if (next === segmentsRef.current) {
+        return next;
+      }
+
       segmentsRef.current = next;
-      setSegments(next);
+
+      if (transcriptFlushFrameRef.current === null) {
+        transcriptFlushFrameRef.current = window.requestAnimationFrame(() => {
+          transcriptFlushFrameRef.current = null;
+          setSegments(segmentsRef.current);
+        });
+      }
+
       return next;
     },
     []
@@ -363,7 +383,28 @@ export function useSystemAudio() {
 
   const pushRealtimeChunk = useCallback(
     (handle: RealtimeHandle, chunk: { sample_rate: number; audio_base64: string }) => {
+      const droppedBefore = handle.droppedQueueChunks;
       sendRealtimeChunkInternal(handle, chunk, REALTIME_QUEUE_LIMIT);
+
+      if (handle.droppedQueueChunks <= droppedBefore) {
+        return;
+      }
+
+      const now = Date.now();
+      const source = handle.label;
+      const lastWarningAt = lastDroppedQueueWarningAtRef.current[source] || 0;
+      if (now - lastWarningAt < REALTIME_DROP_WARNING_COOLDOWN_MS) {
+        return;
+      }
+
+      lastDroppedQueueWarningAtRef.current[source] = now;
+      const droppedCount = handle.droppedQueueChunks;
+      console.warn(
+        `[SystemAudio][${source}] dropped ${droppedCount} realtime queued chunk${droppedCount === 1 ? "" : "s"}.`
+      );
+      setError(
+        `Realtime ${source} stream is overloaded. Some audio chunks were dropped.`
+      );
     },
     []
   );
@@ -391,7 +432,11 @@ export function useSystemAudio() {
     }
 
     periodicScreenshotIntervalRef.current = window.setInterval(async () => {
-      if (!captureRef.current || periodicScreenshotInFlightRef.current) {
+      if (
+        !captureRef.current ||
+        periodicScreenshotInFlightRef.current ||
+        pipelineBusyRef.current
+      ) {
         return;
       }
 
@@ -526,12 +571,24 @@ export function useSystemAudio() {
         return false;
       }
 
+      const fullPrompt = userMessage.trim();
+      if (!fullPrompt) {
+        return false;
+      }
+
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
 
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      pipelineBusyRef.current = true;
+
+      if (aiResponseFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(aiResponseFlushFrameRef.current);
+        aiResponseFlushFrameRef.current = null;
+      }
+      aiResponseBufferRef.current = "";
 
       setIsAIProcessing(true);
       setIsProcessing(false);
@@ -540,12 +597,6 @@ export function useSystemAudio() {
 
       const timestamp = Date.now();
       const previousMessages = getPreviousMessages();
-      const fullPrompt = userMessage.trim();
-
-      if (!fullPrompt) {
-        setIsAIProcessing(false);
-        return false;
-      }
 
       const userChatMessage: ChatMessage = {
         id: generateMessageId("user", timestamp),
@@ -578,7 +629,31 @@ export function useSystemAudio() {
           signal: controller.signal,
         })) {
           fullResponse += chunk;
-          setLastAIResponse((previous) => previous + chunk);
+
+          aiResponseBufferRef.current += chunk;
+          if (aiResponseFlushFrameRef.current === null) {
+            aiResponseFlushFrameRef.current = window.requestAnimationFrame(() => {
+              aiResponseFlushFrameRef.current = null;
+              const buffered = aiResponseBufferRef.current;
+              if (!buffered) {
+                return;
+              }
+
+              aiResponseBufferRef.current = "";
+              setLastAIResponse((previous) => previous + buffered);
+            });
+          }
+        }
+
+        if (aiResponseFlushFrameRef.current !== null) {
+          window.cancelAnimationFrame(aiResponseFlushFrameRef.current);
+          aiResponseFlushFrameRef.current = null;
+        }
+
+        const buffered = aiResponseBufferRef.current;
+        if (buffered) {
+          aiResponseBufferRef.current = "";
+          setLastAIResponse((previous) => previous + buffered);
         }
 
         if (fullResponse.trim()) {
@@ -611,6 +686,7 @@ export function useSystemAudio() {
         return false;
       } finally {
         setIsAIProcessing(false);
+        pipelineBusyRef.current = false;
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
@@ -728,6 +804,15 @@ export function useSystemAudio() {
         getNextConnectionId: () => ++realtimeConnectionSeqRef.current,
         closeRealtime: closeRealtimeConnection,
         onReady: () => {
+          if (handle.droppedQueueChunks > 0) {
+            const droppedCount = handle.droppedQueueChunks;
+            console.warn(
+              `[SystemAudio][${source}] reconnect flushing queue after ${droppedCount} dropped chunk${droppedCount === 1 ? "" : "s"}.`
+            );
+          }
+
+          handle.droppedQueueChunks = 0;
+
           setError("");
         },
         onPartialTranscript: (rawText) => {
@@ -786,6 +871,13 @@ export function useSystemAudio() {
           if (event) {
             console.error(`ElevenLabs ${source} realtime error:`, event);
           }
+
+          const now = Date.now();
+          if (now - lastRealtimeErrorAtRef.current < REALTIME_ERROR_THROTTLE_MS) {
+            return;
+          }
+
+          lastRealtimeErrorAtRef.current = now;
           setError(message || "Realtime transcription failed.");
         },
         onInfo: (message) => {
@@ -873,9 +965,13 @@ export function useSystemAudio() {
       await startMicCapture();
 
       startPhase = "connect_interviewer_realtime";
-      await connectRealtime(interviewerRealtimeRef.current, "interviewer", sampleRate, signal);
-      startPhase = "connect_user_realtime";
-      await connectRealtime(userRealtimeRef.current, "user", MIC_SAMPLE_RATE, signal);
+      await Promise.all([
+        connectRealtime(interviewerRealtimeRef.current, "interviewer", sampleRate, signal),
+        (async () => {
+          startPhase = "connect_user_realtime";
+          await connectRealtime(userRealtimeRef.current, "user", MIC_SAMPLE_RATE, signal);
+        })(),
+      ]);
       schedulePeriodicScreenshotCapture();
 
       startPhase = "restart_system_audio_capture";
@@ -1168,6 +1264,14 @@ export function useSystemAudio() {
       }
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (transcriptFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(transcriptFlushFrameRef.current);
+        transcriptFlushFrameRef.current = null;
+      }
+      if (aiResponseFlushFrameRef.current !== null) {
+        window.cancelAnimationFrame(aiResponseFlushFrameRef.current);
+        aiResponseFlushFrameRef.current = null;
       }
       void tauriCommands.stopSystemAudioCapture().catch(() => {
         // no-op

@@ -40,6 +40,14 @@ function getCachedExtractedVariables(curl: string) {
   return extracted;
 }
 
+function cloneCurlPayload<T>(value: T): T {
+  if (typeof structuredClone === "function") {
+    return structuredClone(value);
+  }
+
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
 function resolveAIProviderVariables(
   variables: Record<string, string>,
   aiMode: "D" | "P"
@@ -166,9 +174,7 @@ export async function* fetchAIResponse(params: {
       );
     }
 
-    let bodyObj: any = curlJson.data
-      ? JSON.parse(JSON.stringify(curlJson.data))
-      : {};
+    let bodyObj: any = curlJson.data ? cloneCurlPayload(curlJson.data) : {};
     const messagesKey = Object.keys(bodyObj).find((key) =>
       ["messages", "contents", "conversation", "history"].includes(key)
     );
@@ -229,10 +235,9 @@ export async function* fetchAIResponse(params: {
       ) {
         return;
       }
-      yield `Network error during API request: ${
+      throw new Error(`Network error during API request: ${
         fetchError instanceof Error ? fetchError.message : "Unknown error"
-      }`;
-      return;
+      }`);
     }
 
     if (!response.ok) {
@@ -240,10 +245,9 @@ export async function* fetchAIResponse(params: {
       try {
         errorText = await response.text();
       } catch {}
-      yield `API request failed: ${response.status} ${response.statusText}${
+      throw new Error(`API request failed: ${response.status} ${response.statusText}${
         errorText ? ` - ${errorText}` : ""
-      }`;
-      return;
+      }`);
     }
 
     if (!provider?.streaming) {
@@ -251,10 +255,9 @@ export async function* fetchAIResponse(params: {
       try {
         json = await response.json();
       } catch (parseError) {
-        yield `Failed to parse non-streaming response: ${
+        throw new Error(`Failed to parse non-streaming response: ${
           parseError instanceof Error ? parseError.message : "Unknown error"
-        }`;
-        return;
+        }`);
       }
       const content =
         getByPath(json, provider?.responseContentPath || "") || "";
@@ -263,8 +266,7 @@ export async function* fetchAIResponse(params: {
     }
 
     if (!response.body) {
-      yield "Streaming not supported or response body missing";
-      return;
+      throw new Error("Streaming not supported or response body missing");
     }
 
     const reader = response.body.getReader();
@@ -287,10 +289,9 @@ export async function* fetchAIResponse(params: {
         ) {
           return;
         }
-        yield `Error reading stream: ${
+        throw new Error(`Error reading stream: ${
           readError instanceof Error ? readError.message : "Unknown error"
-        }`;
-        return;
+        }`);
       }
       const { done, value } = readResult;
       if (done) break;

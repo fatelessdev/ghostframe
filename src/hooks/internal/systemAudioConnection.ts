@@ -65,6 +65,91 @@ const delay = async (ms: number): Promise<void> => {
   await new Promise((resolve) => window.setTimeout(resolve, ms));
 };
 
+const tokenCache = new Map<string, { token: string; cachedAt: number }>();
+const tokenRequestCache = new Map<string, Promise<string>>();
+const TOKEN_CACHE_TTL_MS = 50_000;
+const silencePcm16Cache = new Map<string, string>();
+
+const buildTokenCacheKey = (
+  apiKey: string,
+  model: string,
+  tokenBaseUrl: string
+): string => {
+  return `${apiKey}::${model}::${tokenBaseUrl}`;
+};
+
+const getRealtimeToken = async (
+  apiKey: string,
+  model: string,
+  tokenBaseUrl: string
+): Promise<string> => {
+  const tokenCacheKey = buildTokenCacheKey(apiKey, model, tokenBaseUrl);
+  const cachedToken = tokenCache.get(tokenCacheKey);
+  const now = Date.now();
+  const tokenIsFresh =
+    !!cachedToken && now - cachedToken.cachedAt < TOKEN_CACHE_TTL_MS;
+
+  if (tokenIsFresh) {
+    return cachedToken.token;
+  }
+
+  const inFlightRequest = tokenRequestCache.get(tokenCacheKey);
+  if (inFlightRequest) {
+    return inFlightRequest;
+  }
+
+  let requestPromise: Promise<string>;
+  requestPromise = fetchElevenLabsRealtimeToken(apiKey, {
+    model,
+    tokenBaseUrl,
+  })
+    .then((token) => {
+      tokenCache.set(tokenCacheKey, {
+        token,
+        cachedAt: Date.now(),
+      });
+      return token;
+    })
+    .finally(() => {
+      if (tokenRequestCache.get(tokenCacheKey) === requestPromise) {
+        tokenRequestCache.delete(tokenCacheKey);
+      }
+    });
+
+  tokenRequestCache.set(tokenCacheKey, requestPromise);
+  return requestPromise;
+};
+
+const getRetryDelayMs = (baseDelayMs: number, attempt: number): number => {
+  const normalizedBaseDelay = Math.max(100, Math.round(baseDelayMs));
+  const normalizedAttempt = Math.max(1, Math.round(attempt));
+  const step = Math.min(normalizedAttempt, 4);
+  const exponentialDelay = normalizedBaseDelay * step;
+  const jitterAmplitude = Math.round(exponentialDelay * 0.35);
+  const jitter = Math.round((Math.random() * 2 - 1) * jitterAmplitude);
+  return Math.max(120, exponentialDelay + jitter);
+};
+
+const getSilencePcm16Base64 = (sampleRate: number, silenceMs: number): string => {
+  const normalizedSampleRate = Math.max(1, Math.round(sampleRate));
+  const normalizedSilenceMs = Math.max(1, Math.round(silenceMs));
+  const cacheKey = `${normalizedSampleRate}:${normalizedSilenceMs}`;
+  const cached = silencePcm16Cache.get(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  const sampleCount = Math.max(
+    1,
+    Math.round((normalizedSampleRate * normalizedSilenceMs) / 1000)
+  );
+  const silence = new Float32Array(sampleCount);
+  const encoded = float32ToPcm16Base64(silence);
+  silencePcm16Cache.set(cacheKey, encoded);
+  return encoded;
+};
+
 export const connectSystemAudioRealtime = async (
   options: ConnectSystemAudioRealtimeOptions
 ): Promise<void> => {
@@ -133,10 +218,11 @@ export const connectSystemAudioRealtime = async (
       const connectionId = getNextConnectionId();
 
       try {
-        const token = await fetchElevenLabsRealtimeToken(realtimeConfig.apiKey, {
-          model: realtimeConfig.model,
-          tokenBaseUrl: activeTokenBaseUrl,
-        });
+        const token = await getRealtimeToken(
+          realtimeConfig.apiKey,
+          realtimeConfig.model,
+          activeTokenBaseUrl
+        );
 
         if (signal.aborted) {
           throw new Error("Realtime connection cancelled");
@@ -241,8 +327,12 @@ export const connectSystemAudioRealtime = async (
               128,
               Math.round(sampleRate * (bootstrapSilenceMs / 1000))
             );
-            const bootstrapSilence = new Float32Array(bootstrapSilenceSamples);
-            const bootstrapAudio = float32ToPcm16Base64(bootstrapSilence);
+            const bootstrapSilenceDurationMs =
+              (bootstrapSilenceSamples / sampleRate) * 1000;
+            const bootstrapAudio = getSilencePcm16Base64(
+              sampleRate,
+              bootstrapSilenceDurationMs
+            );
             connection.send({
               audioBase64: bootstrapAudio,
               sampleRate,
@@ -270,8 +360,12 @@ export const connectSystemAudioRealtime = async (
                 256,
                 Math.round(handle.activeSampleRate * (keepAliveSilenceMs / 1000))
               );
-              const silence = new Float32Array(silenceSamples);
-              const keepAliveAudio = float32ToPcm16Base64(silence);
+              const keepAliveSilenceDurationMs =
+                (silenceSamples / handle.activeSampleRate) * 1000;
+              const keepAliveAudio = getSilencePcm16Base64(
+                handle.activeSampleRate,
+                keepAliveSilenceDurationMs
+              );
               handle.connection.send({
                 audioBase64: keepAliveAudio,
                 sampleRate: handle.activeSampleRate,
@@ -340,6 +434,7 @@ export const connectSystemAudioRealtime = async (
 
               if (shouldReconnect && !handle.reconnecting) {
                 handle.reconnecting = true;
+                const reconnectDelayMs = getRetryDelayMs(retryDelayMs, attempt);
                 handle.reconnectTimeoutId = window.setTimeout(() => {
                   handle.reconnectTimeoutId = null;
                   if (signal.aborted) {
@@ -353,7 +448,7 @@ export const connectSystemAudioRealtime = async (
                     .finally(() => {
                       handle.reconnecting = false;
                     });
-                }, retryDelayMs);
+                }, reconnectDelayMs);
               }
               return;
             }
@@ -388,7 +483,7 @@ export const connectSystemAudioRealtime = async (
         handle.ready = false;
 
         if (attempt < maxConnectAttempts) {
-          await delay(retryDelayMs);
+          await delay(getRetryDelayMs(retryDelayMs, attempt));
         }
       }
     }

@@ -19,6 +19,7 @@ export type RealtimeHandle = {
   lastSentAtMs: number;
   uncommittedAudioMs: number;
   queue: RealtimeAudioChunkEvent[];
+  droppedQueueChunks: number;
 };
 
 export const REALTIME_ERROR_EVENTS: ReadonlyArray<RealtimeEvents> = [
@@ -60,6 +61,7 @@ export const createRealtimeHandle = (label: TranscriptSource): RealtimeHandle =>
     lastSentAtMs: 0,
     uncommittedAudioMs: 0,
     queue: [],
+    droppedQueueChunks: 0,
   };
 };
 
@@ -95,6 +97,7 @@ export const sendRealtimeChunk = (
     handle.queue.push(chunk);
     if (handle.queue.length > queueLimit) {
       handle.queue.shift();
+      handle.droppedQueueChunks += 1;
     }
     return;
   }
@@ -140,6 +143,7 @@ export const closeRealtimeHandle = (
   handle.lastSentAtMs = 0;
   handle.uncommittedAudioMs = 0;
   handle.connectionId = null;
+  handle.droppedQueueChunks = 0;
 
   if (handle.connection) {
     options.onClosing?.(

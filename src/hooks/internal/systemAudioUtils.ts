@@ -67,11 +67,15 @@ export function float32ToPcm16Base64(frame: Float32Array): string {
   }
 
   const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 0x8000;
+  const chunks: string[] = [];
+
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    const chunk = bytes.subarray(offset, offset + chunkSize);
+    chunks.push(String.fromCharCode(...chunk));
   }
-  return btoa(binary);
+
+  return btoa(chunks.join(""));
 }
 
 function createSegment(
@@ -105,17 +109,20 @@ export function replaceLiveSegment(
     return segments;
   }
 
-  const next = [...segments];
-  const liveIndex = next.findIndex((item) => item.source === source && item.isLive);
-  if (liveIndex >= 0) {
-    next[liveIndex] = {
-      ...next[liveIndex],
-      text: normalizedText,
-      timestamp: Date.now(),
-    };
-  } else {
-    next.push(createSegment(source, normalizedText, true));
-  }
+  const withoutLive = segments.filter((item) => {
+    return !item.isLive || item.source !== source;
+  });
+
+  const existingLive = segments.find((item) => item.source === source && item.isLive);
+  const nextLive = existingLive
+    ? {
+        ...existingLive,
+        text: normalizedText,
+        timestamp: Date.now(),
+      }
+    : createSegment(source, normalizedText, true);
+
+  const next = [...withoutLive, nextLive];
 
   return trimSegments(next);
 }
@@ -127,16 +134,29 @@ export function commitSegment(
 ): TranscriptSegment[] {
   const normalizedText = normalizeTranscription(text).trim();
 
-  let next = segments.filter(
-    (item) => !(item.source === source && item.isLive)
-  );
+  let next = segments.filter((item) => {
+    return !item.isLive || item.source !== source;
+  });
 
   if (!normalizedText) {
     return trimSegments(next);
   }
 
+  for (let i = next.length - 1; i >= 0; i--) {
+    const segment = next[i];
+    if (segment.source !== source || segment.isLive) {
+      continue;
+    }
+
+    if (segment.text === normalizedText) {
+      return trimSegments(next);
+    }
+
+    break;
+  }
+
   const committed = createSegment(source, normalizedText, false);
-  next = [...next, committed].sort((a, b) => a.timestamp - b.timestamp);
+  next = [...next, committed];
   return trimSegments(next);
 }
 
@@ -178,7 +198,6 @@ export function mergeTranscriptForPrompt(
   return segments
     .filter((item) => !item.isLive)
     .filter((item) => (typeof cutoffAt === "number" ? item.timestamp <= cutoffAt : true))
-    .sort((a, b) => a.timestamp - b.timestamp)
     .map((item) => {
       const label = item.source === "interviewer" ? "Interviewer" : "User";
       return `${label}: "${item.text}"`;
