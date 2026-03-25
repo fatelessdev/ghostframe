@@ -96,6 +96,8 @@ const SYSTEM_AUDIO_CAPTURE_STATUS_POLL_MS = 125;
 const REALTIME_ERROR_THROTTLE_MS = 900;
 const REALTIME_DROP_WARNING_COOLDOWN_MS = 2000;
 const MAX_AI_RESPONSE_BUFFER_CHARS = 12_000;
+const MAX_HISTORY_MESSAGES = 24;
+const MAX_HISTORY_CHARS = 18_000;
 const LATENCY_SAMPLES_LIMIT = 30;
 
 const initialConversation = (): ChatConversation => ({
@@ -343,10 +345,28 @@ export function useSystemAudio() {
   }, [contextContent, systemPrompt, useSystemPrompt]);
 
   const getPreviousMessages = useCallback(() => {
-    return conversation.messages.map((msg) => ({
-      role: msg.role,
-      content: msg.content,
-    }));
+    const compactHistory: { role: ChatMessage["role"]; content: string }[] = [];
+    let usedChars = 0;
+
+    for (const message of conversation.messages.slice(0, MAX_HISTORY_MESSAGES)) {
+      const content = message.content.trim();
+      if (!content) {
+        continue;
+      }
+
+      const nextChars = usedChars + content.length;
+      if (compactHistory.length > 0 && nextChars > MAX_HISTORY_CHARS) {
+        break;
+      }
+
+      compactHistory.push({
+        role: message.role,
+        content,
+      });
+      usedChars = nextChars;
+    }
+
+    return compactHistory;
   }, [conversation.messages]);
 
   useEffect(() => {
