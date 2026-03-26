@@ -202,11 +202,30 @@ impl SpeakerStream {
 
             let mut audio_client = device.get_iaudioclient()?;
 
-            let device_format = audio_client.get_mixformat()?;
+            let mut device_format = audio_client.get_mixformat()?;
             let actual_rate = device_format.get_samplespersec();
+            let device_channels = device_format.get_nchannels();
 
-            let desired_format =
-                WaveFormat::new(32, 32, &SampleType::Float, actual_rate as usize, 1, None);
+            if device_channels > 1 {
+                let stereo_format =
+                    WaveFormat::new(32, 32, &SampleType::Float, actual_rate as usize, 2, None);
+                if matches!(
+                    audio_client.is_supported(&stereo_format, &wasapi::ShareMode::Shared),
+                    Ok(None)
+                ) {
+                    device_format = stereo_format;
+                }
+            }
+
+            let channels = device_format.get_nchannels().max(1) as usize;
+            let desired_format = WaveFormat::new(
+                32,
+                32,
+                &SampleType::Float,
+                actual_rate as usize,
+                channels,
+                None,
+            );
 
             let (_def_time, min_time) = audio_client.get_device_period()?;
 
@@ -222,11 +241,11 @@ impl SpeakerStream {
 
             audio_client.start_stream()?;
 
-            Ok((h_event, render_client, actual_rate))
+            Ok((h_event, render_client, actual_rate, channels))
         })();
 
         match init_result {
-            Ok((h_event, render_client, sample_rate)) => {
+            Ok((h_event, render_client, sample_rate, channel_count)) => {
                 let _ = init_tx.send(Ok(sample_rate));
 
                 loop {
@@ -264,13 +283,24 @@ impl SpeakerStream {
                         samples.push(sample);
                     }
 
-                    if !samples.is_empty() {
+                    let mono_samples = if channel_count <= 1 {
+                        samples
+                    } else {
+                        let mut downmixed = Vec::with_capacity(samples.len() / channel_count);
+                        for frame in samples.chunks_exact(channel_count) {
+                            let sum: f32 = frame.iter().copied().sum();
+                            downmixed.push(sum / channel_count as f32);
+                        }
+                        downmixed
+                    };
+
+                    if !mono_samples.is_empty() {
                         // Consistent buffer overflow handling
                         let dropped = {
                             let mut queue = sample_queue.lock().unwrap();
                             let max_buffer_size = 131072; // 128KB buffer (matching macOS)
 
-                            queue.extend(samples.iter());
+                            queue.extend(mono_samples.iter());
 
                             // If buffer exceeds maximum, drop oldest samples
                             let dropped_count = if queue.len() > max_buffer_size {

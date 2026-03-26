@@ -46,7 +46,7 @@ impl Default for VadConfig {
             silence_chunks: 24,     // ~0.55s of silence before stopping
             min_speech_chunks: 7,   // ~0.16s - captures short answers
             pre_speech_chunks: 8,   // ~0.18s - enough to catch word start
-            noise_gate_threshold: 0.003, // Stronger noise filtering
+            noise_gate_threshold: 0.0,
             max_recording_duration_secs: 180, // 3 minutes default
         }
     }
@@ -169,9 +169,6 @@ async fn run_vad_capture(
                 }
             }
 
-            // Apply noise gate BEFORE VAD (critical for accuracy)
-            let mono = apply_noise_gate(&mono, config.noise_gate_threshold);
-
             let (rms, peak) = calculate_audio_metrics(&mono);
             let is_speech = rms > config.sensitivity_rms || peak > config.peak_threshold;
 
@@ -223,24 +220,10 @@ async fn run_vad_capture(
 
                     // Check if silence duration exceeds threshold
                     if silence_chunks >= config.silence_chunks {
-                        let silence_duration_samples = silence_chunks * config.hop_size;
-                        let keep_silence_samples = (sr as usize) * 15 / 100; // 0.15s
-                        let trim_amount =
-                            silence_duration_samples.saturating_sub(keep_silence_samples);
-
-                        if trim_amount > 0 && realtime_chunk_buffer.len() >= trim_amount {
-                            realtime_chunk_buffer.truncate(realtime_chunk_buffer.len() - trim_amount);
-                        }
-
                         flush_realtime_audio_chunk(&app, sr, &mut realtime_chunk_buffer);
 
                         // Verify minimum speech duration
                         if speech_chunks >= config.min_speech_chunks && !speech_buffer.is_empty() {
-                            // Trim trailing silence (keep ~0.15s for natural ending)
-                            if speech_buffer.len() > trim_amount {
-                                speech_buffer.truncate(speech_buffer.len() - trim_amount);
-                            }
-
                             let _ = app.emit("speech-segment-ended", ());
 
                             // Emit complete speech segment
@@ -411,9 +394,7 @@ async fn run_continuous_capture(
     if !audio_buffer.is_empty() {
         // let duration = start_time.elapsed().as_secs_f32();
 
-        // Apply noise gate
-        let cleaned_audio = apply_noise_gate(&audio_buffer, config.noise_gate_threshold);
-        let cleaned_audio = normalize_audio_level(&cleaned_audio, 0.1);
+        let cleaned_audio = normalize_audio_level(&audio_buffer, 0.1);
 
         match samples_to_wav_b64(sr, &cleaned_audio) {
             Ok(b64) => {
@@ -430,23 +411,6 @@ async fn run_continuous_capture(
     }
 
     let _ = app.emit("continuous-recording-stopped", ());
-}
-
-// Apply noise gate
-fn apply_noise_gate(samples: &[f32], threshold: f32) -> Vec<f32> {
-    const KNEE_RATIO: f32 = 3.0; // Compression ratio for soft knee
-
-    samples
-        .iter()
-        .map(|&s| {
-            let abs = s.abs();
-            if abs < threshold {
-                s * (abs / threshold).powf(1.0 / KNEE_RATIO)
-            } else {
-                s
-            }
-        })
-        .collect()
 }
 
 // Calculate RMS and peak (optimized)
