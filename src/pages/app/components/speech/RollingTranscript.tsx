@@ -24,24 +24,9 @@ export const RollingTranscript = ({ transcriptSegments }: Props) => {
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
           Rolling transcript
         </span>
-        <div className="ml-auto hidden items-center gap-2 text-[9px] tracking-wide text-muted-foreground/70 sm:inline-flex">
-          <span className="inline-flex items-center gap-0.5">
-            <span className="text-foreground/35">•</span>
-            interim
-          </span>
-          <span className="inline-flex items-center gap-0.5">
-            <span className="text-amber-400/70">~</span>
-            pending
-          </span>
-          <span className="inline-flex items-center gap-0.5">
-            <span className="text-emerald-400/75">✓</span>
-            final
-          </span>
-        </div>
       </div>
       <div className="flex flex-wrap gap-x-2 gap-y-1 text-xs italic text-foreground/80 leading-relaxed">
         {recentSegments.map((segment, index) => {
-          const isUser = segment.source === "user";
           const stability = segment.stability || (segment.isLive ? "interim" : "final");
           const isInterim = stability === "interim";
           const isOptimistic = stability === "optimistic";
@@ -50,17 +35,11 @@ export const RollingTranscript = ({ transcriptSegments }: Props) => {
           return (
             <span key={segment.id} className="inline-flex items-center gap-1.5">
               <span
-                className={`inline-flex h-1.5 w-1.5 rounded-full ${
-                  isUser ? "bg-blue-400/80" : "bg-slate-400/80"
-                } ${isInterim ? "animate-pulse opacity-80" : ""}`}
-                aria-hidden="true"
-              />
-              <span
                 className={
                   isInterim
-                    ? "text-foreground/65 italic"
+                    ? "text-foreground/65 italic animate-pulse"
                     : isOptimistic
-                      ? "text-foreground/78"
+                      ? "text-foreground/78 animate-pulse"
                       : "text-foreground/90"
                 }
               >
@@ -71,8 +50,8 @@ export const RollingTranscript = ({ transcriptSegments }: Props) => {
                   isFinal
                     ? "text-emerald-400/70"
                     : isOptimistic
-                      ? "text-amber-400/65"
-                      : "text-foreground/35"
+                      ? "text-amber-400/65 animate-pulse"
+                      : "text-foreground/35 animate-pulse"
                 }
                 title={
                   isFinal

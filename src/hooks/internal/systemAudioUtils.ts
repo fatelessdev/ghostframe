@@ -273,6 +273,58 @@ export function replaceLatestPendingCommittedSegment(
   return null;
 }
 
+export function replaceLatestCommittedSegmentIfRecent(
+  segments: TranscriptSegment[],
+  source: TranscriptSource,
+  nextText: string,
+  maxAgeMs: number = 8000,
+  stability: TranscriptStability = "final"
+): TranscriptSegment[] | null {
+  const normalizedNext = normalizeTranscription(nextText).trim();
+  if (!normalizedNext) {
+    return null;
+  }
+
+  const now = Date.now();
+  const maxAge = Math.max(0, Math.round(maxAgeMs));
+  const next = [...segments];
+
+  for (let i = next.length - 1; i >= 0; i--) {
+    const segment = next[i];
+    if (segment.source !== source || segment.isLive) {
+      continue;
+    }
+
+    if (now - segment.timestamp > maxAge) {
+      return null;
+    }
+
+    const normalizedCurrent = normalizeTranscription(segment.text).trim();
+    if (!normalizedCurrent) {
+      return null;
+    }
+
+    const appearsToBeRefinement =
+      normalizedNext.startsWith(normalizedCurrent) ||
+      normalizedCurrent.startsWith(normalizedNext);
+
+    if (!appearsToBeRefinement) {
+      return null;
+    }
+
+    next[i] = {
+      ...segment,
+      text: normalizedNext,
+      stability,
+      timestamp: now,
+    };
+
+    return trimSegments(next);
+  }
+
+  return null;
+}
+
 export function mergeTranscriptForPrompt(
   segments: TranscriptSegment[],
   cutoffAt?: number

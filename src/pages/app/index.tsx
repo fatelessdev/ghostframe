@@ -476,9 +476,6 @@ const App = () => {
 
                   <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert">
                     <Markdown>{responseText}</Markdown>
-                    {Boolean(systemAudio?.isAIProcessing) && responseText ? (
-                      <span className="ml-1 inline-block h-4 w-2 bg-primary/70 align-middle" />
-                    ) : null}
                   </div>
                 </div>
               )}

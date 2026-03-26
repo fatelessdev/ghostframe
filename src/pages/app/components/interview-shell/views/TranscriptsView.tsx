@@ -135,20 +135,6 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       aria-live="polite"
       aria-relevant="additions"
     >
-      <div className="mb-3 flex items-center justify-end gap-2 text-[10px] tracking-wide text-white/45">
-        <span className="inline-flex items-center gap-1">
-          <span className="text-white/35">•</span>
-          interim
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="text-amber-300/70">~</span>
-          pending
-        </span>
-        <span className="inline-flex items-center gap-1">
-          <span className="text-emerald-300/75">✓</span>
-          final
-        </span>
-      </div>
       <div className="space-y-2">
         {orderedSegments.length === 0 ? (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[12px] text-white/35 tracking-wide italic">
@@ -181,18 +167,11 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                 >
                   <span
                     className={cn(
-                      "inline-flex h-1.5 w-1.5 rounded-full",
-                      isUser ? "bg-blue-400/60" : "bg-slate-400/50",
-                      isInterim && "opacity-80 animate-pulse"
-                    )}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className={cn(
                       "text-[10px] tracking-wide",
                       isFinal && "text-emerald-300/70",
                       isOptimistic && "text-amber-300/65",
-                      isInterim && "text-white/40"
+                      isInterim && "text-white/40",
+                      (isInterim || isOptimistic) && "animate-pulse"
                     )}
                     title={
                       isFinal
