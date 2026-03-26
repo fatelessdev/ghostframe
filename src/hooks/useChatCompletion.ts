@@ -14,6 +14,7 @@ import {
   getResponseSettings,
 } from "@/lib";
 import {
+  type AIImagePayload,
   type AttachedFile,
   type ChatCompletionState,
   type ChatConversation,
@@ -135,11 +136,14 @@ export const useChatCompletion = (
           content: msg.content,
         }));
 
-        const imagesBase64: string[] = [];
+        const imagesBase64: AIImagePayload[] = [];
         if (state.attachedFiles.length > 0) {
           state.attachedFiles.forEach((file) => {
             if (file.type.startsWith("image/")) {
-              imagesBase64.push(file.base64);
+              imagesBase64.push({
+                base64: file.base64,
+                mimeType: file.type,
+              });
             }
           });
         }
@@ -362,7 +366,7 @@ export const useChatCompletion = (
   };
 
   const handleScreenshotSubmit = useCallback(
-    async (base64: string, prompt?: string) => {
+    async (image: AIImagePayload, prompt?: string) => {
       if (state.attachedFiles.length >= MAX_FILES) {
         setState((prev) => ({
           ...prev,
@@ -375,10 +379,10 @@ export const useChatCompletion = (
         if (prompt) {
           const attachedFile: AttachedFile = {
             id: Date.now().toString(),
-            name: `screenshot_${Date.now()}.png`,
-            type: "image/png",
-            base64: base64,
-            size: base64.length,
+            name: `screenshot_${Date.now()}.jpg`,
+            type: image.mimeType,
+            base64: image.base64,
+            size: image.bytes ?? image.base64.length,
           };
 
           setState((prev) => ({
@@ -391,10 +395,10 @@ export const useChatCompletion = (
         } else {
           const attachedFile: AttachedFile = {
             id: Date.now().toString(),
-            name: `screenshot_${Date.now()}.png`,
-            type: "image/png",
-            base64: base64,
-            size: base64.length,
+            name: `screenshot_${Date.now()}.jpg`,
+            type: image.mimeType,
+            base64: image.base64,
+            size: image.bytes ?? image.base64.length,
           };
 
           setState((prev) => ({

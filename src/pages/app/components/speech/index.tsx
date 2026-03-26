@@ -48,6 +48,8 @@ export const SystemAudio = (props: useSystemAudioType) => {
     handleQuickActionClick,
     transcriptSegments,
     manualScreenshots,
+    processedManualScreenshotsCount,
+    pendingManualScreenshotsCount,
     removeManualScreenshot,
     isCapturingScreenshot,
     handleCaptureScreenshot,
@@ -272,7 +274,10 @@ export const SystemAudio = (props: useSystemAudioType) => {
                     {manualScreenshots.length > 0 ? (
                       <div className="rounded-md border border-border/60 bg-muted/10 p-2 space-y-2">
                         <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                          Manual screenshots ({manualScreenshots.length})
+                          Manual screenshots ({processedManualScreenshotsCount})
+                          {pendingManualScreenshotsCount > 0
+                            ? ` + ${pendingManualScreenshotsCount} processing`
+                            : ""}
                         </p>
                         <div className="flex gap-2 overflow-x-auto pb-1">
                           {manualScreenshots.map((shot) => (
@@ -280,11 +285,15 @@ export const SystemAudio = (props: useSystemAudioType) => {
                               key={shot.id}
                               className="relative shrink-0 rounded border border-border/60"
                             >
-                              <img
-                                src={`data:image/png;base64,${shot.base64}`}
-                                alt="Manual screenshot"
-                                className="h-16 w-28 object-cover rounded"
-                              />
+                              {shot.image ? (
+                                <img
+                                  src={`data:${shot.image.mimeType};base64,${shot.image.base64}`}
+                                  alt="Manual screenshot"
+                                  className="h-16 w-28 object-cover rounded"
+                                />
+                              ) : (
+                                <div className="h-16 w-28 rounded bg-muted/30 animate-pulse" />
+                              )}
                               <button
                                 type="button"
                                 onClick={() => removeManualScreenshot(shot.id)}

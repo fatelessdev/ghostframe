@@ -6,13 +6,13 @@ import {
   type SetStateAction,
 } from "react";
 import { tauriCommands, tauriEvents } from "@/lib";
-import type { ScreenshotConfig } from "@/types";
+import type { AIImagePayload, ScreenshotConfig } from "@/types";
 
 const SCREEN_RECORDING_PERMISSION_REQUIRED_MESSAGE =
   "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Ghostframe in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.";
 
 type ScreenshotSubmitHandler = (
-  base64: string,
+  image: AIImagePayload,
   prompt?: string
 ) => Promise<void>;
 
@@ -31,16 +31,16 @@ const wait = async (ms: number): Promise<void> => {
 };
 
 const submitScreenshotByMode = async (
-  base64: string,
+  image: AIImagePayload,
   config: ScreenshotConfig,
   handleScreenshotSubmit: ScreenshotSubmitHandler
 ): Promise<void> => {
   if (config.mode === "auto") {
-    await handleScreenshotSubmit(base64, config.autoPrompt);
+    await handleScreenshotSubmit(image, config.autoPrompt);
     return;
   }
 
-  await handleScreenshotSubmit(base64);
+  await handleScreenshotSubmit(image);
 };
 
 const ensureMacScreenRecordingPermission = async (
@@ -113,8 +113,8 @@ export const useScreenshotCaptureFlow = ({
       }
 
       if (config.enabled) {
-        const base64 = await tauriCommands.captureToBase64();
-        await submitScreenshotByMode(base64, config, handleScreenshotSubmit);
+        const image = await tauriCommands.captureToImagePayload();
+        await submitScreenshotByMode(image, config, handleScreenshotSubmit);
         screenshotInitiatedByThisContext.current = false;
         return;
       }
@@ -162,7 +162,14 @@ export const useScreenshotCaptureFlow = ({
         const config = screenshotConfigRef.current;
 
         try {
-          await submitScreenshotByMode(base64, config, handleScreenshotSubmit);
+          await submitScreenshotByMode(
+            {
+              base64,
+              mimeType: "image/png",
+            },
+            config,
+            handleScreenshotSubmit
+          );
         } catch (error) {
           console.error("Error processing screenshot selection:", error);
         } finally {

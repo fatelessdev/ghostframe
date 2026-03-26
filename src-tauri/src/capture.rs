@@ -8,9 +8,136 @@ use std::sync::{Arc, Mutex};
 use std::{thread, time::Duration};
 use tauri::Emitter;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use webp::Encoder as WebpEncoder;
 use xcap::Monitor;
 
-const MAX_CAPTURE_DIMENSION: u32 = 1600;
+const MAX_CAPTURE_DIMENSION: u32 = 1920;
+const CAPTURE_WEBP_QUALITY: u8 = 82;
+
+#[derive(Debug, Serialize)]
+pub struct CapturedImagePayload {
+    pub base64: String,
+    pub mime_type: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: usize,
+}
+
+fn resolve_target_monitor_capture(
+    window: tauri::WebviewWindow,
+) -> Result<image::RgbaImage, String> {
+    let monitor_fallback = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let geometry = match (window.outer_position(), window.outer_size()) {
+        (Ok(position), Ok(size)) => {
+            let width = size.width.min(i32::MAX as u32) as i32;
+            let height = size.height.min(i32::MAX as u32) as i32;
+            let left = position.x;
+            let top = position.y;
+            (
+                left,
+                top,
+                left.saturating_add(width),
+                top.saturating_add(height),
+                left.saturating_add(width / 2),
+                top.saturating_add(height / 2),
+            )
+        }
+        _ => {
+            if let Some(monitor) = &monitor_fallback {
+                let position = monitor.position();
+                let size = monitor.size();
+                let width = size.width.min(i32::MAX as u32) as i32;
+                let height = size.height.min(i32::MAX as u32) as i32;
+                let left = position.x;
+                let top = position.y;
+                (
+                    left,
+                    top,
+                    left.saturating_add(width),
+                    top.saturating_add(height),
+                    left.saturating_add(width / 2),
+                    top.saturating_add(height / 2),
+                )
+            } else {
+                (0, 0, 0, 0, 0, 0)
+            }
+        }
+    };
+
+    let (window_left, window_top, window_right, window_bottom, window_center_x, window_center_y) =
+        geometry;
+
+    let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
+    if monitors.is_empty() {
+        return Err("No monitors found".to_string());
+    }
+
+    let mut best_idx: Option<usize> = None;
+    let mut best_area: i64 = 0;
+
+    for (idx, monitor) in monitors.iter().enumerate() {
+        let monitor_left = monitor.x();
+        let monitor_top = monitor.y();
+        let monitor_right = monitor_left.saturating_add(monitor.width() as i32);
+        let monitor_bottom = monitor_top.saturating_add(monitor.height() as i32);
+
+        let overlap_width =
+            (window_right.min(monitor_right) - window_left.max(monitor_left)).max(0);
+        let overlap_height =
+            (window_bottom.min(monitor_bottom) - window_top.max(monitor_top)).max(0);
+        let area = (overlap_width as i64) * (overlap_height as i64);
+
+        if area > best_area {
+            best_area = area;
+            best_idx = Some(idx);
+        }
+    }
+
+    let target_idx = if let Some(idx) = best_idx {
+        idx
+    } else {
+        let mut closest_idx = 0usize;
+        let mut closest_distance = i128::MAX;
+
+        for (idx, monitor) in monitors.iter().enumerate() {
+            let monitor_center_x = monitor.x().saturating_add(monitor.width() as i32 / 2);
+            let monitor_center_y = monitor.y().saturating_add(monitor.height() as i32 / 2);
+            let dx = (window_center_x - monitor_center_x) as i128;
+            let dy = (window_center_y - monitor_center_y) as i128;
+            let distance = dx * dx + dy * dy;
+
+            if distance < closest_distance {
+                closest_distance = distance;
+                closest_idx = idx;
+            }
+        }
+
+        closest_idx
+    };
+
+    let monitor = monitors
+        .into_iter()
+        .enumerate()
+        .find_map(|(idx, monitor)| {
+            if idx == target_idx {
+                Some(monitor)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "Failed to determine target monitor".to_string())?;
+
+    let image = monitor
+        .capture_image()
+        .map_err(|e| format!("Failed to capture image: {}", e))?;
+
+    Ok(downscale_rgba_if_needed(image))
+}
 
 fn downscale_rgba_if_needed(image: image::RgbaImage) -> image::RgbaImage {
     let width = image.width();
@@ -29,8 +156,45 @@ fn downscale_rgba_if_needed(image: image::RgbaImage) -> image::RgbaImage {
         &image,
         target_width,
         target_height,
-        image::imageops::FilterType::Triangle,
+        image::imageops::FilterType::Lanczos3,
     )
+}
+
+fn encode_capture_image_payload(image: image::RgbaImage) -> Result<CapturedImagePayload, String> {
+    let width = image.width();
+    let height = image.height();
+
+    let webp_encoder = WebpEncoder::from_rgba(image.as_raw(), width, height);
+    let webp_result = webp_encoder.encode_simple(false, CAPTURE_WEBP_QUALITY as f32);
+
+    if let Ok(webp_buffer) = webp_result {
+        let bytes = webp_buffer.len();
+        let base64 = base64::engine::general_purpose::STANDARD.encode(&*webp_buffer);
+
+        return Ok(CapturedImagePayload {
+            base64,
+            mime_type: "image/webp".to_string(),
+            width,
+            height,
+            bytes,
+        });
+    }
+
+    let mut png_buffer = Vec::new();
+    PngEncoder::new(&mut png_buffer)
+        .write_image(image.as_raw(), width, height, ColorType::Rgba8.into())
+        .map_err(|e| format!("Failed to encode to PNG fallback: {}", e))?;
+
+    let bytes = png_buffer.len();
+    let base64 = base64::engine::general_purpose::STANDARD.encode(png_buffer);
+
+    Ok(CapturedImagePayload {
+        base64,
+        mime_type: "image/png".to_string(),
+        width,
+        height,
+        bytes,
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -288,129 +452,24 @@ pub async fn capture_selected_area(
 
 #[tauri::command]
 pub async fn capture_to_base64(window: tauri::WebviewWindow) -> Result<String, String> {
-    let monitor_fallback = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
-
-    let geometry = match (window.outer_position(), window.outer_size()) {
-        (Ok(position), Ok(size)) => {
-            let width = size.width.min(i32::MAX as u32) as i32;
-            let height = size.height.min(i32::MAX as u32) as i32;
-            let left = position.x;
-            let top = position.y;
-            (
-                left,
-                top,
-                left.saturating_add(width),
-                top.saturating_add(height),
-                left.saturating_add(width / 2),
-                top.saturating_add(height / 2),
-            )
-        }
-        _ => {
-            if let Some(monitor) = &monitor_fallback {
-                let position = monitor.position();
-                let size = monitor.size();
-                let width = size.width.min(i32::MAX as u32) as i32;
-                let height = size.height.min(i32::MAX as u32) as i32;
-                let left = position.x;
-                let top = position.y;
-                (
-                    left,
-                    top,
-                    left.saturating_add(width),
-                    top.saturating_add(height),
-                    left.saturating_add(width / 2),
-                    top.saturating_add(height / 2),
-                )
-            } else {
-                (0, 0, 0, 0, 0, 0)
-            }
-        }
-    };
-
-    let (window_left, window_top, window_right, window_bottom, window_center_x, window_center_y) =
-        geometry;
-
     tauri::async_runtime::spawn_blocking(move || {
-        let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
-        if monitors.is_empty() {
-            return Err("No monitors found".to_string());
-        }
+        let image = resolve_target_monitor_capture(window)?;
+        let payload = encode_capture_image_payload(image)?;
 
-        let mut best_idx: Option<usize> = None;
-        let mut best_area: i64 = 0;
+        Ok(payload.base64)
+    })
+    .await
+    .map_err(|e| format!("Task panicked: {}", e))?
+}
 
-        for (idx, monitor) in monitors.iter().enumerate() {
-            let monitor_left = monitor.x();
-            let monitor_top = monitor.y();
-            let monitor_right = monitor_left.saturating_add(monitor.width() as i32);
-            let monitor_bottom = monitor_top.saturating_add(monitor.height() as i32);
+#[tauri::command]
+pub async fn capture_to_image_payload(
+    window: tauri::WebviewWindow,
+) -> Result<CapturedImagePayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = resolve_target_monitor_capture(window)?;
 
-            let overlap_width =
-                (window_right.min(monitor_right) - window_left.max(monitor_left)).max(0);
-            let overlap_height =
-                (window_bottom.min(monitor_bottom) - window_top.max(monitor_top)).max(0);
-            let area = (overlap_width as i64) * (overlap_height as i64);
-
-            if area > best_area {
-                best_area = area;
-                best_idx = Some(idx);
-            }
-        }
-
-        let target_idx = if let Some(idx) = best_idx {
-            idx
-        } else {
-            let mut closest_idx = 0usize;
-            let mut closest_distance = i128::MAX;
-
-            for (idx, monitor) in monitors.iter().enumerate() {
-                let monitor_center_x = monitor.x().saturating_add(monitor.width() as i32 / 2);
-                let monitor_center_y = monitor.y().saturating_add(monitor.height() as i32 / 2);
-                let dx = (window_center_x - monitor_center_x) as i128;
-                let dy = (window_center_y - monitor_center_y) as i128;
-                let distance = dx * dx + dy * dy;
-
-                if distance < closest_distance {
-                    closest_distance = distance;
-                    closest_idx = idx;
-                }
-            }
-
-            closest_idx
-        };
-
-        let monitor = monitors
-            .into_iter()
-            .enumerate()
-            .find_map(|(idx, monitor)| {
-                if idx == target_idx {
-                    Some(monitor)
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| "Failed to determine target monitor".to_string())?;
-
-        let image = monitor
-            .capture_image()
-            .map_err(|e| format!("Failed to capture image: {}", e))?;
-        let image = downscale_rgba_if_needed(image);
-        let mut png_buffer = Vec::new();
-        PngEncoder::new(&mut png_buffer)
-            .write_image(
-                image.as_raw(),
-                image.width(),
-                image.height(),
-                ColorType::Rgba8.into(),
-            )
-            .map_err(|e| format!("Failed to encode to PNG: {}", e))?;
-        let base64_str = base64::engine::general_purpose::STANDARD.encode(png_buffer);
-
-        Ok(base64_str)
+        encode_capture_image_payload(image)
     })
     .await
     .map_err(|e| format!("Task panicked: {}", e))?

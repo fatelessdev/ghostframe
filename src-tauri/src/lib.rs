@@ -69,6 +69,7 @@ pub fn run() {
             window::set_disguise_mode,
             window::get_disguise_mode,
             capture::capture_to_base64,
+            capture::capture_to_image_payload,
             capture::start_screen_capture,
             capture::capture_selected_area,
             capture::close_overlay_window,

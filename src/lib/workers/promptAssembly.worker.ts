@@ -3,7 +3,7 @@ import {
   deepVariableReplacer,
   hasTemplateVariables,
 } from "@/lib/functions/common.function";
-import type { Message } from "@/types";
+import type { AIImagePayload, Message } from "@/types";
 
 type WorkerRequest = {
   id: number;
@@ -15,7 +15,7 @@ type WorkerRequest = {
     enableStreaming: boolean;
     history: Message[];
     userMessage: string;
-    imagesBase64: string[];
+    imagesBase64: AIImagePayload[];
     allVariables: Record<string, string>;
   };
 };

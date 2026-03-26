@@ -32,10 +32,7 @@ export function formatDisplayTime(date: Date | number | string): string {
 }
 
 export function normalizeTranscription(text: string): string {
-  return text
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x00-\x7F]/g, "");
+  return text;
 }
 
 export const floatArrayToWav = (

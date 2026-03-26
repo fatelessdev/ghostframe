@@ -1,18 +1,33 @@
 import { type MutableRefObject } from "react";
+import type { AIImagePayload } from "@/types";
 
 export type ManualScreenshot = {
   id: string;
-  base64: string;
+  status: "pending" | "ready";
+  image: AIImagePayload | null;
   timestamp: number;
 };
 
-export const createManualScreenshot = (
-  base64: string,
+export const createPendingManualScreenshot = (
   now: number = Date.now()
 ): ManualScreenshot => {
   return {
     id: `manual-ss-${now}-${Math.random().toString(36).slice(2, 6)}`,
-    base64,
+    status: "pending",
+    image: null,
+    timestamp: now,
+  };
+};
+
+export const resolveManualScreenshot = (
+  screenshot: ManualScreenshot,
+  image: AIImagePayload,
+  now: number = Date.now()
+): ManualScreenshot => {
+  return {
+    ...screenshot,
+    status: "ready",
+    image,
     timestamp: now,
   };
 };
@@ -40,23 +55,23 @@ export const clearManualScreenshotsState = (
 
 export const buildImagesPayload = (
   manualScreenshots: ManualScreenshot[]
-): string[] => {
+): AIImagePayload[] => {
   const IMAGE_PAYLOAD_CHAR_LIMIT = 2_400_000;
-  const images: string[] = [];
+  const images: AIImagePayload[] = [];
   let usedChars = 0;
 
   for (let i = manualScreenshots.length - 1; i >= 0; i -= 1) {
     const screenshot = manualScreenshots[i];
-    if (!screenshot) {
+    if (!screenshot || screenshot.status !== "ready" || !screenshot.image) {
       continue;
     }
 
-    const size = screenshot.base64.length;
+    const size = screenshot.image.base64.length;
     if (images.length > 0 && usedChars + size > IMAGE_PAYLOAD_CHAR_LIMIT) {
       break;
     }
 
-    images.push(screenshot.base64);
+    images.push(screenshot.image);
     usedChars += size;
   }
 

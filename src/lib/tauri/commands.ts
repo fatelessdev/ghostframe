@@ -1,5 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { SystemAudioVadConfig } from "@/types";
+import type { AIImagePayload, SystemAudioVadConfig } from "@/types";
+
+type TauriCapturedImagePayload = {
+  base64: string;
+  mime_type: string;
+  width: number;
+  height: number;
+  bytes: number;
+};
 
 export type StartSystemAudioCaptureArgs = {
   vadConfig: SystemAudioVadConfig;
@@ -9,6 +17,19 @@ export type StartSystemAudioCaptureArgs = {
 export const tauriCommands = {
   captureToBase64: async (): Promise<string> => {
     return invoke<string>("capture_to_base64");
+  },
+  captureToImagePayload: async (): Promise<AIImagePayload> => {
+    const payload = await invoke<TauriCapturedImagePayload>(
+      "capture_to_image_payload"
+    );
+
+    return {
+      base64: payload.base64,
+      mimeType: payload.mime_type,
+      width: payload.width,
+      height: payload.height,
+      bytes: payload.bytes,
+    };
   },
   startScreenCapture: async (): Promise<void> => {
     await invoke("start_screen_capture");

@@ -1,9 +1,12 @@
-import { Message } from "@/types";
+import { Message, type AIImagePayload } from "@/types";
 
 const pathSegmentsCache = new Map<string, string[]>();
 const jsonStringifyCache = new WeakMap<object, string>();
 const templatePresenceCache = new WeakMap<object, boolean>();
 const TEMPLATE_VARIABLE_PATTERN = /\{\{[A-Z_]+\}\}/;
+const DEFAULT_IMAGE_MIME_TYPE = "image/png";
+
+export type AIImageInput = string | AIImagePayload;
 
 function fastStringify(value: unknown): string {
   if (!value || typeof value !== "object") {
@@ -34,6 +37,64 @@ function getPathSegments(path: string): string[] {
   pathSegmentsCache.set(path, segments);
   return segments;
 }
+
+const normalizeImagePayload = (image: AIImageInput): AIImagePayload => {
+  if (typeof image === "string") {
+    return {
+      base64: image,
+      mimeType: DEFAULT_IMAGE_MIME_TYPE,
+    };
+  }
+
+  return {
+    ...image,
+    mimeType: image.mimeType || DEFAULT_IMAGE_MIME_TYPE,
+  };
+};
+
+export const normalizeAIImagePayloads = (images: AIImageInput[] = []): AIImagePayload[] => {
+  return images
+    .map(normalizeImagePayload)
+    .filter((image) => typeof image.base64 === "string" && image.base64.length > 0);
+};
+
+const replaceDataUriMime = (value: string, mimeType: string): string => {
+  if (!value.includes("data:image/") || !value.includes(";base64,")) {
+    return value;
+  }
+
+  return value.replace(/data:image\/[^;]+;base64,/gi, `data:${mimeType};base64,`);
+};
+
+const applyImageMime = (node: unknown, mimeType: string): unknown => {
+  if (typeof node === "string") {
+    return replaceDataUriMime(node, mimeType);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map((item) => applyImageMime(item, mimeType));
+  }
+
+  if (node && typeof node === "object") {
+    const next: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      if (
+        (key === "media_type" || key === "mime_type") &&
+        typeof value === "string" &&
+        value.startsWith("image/")
+      ) {
+        next[key] = mimeType;
+        continue;
+      }
+
+      next[key] = applyImageMime(value, mimeType);
+    }
+
+    return next;
+  }
+
+  return node;
+};
 
 export function getByPath(obj: any, path: string): any {
   if (!path) return obj;
@@ -108,8 +169,10 @@ export function extractVariables(
 export function processUserMessageTemplate(
   template: any,
   userMessage: string,
-  imagesBase64: string[] = []
+  imagesBase64: AIImageInput[] = []
 ): any {
+  const normalizedImages = normalizeAIImagePayloads(imagesBase64);
+
   if (!fastStringify(template).includes("{{IMAGE}}")) {
     return deepVariableReplacer(template, { TEXT: userMessage });
   }
@@ -132,13 +195,13 @@ export function processUserMessageTemplate(
       if (imageTemplateIndex > -1) {
         const imageTemplate = node[imageTemplateIndex];
         const imageParts =
-          imagesBase64.length > 0
-            ? imagesBase64.map((img) => {
+          normalizedImages.length > 0
+            ? normalizedImages.map((image) => {
                 const partStr = JSON.stringify(imageTemplate).replace(
                   /\{\{IMAGE\}\}/g,
-                  img
+                  image.base64
                 );
-                return JSON.parse(partStr);
+                return applyImageMime(JSON.parse(partStr), image.mimeType);
               })
             : [];
 
@@ -166,8 +229,9 @@ export function processUserMessageTemplate(
 export function processUserMessageTemplateFastPath(
   template: any,
   userMessage: string,
-  imagesBase64: string[] = []
+  imagesBase64: AIImageInput[] = []
 ): any {
+  const normalizedImages = normalizeAIImagePayloads(imagesBase64);
   const templateString = fastStringify(template);
   const hasText = templateString.includes("{{TEXT}}");
   const hasImage = templateString.includes("{{IMAGE}}");
@@ -197,8 +261,9 @@ export function processUserMessageTemplateFastPath(
   const before = cloned.slice(0, imageTemplateIndex);
   const after = cloned.slice(imageTemplateIndex + 1);
 
-  const imageParts = imagesBase64.map((image) => {
-    return deepVariableReplacer(imageTemplate, { IMAGE: image });
+  const imageParts = normalizedImages.map((image) => {
+    const withData = deepVariableReplacer(imageTemplate, { IMAGE: image.base64 });
+    return applyImageMime(withData, image.mimeType);
   });
 
   return [...before, ...imageParts, ...after];
@@ -216,7 +281,7 @@ export function buildDynamicMessages(
   messagesTemplate: any[],
   history: Message[],
   userMessage: string,
-  imagesBase64: string[] = []
+  imagesBase64: AIImageInput[] = []
 ): any[] {
   const userMessageTemplateIndex = messagesTemplate.findIndex((m) => {
     return fastStringify(m).includes("{{TEXT}}");
@@ -243,7 +308,7 @@ export function buildDynamicMessagesFastPath(
   messagesTemplate: any[],
   history: Message[],
   userMessage: string,
-  imagesBase64: string[] = []
+  imagesBase64: AIImageInput[] = []
 ): any[] {
   const userMessageTemplateIndex = messagesTemplate.findIndex((m) => {
     return fastStringify(m).includes("{{TEXT}}");

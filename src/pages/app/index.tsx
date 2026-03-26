@@ -428,7 +428,7 @@ const App = () => {
               ) : null}
 
               <OverlayTopBar
-                screenshotCount={systemAudio?.manualScreenshots.length ?? 0}
+                screenshotCount={systemAudio?.processedManualScreenshotsCount ?? 0}
                 mode={currentAIMode}
                 isCapturing={Boolean(systemAudio?.capturing)}
                 onStartInterview={() => {

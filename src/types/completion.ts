@@ -7,6 +7,14 @@ export interface AttachedFile {
   size: number;
 }
 
+export interface AIImagePayload {
+  base64: string;
+  mimeType: string;
+  width?: number;
+  height?: number;
+  bytes?: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";

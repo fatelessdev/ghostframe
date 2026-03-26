@@ -6,8 +6,10 @@ import {
   getByPath,
   hasTemplateVariables,
   getStreamingContent,
+  normalizeAIImagePayloads,
+  type AIImageInput,
 } from "./common.function";
-import { Message, TYPE_PROVIDER } from "@/types";
+import { Message, TYPE_PROVIDER, type AIImagePayload } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
@@ -37,7 +39,7 @@ type PromptAssemblyWorkerRequestPayload = {
   enableStreaming: boolean;
   history: Message[];
   userMessage: string;
-  imagesBase64: string[];
+  imagesBase64: AIImagePayload[];
   allVariables: Record<string, string>;
 };
 
@@ -113,10 +115,10 @@ type StreamParserWorkerResponse =
 function shouldUsePromptAssemblyWorker(payload: {
   bodyObj: unknown;
   history: Message[];
-  imagesBase64: string[];
+  imagesBase64: AIImagePayload[];
 }): boolean {
   const totalImageChars = payload.imagesBase64.reduce((sum, image) => {
-    return sum + image.length;
+    return sum + image.base64.length;
   }, 0);
 
   if (totalImageChars > WORKER_IMAGE_SIZE_LIMIT_CHARS) {
@@ -596,7 +598,8 @@ export async function* fetchAIResponse(params: {
   systemPrompt?: string;
   history?: Message[];
   userMessage: string;
-  imagesBase64?: string[];
+  resolveUserMessage?: () => string;
+  imagesBase64?: AIImageInput[];
   signal?: AbortSignal;
   aiMode?: "D" | "P";
   onRequestPrepared?: (meta: {
@@ -615,6 +618,7 @@ export async function* fetchAIResponse(params: {
       systemPrompt,
       history = [],
       userMessage,
+      resolveUserMessage,
       imagesBase64 = [],
       signal,
       aiMode = DEFAULT_AI_MODE,
@@ -666,13 +670,20 @@ export async function* fetchAIResponse(params: {
       }
     }
 
-    if (!userMessage) {
+    const getResolvedUserMessage = (): string => {
+      return (resolveUserMessage ? resolveUserMessage() : userMessage).trim();
+    };
+
+    let lastResolvedUserMessage = getResolvedUserMessage();
+    if (!lastResolvedUserMessage) {
       throw new Error("User message is required");
     }
 
+    const normalizedImages = normalizeAIImagePayloads(imagesBase64);
+
     const compactedHistory = compactHistoryForPromptAssembly(history);
 
-    if (imagesBase64.length > 0 && !provider.curl.includes("{{IMAGE}}")) {
+    if (normalizedImages.length > 0 && !provider.curl.includes("{{IMAGE}}")) {
       throw new Error(
         `Provider ${provider?.id ?? "unknown"} does not support image input`
       );
@@ -695,14 +706,46 @@ export async function* fetchAIResponse(params: {
     let headers: Record<string, string>;
     const requestMethod = (curlJson.method || "POST").toUpperCase();
     let usedWorkerAssembly = false;
+    let dynamicMessagesKey: string | null = null;
+    let dynamicMessageTemplate: any[] | null = null;
+    let dynamicTemplateHasTextPlaceholder = false;
 
-    if (
+    const applyResolvedUserMessage = (resolvedMessage: string): void => {
+      if (!bodyObj || typeof bodyObj !== "object") {
+        return;
+      }
+
+      if (!dynamicMessagesKey) {
+        return;
+      }
+
+      if (dynamicMessageTemplate && dynamicTemplateHasTextPlaceholder) {
+        bodyObj[dynamicMessagesKey] = buildDynamicMessagesFastPath(
+          dynamicMessageTemplate,
+          compactedHistory,
+          resolvedMessage,
+          normalizedImages
+        );
+      } else {
+        bodyObj[dynamicMessagesKey] = [
+          ...compactedHistory,
+          {
+            role: "user",
+            content: resolvedMessage,
+          } as PromptAssemblyWorkerMessage,
+        ];
+      }
+    };
+
+    const shouldUseWorkerAssembly =
+      !resolveUserMessage &&
       shouldUsePromptAssemblyWorker({
         bodyObj: baseBody,
         history: compactedHistory,
-        imagesBase64,
-      })
-    ) {
+        imagesBase64: normalizedImages,
+      });
+
+    if (shouldUseWorkerAssembly) {
       try {
         const assembled = await assemblePromptPayloadInWorker(
           {
@@ -712,8 +755,8 @@ export async function* fetchAIResponse(params: {
             requestMethod,
             enableStreaming: Boolean(provider?.streaming),
             history: compactedHistory,
-            userMessage,
-            imagesBase64,
+            userMessage: lastResolvedUserMessage,
+            imagesBase64: normalizedImages,
             allVariables,
           },
           signal
@@ -743,12 +786,16 @@ export async function* fetchAIResponse(params: {
               JSON.stringify(templateItem).includes("{{TEXT}}");
           });
 
+          dynamicMessagesKey = messagesKey;
+          dynamicMessageTemplate = messageTemplate;
+          dynamicTemplateHasTextPlaceholder = templateHasTextPlaceholder;
+
           if (templateHasTextPlaceholder) {
             const finalMessages = buildDynamicMessagesFastPath(
               messageTemplate,
               compactedHistory,
-              userMessage,
-              imagesBase64
+              lastResolvedUserMessage,
+              normalizedImages
             );
             bodyObj[messagesKey] = finalMessages;
           } else {
@@ -756,7 +803,7 @@ export async function* fetchAIResponse(params: {
               ...compactedHistory,
               {
                 role: "user",
-                content: userMessage,
+                content: lastResolvedUserMessage,
               } as PromptAssemblyWorkerMessage,
             ];
           }
@@ -789,12 +836,16 @@ export async function* fetchAIResponse(params: {
             JSON.stringify(templateItem).includes("{{TEXT}}");
         });
 
+        dynamicMessagesKey = messagesKey;
+        dynamicMessageTemplate = messageTemplate;
+        dynamicTemplateHasTextPlaceholder = templateHasTextPlaceholder;
+
         if (templateHasTextPlaceholder) {
           const finalMessages = buildDynamicMessagesFastPath(
             messageTemplate,
             compactedHistory,
-            userMessage,
-            imagesBase64
+            lastResolvedUserMessage,
+            normalizedImages
           );
           bodyObj[messagesKey] = finalMessages;
         } else {
@@ -802,7 +853,7 @@ export async function* fetchAIResponse(params: {
             ...compactedHistory,
             {
               role: "user",
-              content: userMessage,
+              content: lastResolvedUserMessage,
             } as PromptAssemblyWorkerMessage,
           ];
         }
@@ -822,6 +873,18 @@ export async function* fetchAIResponse(params: {
     headers["Content-Type"] = "application/json";
 
     if (requestBody === undefined) {
+      if (resolveUserMessage && requestMethod !== "GET") {
+        const latestResolvedUserMessage = getResolvedUserMessage();
+        if (!latestResolvedUserMessage) {
+          throw new Error("User message is required");
+        }
+
+        if (latestResolvedUserMessage !== lastResolvedUserMessage) {
+          applyResolvedUserMessage(latestResolvedUserMessage);
+          lastResolvedUserMessage = latestResolvedUserMessage;
+        }
+      }
+
       if (provider?.streaming) {
         if (typeof bodyObj === "object" && bodyObj !== null) {
           const streamKey = Object.keys(bodyObj).find(
@@ -858,6 +921,19 @@ export async function* fetchAIResponse(params: {
     for (let attempt = 1; attempt <= API_REQUEST_MAX_ATTEMPTS; attempt++) {
       if (signal?.aborted) {
         return;
+      }
+
+      if (resolveUserMessage && requestMethod !== "GET" && bodyObj && requestBody !== undefined) {
+        const latestResolvedUserMessage = getResolvedUserMessage();
+        if (!latestResolvedUserMessage) {
+          throw new Error("User message is required");
+        }
+
+        if (latestResolvedUserMessage !== lastResolvedUserMessage) {
+          applyResolvedUserMessage(latestResolvedUserMessage);
+          lastResolvedUserMessage = latestResolvedUserMessage;
+          requestBody = JSON.stringify(bodyObj);
+        }
       }
 
       try {

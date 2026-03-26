@@ -7,6 +7,7 @@ import {
   ClipboardEvent,
 } from "react";
 import {
+  type AIImagePayload,
   type AttachedFile,
   type ChatConversation,
   type ChatMessage,
@@ -95,7 +96,7 @@ export interface UseCompletionReturn {
   /** Function to update screenshot configuration */
   setScreenshotConfiguration: Dispatch<SetStateAction<ScreenshotConfig>>;
   /** Function to handle screenshot submission with optional prompt */
-  handleScreenshotSubmit: (base64: string, prompt?: string) => Promise<void>;
+  handleScreenshotSubmit: (image: AIImagePayload, prompt?: string) => Promise<void>;
 
   // File selection and keyboard handling
   /** Event handler for file input changes */
