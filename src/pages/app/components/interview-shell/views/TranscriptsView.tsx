@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { cn } from "@/lib/utils";
 import { TranscriptSegment } from "@/types";
@@ -25,6 +25,14 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
   } = useGlobalShortcuts();
 
   const orderedSegments = transcriptSegments;
+  const latestSegment = orderedSegments[orderedSegments.length - 1];
+  const autoStickMarker = useMemo(() => {
+    if (!latestSegment) {
+      return "0";
+    }
+
+    return `${orderedSegments.length}:${latestSegment.id}:${latestSegment.text}:${latestSegment.stability}:${latestSegment.isLive ? "1" : "0"}`;
+  }, [latestSegment, orderedSegments.length]);
 
   // Register viewport ref with parent for scroll state tracking
   useEffect(() => {
@@ -67,7 +75,7 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       top: viewport.scrollHeight,
       behavior: "auto",
     });
-  }, [orderedSegments.length]);
+  }, [autoStickMarker]);
 
   const scrollTranscript = useCallback((delta: number) => {
     const viewport = viewportRef.current;
@@ -127,6 +135,20 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       aria-live="polite"
       aria-relevant="additions"
     >
+      <div className="mb-3 flex items-center justify-end gap-2 text-[10px] tracking-wide text-white/45">
+        <span className="inline-flex items-center gap-1">
+          <span className="text-white/35">•</span>
+          interim
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="text-amber-300/70">~</span>
+          pending
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="text-emerald-300/75">✓</span>
+          final
+        </span>
+      </div>
       <div className="space-y-2">
         {orderedSegments.length === 0 ? (
           <div className="rounded-xl border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-[12px] text-white/35 tracking-wide italic">
@@ -135,6 +157,10 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
         ) : (
           orderedSegments.map((segment) => {
             const isUser = segment.source === "user";
+            const stability = segment.stability || (segment.isLive ? "interim" : "final");
+            const isInterim = stability === "interim";
+            const isOptimistic = stability === "optimistic";
+            const isFinal = stability === "final";
 
             return (
               <div
@@ -157,10 +183,27 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                     className={cn(
                       "inline-flex h-1.5 w-1.5 rounded-full",
                       isUser ? "bg-blue-400/60" : "bg-slate-400/50",
-                      segment.isLive && "opacity-80"
+                      isInterim && "opacity-80 animate-pulse"
                     )}
                     aria-hidden="true"
                   />
+                  <span
+                    className={cn(
+                      "text-[10px] tracking-wide",
+                      isFinal && "text-emerald-300/70",
+                      isOptimistic && "text-amber-300/65",
+                      isInterim && "text-white/40"
+                    )}
+                    title={
+                      isFinal
+                        ? "Final transcript"
+                        : isOptimistic
+                          ? "Pending final transcript"
+                          : "Interim transcript"
+                    }
+                  >
+                    {isFinal ? "✓" : isOptimistic ? "~" : "•"}
+                  </span>
                   <span className="text-[10px] text-white/25 tracking-wide">
                     {new Date(segment.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -174,7 +217,9 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
                 <p 
                   className={cn(
                     "text-white/84 leading-relaxed tracking-wide",
-                    segment.isLive && "text-white/68"
+                    isInterim && "text-white/65 italic",
+                    isOptimistic && "text-white/76",
+                    isFinal && "text-white/88"
                   )}
                 >
                   {segment.text}

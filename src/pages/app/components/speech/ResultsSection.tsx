@@ -36,7 +36,21 @@ export const ResultsSection = ({
   return (
     <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
       {hasTranscript ? (
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between gap-2">
+          <div className="hidden items-center gap-2 text-[10px] tracking-wide text-muted-foreground/80 sm:inline-flex">
+            <span className="inline-flex items-center gap-0.5">
+              <span className="text-muted-foreground/70">•</span>
+              interim
+            </span>
+            <span className="inline-flex items-center gap-0.5">
+              <span className="text-amber-500/70">~</span>
+              pending
+            </span>
+            <span className="inline-flex items-center gap-0.5">
+              <span className="text-emerald-500/70">✓</span>
+              final
+            </span>
+          </div>
           <div className="text-[10px] text-muted-foreground">
             {committed.length} committed / {live.length} live
           </div>
@@ -47,6 +61,9 @@ export const ResultsSection = ({
         <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
           {committed.map((segment) => {
             const isUser = segment.source === "user";
+            const stability = segment.stability || "final";
+            const isOptimistic = stability === "optimistic";
+            const isFinal = stability === "final";
 
             return (
               <div
@@ -71,6 +88,16 @@ export const ResultsSection = ({
                     )}
                     aria-hidden="true"
                   />
+                  <span
+                    className={cn(
+                      "text-[10px] tracking-wide",
+                      isFinal && "text-emerald-500/70",
+                      isOptimistic && "text-amber-500/70"
+                    )}
+                    title={isFinal ? "Final transcript" : "Pending final transcript"}
+                  >
+                    {isFinal ? "✓" : "~"}
+                  </span>
                   <span className="text-[10px] text-muted-foreground">
                     {new Date(segment.timestamp).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -111,6 +138,12 @@ export const ResultsSection = ({
                     )}
                     aria-hidden="true"
                   />
+                  <span
+                    className="text-[10px] text-muted-foreground/70"
+                    title="Interim transcript"
+                  >
+                    •
+                  </span>
                 </div>
                 <p style={{ fontSize: `${Math.max(11, textSize - 1)}px` }}>
                   {segment.text}

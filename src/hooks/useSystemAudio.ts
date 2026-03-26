@@ -3,6 +3,7 @@ import { useApp } from "@/contexts";
 import { useGlobalShortcuts } from "@/hooks/useGlobalShortcuts";
 import {
   fetchAIResponse,
+  compressImagePayloadInWorker,
   getElevenLabsRealtimeConfig,
   getSystemAudioInterviewSettings,
   updateSystemAudioInterviewSettings,
@@ -21,7 +22,9 @@ import {
   type SystemAudioLatencyMetric,
   type SystemAudioLatencySnapshot,
   type SystemAudioLatencyStage,
+  type AIImagePayload,
   type TranscriptSegment,
+  type TranscriptStability,
   type TranscriptSource,
 } from "@/types";
 import { normalizeTranscription } from "@/lib/utils";
@@ -29,6 +32,7 @@ import {
   commitSegment,
   mergeTranscriptForPrompt,
   replaceLatestCommittedSegment,
+  replaceLatestPendingCommittedSegment,
   replaceLiveSegment,
   retainUnsentSegments,
 } from "@/hooks/internal/systemAudioUtils";
@@ -53,7 +57,8 @@ import {
   appendManualScreenshot,
   buildImagesPayload as buildImagesPayloadInternal,
   clearManualScreenshotsState,
-  createManualScreenshot,
+  createPendingManualScreenshot,
+  resolveManualScreenshot,
   type ManualScreenshot,
 } from "@/hooks/internal/systemAudioScreenshots";
 import {
@@ -110,7 +115,7 @@ type SystemAudioLogParams = {
   outcome: "success" | "error";
   errorMessage?: string;
   prompt: string;
-  imagesBase64: string[];
+  images: AIImagePayload[];
   previousMessages: { role: ChatMessage["role"]; content: string }[];
   providerId: string;
   aiMode: "D" | "P";
@@ -168,7 +173,6 @@ type ChatConversation = {
 
 type CaptureTrigger = "manual" | "shortcut" | "setup";
 
-const PENDING_COMMIT_ECHO_TTL_MS = 5000;
 const REALTIME_MAX_CONNECT_ATTEMPTS = 3;
 const REALTIME_RETRY_DELAY_MS = 900;
 const REALTIME_KEEPALIVE_INTERVAL_MS = 4000;
@@ -186,6 +190,36 @@ const MAX_AI_RESPONSE_BUFFER_CHARS = 12_000;
 const MAX_HISTORY_MESSAGES = 24;
 const MAX_HISTORY_CHARS = 18_000;
 const LATENCY_SAMPLES_LIMIT = 30;
+const SCREENSHOT_COMPRESS_MAX_SIZE_MB = 0.4;
+const SCREENSHOT_COMPRESS_MAX_WIDTH = 1600;
+const SCREENSHOT_COMPRESS_INITIAL_QUALITY = 0.82;
+const SCREENSHOT_COMPRESS_MIN_REDUCTION_RATIO = 0.08;
+const MAX_SEND_LOCKS = 3;
+
+type ActiveAnswerSendLock = {
+  id: number;
+  triggerTs: number;
+  typedInstruction: string;
+  segments: TranscriptSegment[];
+  prompt: string;
+  requestDispatched: boolean;
+};
+
+const composePromptWithInstruction = (
+  transcriptPrompt: string,
+  typedInstruction: string
+): string => {
+  const trimmedPrompt = transcriptPrompt.trim();
+  const trimmedInstruction = typedInstruction.trim();
+
+  if (!trimmedInstruction) {
+    return trimmedPrompt;
+  }
+
+  return trimmedPrompt
+    ? `${trimmedPrompt}\n\nInstruction: ${trimmedInstruction}`
+    : trimmedInstruction;
+};
 
 const initialConversation = (): ChatConversation => ({
   id: generateConversationId("sysaudio"),
@@ -320,6 +354,8 @@ export function useSystemAudio() {
   const pendingCommitEchoRef = useRef<
     Partial<Record<TranscriptSource, PendingCommitEcho>>
   >({});
+  const activeAnswerSendLocksRef = useRef<ActiveAnswerSendLock[]>([]);
+  const answerSendLockSeqRef = useRef(0);
   const aiResponseFlushFrameRef = useRef<number | null>(null);
   const aiResponseBufferRef = useRef("");
   const pipelineBusyRef = useRef(false);
@@ -345,6 +381,8 @@ export function useSystemAudio() {
   const triggerAbortRequestedCountRef = useRef(0);
 
   const manualScreenshotsRef = useRef<ManualScreenshot[]>([]);
+  const pendingScreenshotCaptureCountRef = useRef(0);
+  const processingScreenshotQueueRef = useRef(false);
 
   const interviewerRealtimeRef = useRef<RealtimeHandle>(
     createRealtimeHandle("interviewer")
@@ -362,6 +400,20 @@ export function useSystemAudio() {
   const userSpeechLikelyRef = useRef(false);
 
   const liveTranscript = segments;
+
+  const processedManualScreenshotsCount = useMemo(() => {
+    return manualScreenshots.reduce((count, screenshot) => {
+      if (screenshot.status === "ready" && screenshot.image) {
+        return count + 1;
+      }
+
+      return count;
+    }, 0);
+  }, [manualScreenshots]);
+
+  const pendingManualScreenshotsCount = useMemo(() => {
+    return manualScreenshots.length - processedManualScreenshotsCount;
+  }, [manualScreenshots.length, processedManualScreenshotsCount]);
 
   const lastCommittedPrompt = useMemo(() => {
     return mergeTranscriptForPrompt(segments);
@@ -504,7 +556,35 @@ export function useSystemAudio() {
     latestPartialInterviewerRef.current = "";
     latestPartialUserRef.current = "";
     pendingCommitEchoRef.current = {};
+    activeAnswerSendLocksRef.current = [];
   }, []);
+
+  const retainPendingCommitEchoAfter = useCallback((cutoffTs: number) => {
+    const nextPending: Partial<Record<TranscriptSource, PendingCommitEcho>> = {};
+
+    const interviewerPending = pendingCommitEchoRef.current.interviewer;
+    if (interviewerPending && interviewerPending.timestamp > cutoffTs) {
+      nextPending.interviewer = interviewerPending;
+    }
+
+    const userPending = pendingCommitEchoRef.current.user;
+    if (userPending && userPending.timestamp > cutoffTs) {
+      nextPending.user = userPending;
+    }
+
+    pendingCommitEchoRef.current = nextPending;
+  }, []);
+
+  const cleanupAfterSuccessfulDispatch = useCallback(
+    (retainCutoffTs: number) => {
+      applySegmentUpdate((previous) => retainUnsentSegments(previous, retainCutoffTs));
+      retainPendingCommitEchoAfter(retainCutoffTs);
+      setManualScreenshots((previous) => {
+        return clearManualScreenshotsState(previous, manualScreenshotsRef);
+      });
+    },
+    [applySegmentUpdate, retainPendingCommitEchoAfter]
+  );
 
   const resetInterviewState = useCallback(() => {
     applySegmentUpdate(() => []);
@@ -519,10 +599,125 @@ export function useSystemAudio() {
   );
 
   const appendCommittedTranscript = useCallback(
-    (source: TranscriptSource, text: string) => {
-      applySegmentUpdate((previous) => commitSegment(previous, source, text));
+    (
+      source: TranscriptSource,
+      text: string,
+      stability: TranscriptStability = "final"
+    ) => {
+      applySegmentUpdate((previous) => commitSegment(previous, source, text, stability));
     },
     [applySegmentUpdate]
+  );
+
+  const createAnswerSendLock = useCallback(
+    (typedInstruction: string, triggerTs: number): ActiveAnswerSendLock | null => {
+      if (!capturing) {
+        return null;
+      }
+
+      const lockedSegments = retainUnsentSegments(segmentsRef.current, triggerTs).map(
+        (segment) => ({ ...segment })
+      );
+      const transcriptPrompt = mergeTranscriptForPrompt(lockedSegments, triggerTs);
+      const prompt = composePromptWithInstruction(transcriptPrompt, typedInstruction);
+
+      if (!prompt.trim()) {
+        return null;
+      }
+
+      const lock: ActiveAnswerSendLock = {
+        id: ++answerSendLockSeqRef.current,
+        triggerTs,
+        typedInstruction: typedInstruction.trim(),
+        segments: lockedSegments,
+        prompt: prompt.trim(),
+        requestDispatched: false,
+      };
+
+      activeAnswerSendLocksRef.current = [
+        ...activeAnswerSendLocksRef.current.slice(-Math.max(0, MAX_SEND_LOCKS - 1)),
+        lock,
+      ];
+
+      return lock;
+    },
+    [capturing]
+  );
+
+  const markAnswerSendLockDispatched = useCallback((lockId: number) => {
+    activeAnswerSendLocksRef.current = activeAnswerSendLocksRef.current.map((lock) => {
+      if (lock.id !== lockId) {
+        return lock;
+      }
+
+      return {
+        ...lock,
+        requestDispatched: true,
+      };
+    });
+  }, []);
+
+  const removeAnswerSendLock = useCallback((lockId: number) => {
+    activeAnswerSendLocksRef.current = activeAnswerSendLocksRef.current.filter(
+      (lock) => lock.id !== lockId
+    );
+  }, []);
+
+  const patchAnswerSendLocks = useCallback(
+    (source: TranscriptSource, previousText: string, nextText: string) => {
+      if (!nextText.trim()) {
+        return;
+      }
+
+      const hasPreviousText = previousText.trim().length > 0;
+      let changed = false;
+
+      const nextLocks = activeAnswerSendLocksRef.current.map((lock) => {
+        if (lock.requestDispatched) {
+          return lock;
+        }
+
+        const replacedSegments = hasPreviousText
+          ? replaceLatestCommittedSegment(
+              lock.segments,
+              source,
+              previousText,
+              nextText,
+              "final"
+            )
+          : null;
+
+        const fallbackReplacedSegments = hasPreviousText
+          ? replaceLatestPendingCommittedSegment(lock.segments, source, nextText, "final")
+          : null;
+
+        const patchedSegments =
+          replacedSegments ||
+          fallbackReplacedSegments ||
+          commitSegment(lock.segments, source, nextText, "final");
+
+        const patchedPrompt = composePromptWithInstruction(
+          mergeTranscriptForPrompt(patchedSegments, lock.triggerTs),
+          lock.typedInstruction
+        ).trim();
+
+        if (patchedPrompt === lock.prompt) {
+          return lock;
+        }
+
+        changed = true;
+        return {
+          ...lock,
+          segments: patchedSegments,
+          prompt: patchedPrompt,
+        };
+      });
+
+      if (changed) {
+        activeAnswerSendLocksRef.current = nextLocks;
+      }
+    },
+    []
   );
 
   const commitLiveSegmentOnSpeakerSwitch = useCallback(
@@ -538,7 +733,7 @@ export function useSystemAudio() {
         return;
       }
 
-      appendCommittedTranscript(interruptedSource, interruptedText);
+      appendCommittedTranscript(interruptedSource, interruptedText, "optimistic");
       pendingCommitEchoRef.current[interruptedSource] = {
         partialText: interruptedText,
         timestamp: Date.now(),
@@ -779,28 +974,85 @@ export function useSystemAudio() {
     []
   );
 
-  const handleCaptureScreenshot = useCallback(async () => {
-    if (isCapturingScreenshot) {
-      return;
-    }
+  const captureManualScreenshot = useCallback(async () => {
+    const pending = createPendingManualScreenshot();
+    setManualScreenshots((previous) => {
+      const next = appendManualScreenshot(previous, pending, maxManualScreenshots);
+      manualScreenshotsRef.current = next;
+      return next;
+    });
 
-    setIsCapturingScreenshot(true);
     try {
-      const base64 = await tauriCommands.captureToBase64();
-      const manual: ManualScreenshot = createManualScreenshot(base64);
+      const captured = await tauriCommands.captureToImagePayload();
+      let image = captured;
 
+      try {
+        image = await compressImagePayloadInWorker(captured, {
+          maxSizeMB: SCREENSHOT_COMPRESS_MAX_SIZE_MB,
+          maxWidthOrHeight: SCREENSHOT_COMPRESS_MAX_WIDTH,
+          initialQuality: SCREENSHOT_COMPRESS_INITIAL_QUALITY,
+          outputMimeType: "image/webp",
+          minReductionRatio: SCREENSHOT_COMPRESS_MIN_REDUCTION_RATIO,
+        });
+      } catch (compressError) {
+        console.warn("Worker screenshot compression failed; using captured image:", compressError);
+      }
+
+      const resolved = resolveManualScreenshot(pending, image);
       setManualScreenshots((previous) => {
-        const next = appendManualScreenshot(previous, manual, maxManualScreenshots);
+        const next = previous.map((item) => {
+          if (item.id !== pending.id) {
+            return item;
+          }
+
+          return resolved;
+        });
         manualScreenshotsRef.current = next;
         return next;
       });
     } catch (captureError) {
       console.error("Manual screenshot capture failed:", captureError);
+      setManualScreenshots((previous) => {
+        const next = previous.filter((item) => item.id !== pending.id);
+        manualScreenshotsRef.current = next;
+        return next;
+      });
       setError("Failed to capture screenshot");
-    } finally {
-      setIsCapturingScreenshot(false);
     }
-  }, [isCapturingScreenshot, maxManualScreenshots]);
+  }, [maxManualScreenshots]);
+
+  const processManualScreenshotQueue = useCallback(async () => {
+    if (processingScreenshotQueueRef.current) {
+      return;
+    }
+
+    processingScreenshotQueueRef.current = true;
+    setIsCapturingScreenshot(true);
+
+    try {
+      while (pendingScreenshotCaptureCountRef.current > 0) {
+        if (!captureRef.current) {
+          pendingScreenshotCaptureCountRef.current = 0;
+          break;
+        }
+
+        pendingScreenshotCaptureCountRef.current -= 1;
+        await captureManualScreenshot();
+      }
+    } finally {
+      processingScreenshotQueueRef.current = false;
+      setIsCapturingScreenshot(false);
+
+      if (pendingScreenshotCaptureCountRef.current > 0) {
+        void processManualScreenshotQueue();
+      }
+    }
+  }, [captureManualScreenshot]);
+
+  const handleCaptureScreenshot = useCallback(async () => {
+    pendingScreenshotCaptureCountRef.current += 1;
+    await processManualScreenshotQueue();
+  }, [processManualScreenshotQueue]);
 
   const removeManualScreenshot = useCallback((id: string) => {
     setManualScreenshots((previous) => {
@@ -810,7 +1062,7 @@ export function useSystemAudio() {
     });
   }, []);
 
-  const buildImagesPayload = useCallback((): string[] => {
+  const buildImagesPayload = useCallback((): AIImagePayload[] => {
     return buildImagesPayloadInternal(manualScreenshotsRef.current);
   }, []);
 
@@ -828,7 +1080,8 @@ export function useSystemAudio() {
       const streamDoneAt = events.llm_stream_done;
       const errorAt = events.llm_error;
 
-      const screenshotSizes = params.imagesBase64.map((image) => image.length);
+      const screenshotSizes = params.images.map((image) => image.base64.length);
+      const screenshotMimeTypes = params.images.map((image) => image.mimeType);
       const totalImageChars = screenshotSizes.reduce((sum, size) => sum + size, 0);
       const historyChars = params.previousMessages.reduce(
         (sum, message) => sum + message.content.length,
@@ -882,6 +1135,7 @@ export function useSystemAudio() {
         payloadMeta: {
           transcriptChars: params.prompt.length,
           screenshotCount: screenshotSizes.length,
+          screenshotMimeTypes,
           screenshotBase64Chars: screenshotSizes,
           totalScreenshotBase64Chars: totalImageChars,
           historyMessageCount: params.previousMessages.length,
@@ -1025,7 +1279,14 @@ export function useSystemAudio() {
   }, [conversation, saveConversationDebounced]);
 
   const runAI = useCallback(
-    async (userMessage: string, imagesBase64: string[]): Promise<boolean> => {
+    async (
+      userMessage: string,
+      images: AIImagePayload[],
+      options?: {
+        resolveUserMessage?: () => string;
+        onRequestDispatched?: () => void;
+      }
+    ): Promise<boolean> => {
       if (!selectedAIProvider.provider) {
         setError("No AI provider selected.");
         return false;
@@ -1041,7 +1302,16 @@ export function useSystemAudio() {
       const providerId =
         provider.id ?? selectedAIProvider.provider ?? "unknown";
 
-      const fullPrompt = userMessage.trim();
+      const getResolvedPrompt = () => {
+        const resolved = options?.resolveUserMessage?.();
+        if (typeof resolved === "string") {
+          return resolved.trim();
+        }
+
+        return userMessage.trim();
+      };
+
+      const fullPrompt = getResolvedPrompt();
       if (!fullPrompt) {
         return false;
       }
@@ -1131,7 +1401,8 @@ export function useSystemAudio() {
           systemPrompt: getEffectiveSystemPrompt(),
           history: previousMessages,
           userMessage: fullPrompt,
-          imagesBase64,
+          resolveUserMessage: options?.resolveUserMessage,
+          imagesBase64: images,
           aiMode: currentAIMode,
           signal: controller.signal,
           onRequestPrepared: (meta) => {
@@ -1145,6 +1416,7 @@ export function useSystemAudio() {
 
             requestDispatched = true;
             recordLatencyMark("llm_request_dispatched", Date.now());
+            options?.onRequestDispatched?.();
           },
         })) {
           if (!firstChunkRecorded) {
@@ -1203,15 +1475,17 @@ export function useSystemAudio() {
           }));
         }
 
-        setManualScreenshots((previous) => {
-          return clearManualScreenshotsState(previous, manualScreenshotsRef);
-        });
+        if (!options?.resolveUserMessage) {
+          setManualScreenshots((previous) => {
+            return clearManualScreenshotsState(previous, manualScreenshotsRef);
+          });
+        }
         recordLatencyMark("llm_stream_done", Date.now());
 
         await writeSystemAudioLog({
           outcome: "success",
           prompt: fullPrompt,
-          imagesBase64,
+          images,
           previousMessages,
           providerId,
           aiMode: currentAIMode,
@@ -1233,7 +1507,7 @@ export function useSystemAudio() {
             errorMessage:
               aiError instanceof Error ? aiError.message : "Failed to generate AI response",
             prompt: fullPrompt,
-            imagesBase64,
+            images,
             previousMessages,
             providerId,
             aiMode: currentAIMode,
@@ -1293,42 +1567,65 @@ export function useSystemAudio() {
           };
       recordLatencyMark("answer_trigger", triggerTs);
 
+      const sendLock = createAnswerSendLock(trimmedInstruction, triggerTs);
+
       try {
         let prompt = "";
+        let retainCutoffTs = triggerTs;
+        let dispatchCleanupApplied = false;
+
+        const applyDispatchCleanup = () => {
+          if (dispatchCleanupApplied || !capturing) {
+            return;
+          }
+
+          dispatchCleanupApplied = true;
+          cleanupAfterSuccessfulDispatch(retainCutoffTs);
+        };
 
         if (capturing) {
-          const mergedPrompt = mergeTranscriptForPrompt(
-            segmentsRef.current,
-            triggerTs
-          ).trim();
-
-          if (!mergedPrompt && !trimmedInstruction) {
+          if (!sendLock) {
             setIsProcessing(false);
             setError("No transcript available yet. Keep speaking and try again.");
             return false;
           }
 
-          prompt = mergedPrompt;
-          if (trimmedInstruction) {
-            prompt = prompt
-              ? `${prompt}\n\nInstruction: ${trimmedInstruction}`
-              : trimmedInstruction;
-          }
+          retainCutoffTs = sendLock.triggerTs;
+          prompt = sendLock.prompt;
         } else {
           prompt = trimmedInstruction;
         }
 
         recordLatencyMark("transcript_finalized", Date.now());
 
-        const imagesBase64 = buildImagesPayload();
-        const sent = await runAI(prompt, imagesBase64);
-        if (sent && capturing) {
-          applySegmentUpdate((previous) => retainUnsentSegments(previous, triggerTs));
-          clearPendingRealtimeState();
+        const images = buildImagesPayload();
+        const sent = await runAI(
+          prompt,
+          images,
+          sendLock
+            ? {
+                resolveUserMessage: () => {
+                  const latestLock = activeAnswerSendLocksRef.current.find(
+                    (lock) => lock.id === sendLock.id
+                  );
+                  return latestLock?.prompt || sendLock.prompt;
+                },
+                onRequestDispatched: () => {
+                  markAnswerSendLockDispatched(sendLock.id);
+                  applyDispatchCleanup();
+                },
+              }
+            : undefined
+        );
+        if (sent && capturing && !dispatchCleanupApplied) {
+          applyDispatchCleanup();
         }
 
         return sent;
       } finally {
+        if (sendLock) {
+          removeAnswerSendLock(sendLock.id);
+        }
         setIsProcessing(false);
       }
     },
@@ -1336,8 +1633,11 @@ export function useSystemAudio() {
       applySegmentUpdate,
       buildImagesPayload,
       capturing,
-      clearPendingRealtimeState,
+      cleanupAfterSuccessfulDispatch,
+      createAnswerSendLock,
+      markAnswerSendLockDispatched,
       recordLatencyMark,
+      removeAnswerSendLock,
       runAI,
     ]
   );
@@ -1422,31 +1722,35 @@ export function useSystemAudio() {
           setError("");
           const pending = pendingCommitEchoRef.current[source];
           if (pending) {
-            const age = Date.now() - pending.timestamp;
-            if (age > PENDING_COMMIT_ECHO_TTL_MS) {
-              pendingCommitEchoRef.current[source] = undefined;
-              return;
-            }
-
-            if (pending.partialText === text) {
-              pendingCommitEchoRef.current[source] = undefined;
-              return;
-            }
-
             const replaced = replaceLatestCommittedSegment(
               segmentsRef.current,
               source,
               pending.partialText,
-              text
+              text,
+              "final"
             );
             if (replaced) {
               applySegmentUpdate(() => replaced);
+            } else {
+              const fallbackReplaced = replaceLatestPendingCommittedSegment(
+                segmentsRef.current,
+                source,
+                text,
+                "final"
+              );
+              if (fallbackReplaced) {
+                applySegmentUpdate(() => fallbackReplaced);
+              } else {
+                appendCommittedTranscript(source, text, "final");
+              }
             }
+            patchAnswerSendLocks(source, pending.partialText, text);
             pendingCommitEchoRef.current[source] = undefined;
             return;
           }
 
-          appendCommittedTranscript(source, text);
+          appendCommittedTranscript(source, text, "final");
+          patchAnswerSendLocks(source, "", text);
         },
         onRealtimeError: (message, event) => {
           if (event) {
@@ -1488,6 +1792,7 @@ export function useSystemAudio() {
       appendLiveTranscript,
       commitLiveSegmentOnSpeakerSwitch,
       closeRealtimeConnection,
+      patchAnswerSendLocks,
       selectedSttProvider,
     ]
   );
@@ -1541,6 +1846,7 @@ export function useSystemAudio() {
       setConversation(initialConversation());
       resetInterviewState();
       setLastAIResponse("");
+      pendingScreenshotCaptureCountRef.current = 0;
       setManualScreenshots((previous) => {
         return clearManualScreenshotsState(previous, manualScreenshotsRef);
       });
@@ -1642,6 +1948,7 @@ export function useSystemAudio() {
       captureRef.current = false;
       setIsProcessing(false);
       setIsAIProcessing(false);
+      pendingScreenshotCaptureCountRef.current = 0;
       setIsPopoverOpen(false);
       setError("");
       resetInterviewState();
@@ -1945,6 +2252,7 @@ export function useSystemAudio() {
     setSetupRequired(false);
     setIsProcessing(false);
     setIsAIProcessing(false);
+    pendingScreenshotCaptureCountRef.current = 0;
     setManualScreenshots((previous) => {
       return clearManualScreenshotsState(previous, manualScreenshotsRef);
     });
@@ -1979,6 +2287,8 @@ export function useSystemAudio() {
     lastTranscription: lastCommittedPrompt,
     transcriptSegments: liveTranscript,
     manualScreenshots,
+    processedManualScreenshotsCount,
+    pendingManualScreenshotsCount,
     removeManualScreenshot,
     latencySnapshot,
     isCapturingScreenshot,

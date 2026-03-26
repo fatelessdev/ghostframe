@@ -1,5 +1,9 @@
 import { normalizeTranscription } from "@/lib/utils";
-import { type TranscriptSegment, type TranscriptSource } from "@/types";
+import {
+  type TranscriptSegment,
+  type TranscriptSource,
+  type TranscriptStability,
+} from "@/types";
 
 const MAX_TRANSCRIPT_SEGMENTS = 300;
 const MAX_TRANSCRIPT_PROMPT_SEGMENTS = 120;
@@ -99,7 +103,8 @@ export function pcm16BufferToBase64(buffer: ArrayBuffer): string {
 function createSegment(
   source: TranscriptSource,
   text: string,
-  isLive: boolean = false
+  isLive: boolean = false,
+  stability: TranscriptStability = isLive ? "interim" : "final"
 ): TranscriptSegment {
   return {
     id: `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -107,6 +112,7 @@ function createSegment(
     text,
     timestamp: Date.now(),
     isLive,
+    stability,
   };
 }
 
@@ -115,6 +121,18 @@ function trimSegments(segments: TranscriptSegment[]): TranscriptSegment[] {
     return segments;
   }
   return segments.slice(segments.length - MAX_TRANSCRIPT_SEGMENTS);
+}
+
+function getStabilityRank(stability: TranscriptStability): number {
+  if (stability === "interim") {
+    return 0;
+  }
+
+  if (stability === "optimistic") {
+    return 1;
+  }
+
+  return 2;
 }
 
 export function replaceLiveSegment(
@@ -137,8 +155,9 @@ export function replaceLiveSegment(
         ...existingLive,
         text: normalizedText,
         timestamp: Date.now(),
+        stability: "interim" as const,
       }
-    : createSegment(source, normalizedText, true);
+    : createSegment(source, normalizedText, true, "interim");
 
   const next = [...withoutLive, nextLive];
 
@@ -148,7 +167,8 @@ export function replaceLiveSegment(
 export function commitSegment(
   segments: TranscriptSegment[],
   source: TranscriptSource,
-  text: string
+  text: string,
+  stability: TranscriptStability = "final"
 ): TranscriptSegment[] {
   const normalizedText = normalizeTranscription(text).trim();
 
@@ -167,13 +187,26 @@ export function commitSegment(
     }
 
     if (segment.text === normalizedText) {
+      if (segment.stability === stability) {
+        return trimSegments(next);
+      }
+
+      if (getStabilityRank(stability) <= getStabilityRank(segment.stability)) {
+        return trimSegments(next);
+      }
+
+      next[i] = {
+        ...segment,
+        stability,
+        timestamp: Date.now(),
+      };
       return trimSegments(next);
     }
 
     break;
   }
 
-  const committed = createSegment(source, normalizedText, false);
+  const committed = createSegment(source, normalizedText, false, stability);
   next = [...next, committed];
   return trimSegments(next);
 }
@@ -182,7 +215,8 @@ export function replaceLatestCommittedSegment(
   segments: TranscriptSegment[],
   source: TranscriptSource,
   previousText: string,
-  nextText: string
+  nextText: string,
+  stability: TranscriptStability = "final"
 ): TranscriptSegment[] | null {
   const normalizedPrevious = normalizeTranscription(previousText).trim();
   const normalizedNext = normalizeTranscription(nextText).trim();
@@ -201,9 +235,39 @@ export function replaceLatestCommittedSegment(
       next[i] = {
         ...segment,
         text: normalizedNext,
+        stability,
       };
       return trimSegments(next);
     }
+  }
+
+  return null;
+}
+
+export function replaceLatestPendingCommittedSegment(
+  segments: TranscriptSegment[],
+  source: TranscriptSource,
+  nextText: string,
+  stability: TranscriptStability = "final"
+): TranscriptSegment[] | null {
+  const normalizedNext = normalizeTranscription(nextText).trim();
+  if (!normalizedNext) {
+    return null;
+  }
+
+  const next = [...segments];
+  for (let i = next.length - 1; i >= 0; i--) {
+    const segment = next[i];
+    if (segment.source !== source || segment.isLive || segment.stability === "final") {
+      continue;
+    }
+
+    next[i] = {
+      ...segment,
+      text: normalizedNext,
+      stability,
+    };
+    return trimSegments(next);
   }
 
   return null;

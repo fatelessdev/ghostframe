@@ -1,5 +1,7 @@
 export type TranscriptSource = "interviewer" | "user";
 
+export type TranscriptStability = "interim" | "optimistic" | "final";
+
 export interface SystemAudioVadConfig {
   enabled: boolean;
   hop_size: number;
@@ -26,6 +28,7 @@ export interface TranscriptSegment {
   text: string;
   timestamp: number;
   isLive: boolean;
+  stability: TranscriptStability;
 }
 
 export type SystemAudioLatencyStage =

@@ -1,5 +1,5 @@
 import { type MutableRefObject } from "react";
-import { type TranscriptSource } from "@/types";
+import { type TranscriptSource, type TranscriptStability } from "@/types";
 import {
   commitRealtimeHandle,
   type RealtimeHandle,
@@ -78,7 +78,11 @@ type CommitLatestPartialsOptions = {
   latestPartialInterviewerRef: MutableRefObject<string>;
   latestPartialUserRef: MutableRefObject<string>;
   pendingCommitEchoRef: PendingCommitEchoRef;
-  appendCommittedTranscript: (source: TranscriptSource, text: string) => void;
+  appendCommittedTranscript: (
+    source: TranscriptSource,
+    text: string,
+    stability?: TranscriptStability
+  ) => void;
   now?: () => number;
 };
 
@@ -91,7 +95,7 @@ export const commitLatestPartialTranscripts = ({
 }: CommitLatestPartialsOptions): void => {
   const partialInterviewer = latestPartialInterviewerRef.current;
   if (partialInterviewer) {
-    appendCommittedTranscript("interviewer", partialInterviewer);
+    appendCommittedTranscript("interviewer", partialInterviewer, "optimistic");
     pendingCommitEchoRef.current.interviewer = {
       partialText: partialInterviewer,
       timestamp: now(),
@@ -101,7 +105,7 @@ export const commitLatestPartialTranscripts = ({
 
   const partialUser = latestPartialUserRef.current;
   if (partialUser) {
-    appendCommittedTranscript("user", partialUser);
+    appendCommittedTranscript("user", partialUser, "optimistic");
     pendingCommitEchoRef.current.user = {
       partialText: partialUser,
       timestamp: now(),
