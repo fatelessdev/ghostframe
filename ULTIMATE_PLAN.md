@@ -36,16 +36,10 @@
 ### 4) Quality of Life
 - **4.1 Profile/preset system with specialized prompts** - `Active`
   - Interview-specific presets remain high impact.
-- **4.2 Custom context injection (resume/JD)** - `Implemented`
-  - Added interview-tailoring settings (resume summary + JD summary) and prompt injection for Start-flow.
-- **4.4 Verbosity toggle on input/floating bar** - `Implemented`
-  - Added visible verbosity mode in top floating bar and shortcut toggle support.
 - **4.5 Intelligent transcription filtering** - `Active`
   - Reduce noise from small-talk transcripts before full answer generation.
 - **4.6 Multi-monitor window tracking** - `Active`
   - Keep overlay aligned with active monitor/work area.
-- **4.7 Session auto-reconnection with context replay** - `Implemented`
-  - Realtime stream reconnection exists for system-audio interview flow.
 - **4.8 Local/offline STT pipeline** - `Deferred`
   - Useful privacy/traceability feature; currently lower priority.
 
@@ -74,7 +68,6 @@
 
 ### P1 High
 - 2.2 Speaker diarization (`Active`)
-- 4.2 Resume/JD context injection (`Implemented`)
 - 4.5 Intelligent transcription filtering (`Active`)
 - N1 Gaze-optimized positioning (`Active`)
 - N5 Time-buying quick actions (`Active`)
@@ -83,7 +76,6 @@
 - 2.5 Epoch summarization (`Active`)
 - 3.3 Compact overlay (`Active`)
 - 3.7 Keyboard response scrolling (`Active`)
-- 4.4 Verbosity toggle (`Implemented`)
 - 4.6 Multi-monitor tracking (`Active`)
 
 ### P3 Lower / Deferred
