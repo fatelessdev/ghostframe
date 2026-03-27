@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, RefObject } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 export interface ScrollState {
   canScrollUp: boolean;
@@ -12,22 +12,24 @@ export interface ScrollState {
 
 const SCROLL_THRESHOLD = 2; // pixels tolerance for edge detection
 
+const DEFAULT_SCROLL_STATE: ScrollState = {
+  canScrollUp: false,
+  canScrollDown: false,
+  hasOverflow: false,
+  isAtTop: true,
+  isAtBottom: false,
+  scrollHeight: 0,
+  clientHeight: 0,
+};
+
 export const useScrollState = (
-  ref: RefObject<HTMLElement | null>
+  target: HTMLElement | null
 ): ScrollState => {
   const frameRef = useRef<number | null>(null);
-  const [state, setState] = useState<ScrollState>({
-    canScrollUp: false,
-    canScrollDown: false,
-    hasOverflow: false,
-    isAtTop: true,
-    isAtBottom: false,
-    scrollHeight: 0,
-    clientHeight: 0,
-  });
+  const [state, setState] = useState<ScrollState>(DEFAULT_SCROLL_STATE);
 
   const updateScrollState = useCallback(() => {
-    const element = ref.current;
+    const element = target;
     if (!element) {
       return;
     }
@@ -62,11 +64,26 @@ export const useScrollState = (
 
       return nextState;
     });
-  }, [ref]);
+  }, [target]);
 
   useEffect(() => {
-    const element = ref.current;
+    const element = target;
     if (!element) {
+      setState((previous) => {
+        if (
+          previous.canScrollUp === DEFAULT_SCROLL_STATE.canScrollUp &&
+          previous.canScrollDown === DEFAULT_SCROLL_STATE.canScrollDown &&
+          previous.hasOverflow === DEFAULT_SCROLL_STATE.hasOverflow &&
+          previous.isAtTop === DEFAULT_SCROLL_STATE.isAtTop &&
+          previous.isAtBottom === DEFAULT_SCROLL_STATE.isAtBottom &&
+          previous.scrollHeight === DEFAULT_SCROLL_STATE.scrollHeight &&
+          previous.clientHeight === DEFAULT_SCROLL_STATE.clientHeight
+        ) {
+          return previous;
+        }
+
+        return DEFAULT_SCROLL_STATE;
+      });
       return;
     }
 
@@ -108,7 +125,7 @@ export const useScrollState = (
         frameRef.current = null;
       }
     };
-  }, [ref, updateScrollState]);
+  }, [target, updateScrollState]);
 
   return state;
 };

@@ -466,12 +466,19 @@ const App = () => {
       toggleCurrentAIMode();
     });
 
+    const unlistenToggleVerbosity = listen("toggle-verbosity-mode", () => {
+      handleToggleVerbosityMode();
+    });
+
     return () => {
       unlistenToggleModel
         .then((fn) => fn())
         .catch(() => {});
+      unlistenToggleVerbosity
+        .then((fn) => fn())
+        .catch(() => {});
     };
-  }, [toggleCurrentAIMode]);
+  }, [handleToggleVerbosityMode, toggleCurrentAIMode]);
 
     const openSettingsPanel = async () => {
       try {

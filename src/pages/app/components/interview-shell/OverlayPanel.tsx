@@ -1,4 +1,4 @@
-import { ReactNode, useRef, createContext, useContext } from "react";
+import { ReactNode, useRef, createContext, useContext, useState } from "react";
 import { InterviewOverlayView } from "./types";
 import { useScrollState, type ScrollState } from "@/hooks";
 
@@ -35,10 +35,12 @@ export const OverlayPanel = ({
 }: OverlayPanelProps) => {
   const isExpanded = viewMode !== "collapsed";
   const scrollRef = useRef<HTMLElement | null>(null);
-  const scrollState = useScrollState(scrollRef);
+  const [scrollTarget, setScrollTarget] = useState<HTMLElement | null>(null);
+  const scrollState = useScrollState(scrollTarget);
 
   const setScrollRef = (ref: HTMLElement | null) => {
     scrollRef.current = ref;
+    setScrollTarget(ref);
   };
 
   const renderTabs = () => {

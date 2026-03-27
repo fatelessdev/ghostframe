@@ -298,6 +298,13 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
                 }
             }
         }
+        "toggle_verbosity_mode" => {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.emit("toggle-verbosity-mode", json!({})) {
+                    eprintln!("Failed to emit toggle-verbosity-mode event: {}", error);
+                }
+            }
+        }
         "audio_recording" => handle_audio_shortcut(app),
         "screenshot" => handle_screenshot_shortcut(app),
         "system_audio" => handle_system_audio_shortcut(app),
