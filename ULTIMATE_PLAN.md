@@ -24,12 +24,12 @@
   - Valuable for speaker-only setups; higher implementation effort.
 
 ### 3) UI/UX for Low Cognitive Load
-- **3.3 Compact overlay modes** - `Active`
-  - Reduce occlusion while keeping answers readable.
-- **3.5 Response navigation (prev/next)** - `Deferred`
-  - Useful for revisiting earlier answers in long sessions.
-- **3.6 Split layout for code responses** - `Deferred`
-  - Helpful for coding interviews; not urgent.
+- **3.3 Compact overlay modes** - `Implemented`
+  - Reduce occlusion while keeping answers readable. Toggle via Ctrl+Shift+C.
+- **3.5 Response navigation (prev/next)** - `Implemented`
+  - Useful for revisiting earlier answers in long sessions. Navigate via Ctrl+[ and Ctrl+].
+- **3.6 Split layout for code responses** - `Implemented`
+  - Helpful for coding interviews. Toggle via Ctrl+Shift+\.
 - **3.7 Keyboard-driven response scrolling** - `Active`
   - Improves hands-on-keyboard workflow and low-visibility interaction.
 
@@ -74,15 +74,15 @@
 
 ### P2 Medium
 - 2.5 Epoch summarization (`Active`)
-- 3.3 Compact overlay (`Active`)
+- 3.3 Compact overlay (`Implemented`)
+- 3.5 Response navigation (`Implemented`)
+- 3.6 Split code layout (`Implemented`)
 - 3.7 Keyboard response scrolling (`Active`)
 - 4.6 Multi-monitor tracking (`Active`)
 
 ### P3 Lower / Deferred
 - 1.4 Anti-analysis
 - 2.7 AEC
-- 3.5 Response navigation
-- 3.6 Split code layout
 - 4.8 Local/offline STT
 - N3, N4, N6, N7, N8, N9, N10
 

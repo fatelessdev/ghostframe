@@ -486,3 +486,30 @@ body {
   font-size: inherit !important;
 }
 
+/* Feature 3.3: Compact overlay mode styles */
+[data-overlay-density="compact"] .response-text-root {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+[data-overlay-density="compact"] .response-text-root p {
+  margin-bottom: 0.25em;
+}
+
+[data-overlay-density="compact"] [data-streamdown="code-block"] {
+  margin: 0.25em 0;
+}
+
+[data-overlay-density="compact"] [data-streamdown="code-block"] pre {
+  padding: 0.5em;
+}
+
+/* Feature 3.6: Split layout styles */
+[data-layout-mode="split"] [data-overlay-panel-body] {
+  min-height: 200px;
+}
+
+[data-layout-mode="split"] .response-text-root {
+  padding-top: 2em; /* Space for navigation */
+}
+

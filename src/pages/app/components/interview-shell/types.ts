@@ -3,3 +3,7 @@ export type InterviewOverlayView =
 	| "response"
 	| "transcripts"
 	| "settings";
+
+export type OverlayDensity = "normal" | "compact";
+
+export type ResponseLayoutMode = "default" | "split";

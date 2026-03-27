@@ -2,9 +2,12 @@ import { CopyButton, CustomCursor, Markdown } from "@/components";
 import {
   OverlayPanel,
   OverlayTopBar,
+  ResponseNavigation,
   ResponseView,
   TranscriptsView,
   type InterviewOverlayView,
+  type OverlayDensity,
+  type ResponseLayoutMode,
 } from "./components";
 import { PermissionFlow } from "./components/speech/PermissionFlow";
 import { useApp, useClickableRects } from "@/hooks";
@@ -16,7 +19,7 @@ import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
 import { getPlatform, getResponseSettings, updateResponseLength } from "@/lib";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const CONTENT_PROTECTION_KEY = "content_protected";
 
@@ -87,6 +90,16 @@ const App = () => {
     useState<ResponseLengthMode>(() => {
       return normalizeResponseLengthMode(getResponseSettings().responseLength);
     });
+
+  // Feature 3.3: Compact overlay mode state
+  const [overlayDensity, setOverlayDensity] = useState<OverlayDensity>("normal");
+  
+  // Feature 3.5: Response history navigation state
+  const [responseHistory, setResponseHistory] = useState<string[]>([]);
+  const [responseHistoryIndex, setResponseHistoryIndex] = useState<number>(-1);
+  
+  // Feature 3.6: Split layout for code responses
+  const [layoutMode, setLayoutMode] = useState<ResponseLayoutMode>("default");
 
   useClickableRects([activeView]);
 
@@ -169,6 +182,58 @@ const App = () => {
     });
   }, [isRecording]);
 
+  // Feature 3.3: Toggle compact overlay mode
+  const handleToggleCompactMode = useCallback(() => {
+    setOverlayDensity((current) => (current === "normal" ? "compact" : "normal"));
+  }, []);
+
+  // Feature 3.5: Response history navigation
+  const handlePrevResponse = useCallback(() => {
+    if (responseHistoryIndex > 0) {
+      setResponseHistoryIndex((prev) => prev - 1);
+    }
+  }, [responseHistoryIndex]);
+
+  const handleNextResponse = useCallback(() => {
+    if (responseHistoryIndex < responseHistory.length - 1) {
+      setResponseHistoryIndex((prev) => prev + 1);
+    }
+  }, [responseHistory.length, responseHistoryIndex]);
+
+  // Feature 3.6: Toggle split layout for code responses
+  const handleToggleSplitLayout = useCallback(() => {
+    setLayoutMode((current) => (current === "default" ? "split" : "default"));
+  }, []);
+
+  // Track response history when new responses come in
+  useEffect(() => {
+    const currentResponse = systemAudio?.lastAIResponse ?? "";
+    if (!currentResponse) {
+      return;
+    }
+
+    setResponseHistory((prev) => {
+      // Avoid duplicates of the most recent response
+      if (prev.length > 0 && prev[prev.length - 1] === currentResponse) {
+        return prev;
+      }
+      return [...prev, currentResponse];
+    });
+    // Always show the latest response
+    setResponseHistoryIndex(() => {
+      // Move to new end when new response arrives
+      return responseHistory.length;
+    });
+  }, [systemAudio?.lastAIResponse, responseHistory.length]);
+
+  // Get the display response (current or from history)
+  const displayResponseText = useMemo(() => {
+    if (responseHistoryIndex >= 0 && responseHistoryIndex < responseHistory.length) {
+      return responseHistory[responseHistoryIndex];
+    }
+    return responseText;
+  }, [responseHistory, responseHistoryIndex, responseText]);
+
   useEffect(() => {
     const syncResponseLengthMode = () => {
       const stored = getResponseSettings().responseLength;
@@ -247,6 +312,28 @@ const App = () => {
           return;
         }
 
+        // Feature 3.3: Compact mode toggle
+        if (actionId.trim().toLowerCase() === "toggle_compact_mode") {
+          handleToggleCompactMode();
+          return;
+        }
+
+        // Feature 3.5: Response navigation
+        if (actionId.trim().toLowerCase() === "prev_response") {
+          handlePrevResponse();
+          return;
+        }
+        if (actionId.trim().toLowerCase() === "next_response") {
+          handleNextResponse();
+          return;
+        }
+
+        // Feature 3.6: Split layout toggle
+        if (actionId.trim().toLowerCase() === "toggle_split_layout") {
+          handleToggleSplitLayout();
+          return;
+        }
+
         const nextView = resolveCustomShortcutView(actionId);
         if (!isRecording && (nextView === "response" || nextView === "transcripts")) {
           return;
@@ -268,7 +355,11 @@ const App = () => {
     };
   }, [
     handleClearActivePanel,
+    handleNextResponse,
+    handlePrevResponse,
     handleQuickPromptSend,
+    handleToggleCompactMode,
+    handleToggleSplitLayout,
     handleToggleVerbosityMode,
     isQuickPromptOpen,
     isRecording,
@@ -509,6 +600,8 @@ const App = () => {
         <OverlayPanel
           viewMode={activeView}
           onSetViewMode={setActiveView}
+          density={overlayDensity}
+          layoutMode={layoutMode}
           className="overlay-shell-width"
           topBar={
             <>
@@ -546,7 +639,7 @@ const App = () => {
         >
 
           {activeView === "response" && canShowResponseView ? (
-            <ResponseView>
+            <ResponseView density={overlayDensity} layoutMode={layoutMode}>
               {systemAudio?.error ? (
                 <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
                   <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />
@@ -565,13 +658,25 @@ const App = () => {
                 />
               ) : (
                 <div className="group relative h-full w-full">
-                  {responseHasCode && responseText ? (
+                  {/* Response navigation for history */}
+                  {responseHistory.length > 1 && (
+                    <div className="absolute top-2 left-2 z-10">
+                      <ResponseNavigation
+                        currentIndex={responseHistoryIndex >= 0 ? responseHistoryIndex : responseHistory.length - 1}
+                        totalCount={responseHistory.length}
+                        onPrev={handlePrevResponse}
+                        onNext={handleNextResponse}
+                      />
+                    </div>
+                  )}
+                  
+                  {responseHasCode && displayResponseText ? (
                     <div className="pointer-events-auto absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
-                      <CopyButton content={responseText} />
+                      <CopyButton content={displayResponseText} />
                     </div>
                   ) : null}
 
-                  {Boolean(systemAudio?.isAIProcessing) && !responseText ? (
+                  {Boolean(systemAudio?.isAIProcessing) && !displayResponseText ? (
                     <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
                       <span>Generating response...</span>
@@ -579,7 +684,7 @@ const App = () => {
                   ) : null}
 
                   <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert">
-                    <Markdown>{responseText}</Markdown>
+                    <Markdown>{displayResponseText}</Markdown>
                   </div>
                 </div>
               )}

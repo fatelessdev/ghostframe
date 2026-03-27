@@ -172,4 +172,44 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
       linux: "ctrl+h",
     },
   },
+  {
+    id: "toggle_compact_mode",
+    name: "Toggle Compact Mode",
+    description: "Toggle compact overlay density for less occlusion",
+    defaultKey: {
+      macos: "cmd+shift+c",
+      windows: "ctrl+shift+c",
+      linux: "ctrl+shift+c",
+    },
+  },
+  {
+    id: "prev_response",
+    name: "Previous Response",
+    description: "Navigate to previous AI response in history",
+    defaultKey: {
+      macos: "cmd+[",
+      windows: "ctrl+[",
+      linux: "ctrl+[",
+    },
+  },
+  {
+    id: "next_response",
+    name: "Next Response",
+    description: "Navigate to next AI response in history",
+    defaultKey: {
+      macos: "cmd+]",
+      windows: "ctrl+]",
+      linux: "ctrl+]",
+    },
+  },
+  {
+    id: "toggle_split_layout",
+    name: "Toggle Split Layout",
+    description: "Toggle split layout for code responses",
+    defaultKey: {
+      macos: "cmd+\\",
+      windows: "ctrl+shift+\\",
+      linux: "ctrl+shift+\\",
+    },
+  },
 ];

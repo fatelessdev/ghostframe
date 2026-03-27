@@ -1,5 +1,5 @@
 import { ReactNode, useRef, createContext, useContext, useState } from "react";
-import { InterviewOverlayView } from "./types";
+import { InterviewOverlayView, OverlayDensity, ResponseLayoutMode } from "./types";
 import { useScrollState, type ScrollState } from "@/hooks";
 
 // Context to share scroll state from child views to panel
@@ -23,6 +23,8 @@ interface OverlayPanelProps {
   children: ReactNode;
   className?: string;
   viewMode: InterviewOverlayView;
+  density?: OverlayDensity;
+  layoutMode?: ResponseLayoutMode;
   onSetViewMode?: (view: InterviewOverlayView) => void;
 }
 
@@ -31,9 +33,12 @@ export const OverlayPanel = ({
   children,
   className,
   viewMode,
+  density = "normal",
+  layoutMode = "default",
   onSetViewMode,
 }: OverlayPanelProps) => {
   const isExpanded = viewMode !== "collapsed";
+  const isCompact = density === "compact";
   const scrollRef = useRef<HTMLElement | null>(null);
   const [scrollTarget, setScrollTarget] = useState<HTMLElement | null>(null);
   const scrollState = useScrollState(scrollTarget);
@@ -41,6 +46,17 @@ export const OverlayPanel = ({
   const setScrollRef = (ref: HTMLElement | null) => {
     scrollRef.current = ref;
     setScrollTarget(ref);
+  };
+
+  // Compute panel height constraints based on density
+  const getPanelHeightClasses = () => {
+    if (viewMode === "settings") {
+      return "w-full h-[max(65vh,540px)] min-h-[500px]";
+    }
+    if (isCompact) {
+      return "min-h-[80px] max-h-[180px]";
+    }
+    return "min-h-[120px] max-h-[max(65vh,540px)]";
   };
 
   const renderTabs = () => {
@@ -112,6 +128,8 @@ export const OverlayPanel = ({
     <ScrollContext.Provider value={{ scrollState, setScrollRef }}>
       <section
         className={`flex flex-col w-full max-w-[900px] mx-auto gap-3 ${className ?? ""} pointer-events-none`}
+        data-density={density}
+        data-layout-mode={layoutMode}
       >
         {topBar}
         {isExpanded ? (
@@ -125,18 +143,17 @@ export const OverlayPanel = ({
             <div
               data-overlay-panel-body
               data-overlay-view-mode={viewMode}
+              data-overlay-density={density}
               className={`
-                flex flex-col overflow-hidden overlay-panel-glass rounded-2xl 
+                flex overflow-hidden overlay-panel-glass rounded-2xl 
                 border border-white/[0.08] shadow-2xl relative pointer-events-auto
                 animate-in fade-in-0 slide-in-from-bottom-3 duration-300 ease-out
-                ${viewMode === "settings" 
-                  ? "w-full h-[max(65vh,540px)] min-h-[500px]" 
-                  : "min-h-[120px] max-h-[max(65vh,540px)]"
-                }
+                ${layoutMode === "split" && viewMode === "response" ? "flex-row" : "flex-col"}
+                ${getPanelHeightClasses()}
               `}
             >
-              {viewMode !== "settings" && renderTabs()}
-              <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
+              {viewMode !== "settings" && !isCompact && renderTabs()}
+              <div className={`flex-1 relative flex min-h-0 overflow-hidden ${layoutMode === "split" ? "flex-row" : "flex-col"}`}>
                 {children}
               </div>
 
