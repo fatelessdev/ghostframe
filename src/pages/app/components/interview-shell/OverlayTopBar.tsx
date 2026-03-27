@@ -3,19 +3,23 @@ import { SettingsIcon } from "lucide-react";
 interface OverlayTopBarProps {
   screenshotCount: number;
   mode: "D" | "P";
+  verbosityLabel: "Auto" | "Short" | "Verbose";
   isCapturing: boolean;
   onStartInterview: () => void;
   onOpenSettings?: () => void;
   onToggleMode?: () => void;
+  onToggleVerbosity?: () => void;
 }
 
 export const OverlayTopBar = ({
   screenshotCount,
   mode,
+  verbosityLabel,
   isCapturing,
   onStartInterview,
   onOpenSettings,
   onToggleMode,
+  onToggleVerbosity,
 }: OverlayTopBarProps) => {
   // Shared styles for secondary action buttons
   const secondaryButtonBase = `
@@ -74,6 +78,24 @@ export const OverlayTopBar = ({
 
         {/* Divider */}
         <div className="w-px h-4 bg-gradient-to-b from-transparent via-white/[0.08] to-transparent mx-0.5" aria-hidden="true" />
+
+        <button
+          onClick={onToggleVerbosity}
+          className="
+            flex items-center justify-center gap-1.5
+            text-white/75 hover:text-white/90
+            px-3 py-1.5 rounded-xl
+            transition-all duration-200 ease-out
+            hover:bg-white/[0.06]
+            active:scale-[0.98]
+            focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
+          "
+          aria-label={`Verbosity: ${verbosityLabel}. Click to toggle.`}
+        >
+          <span className="text-[12px] font-medium tracking-wide">
+            {verbosityLabel}
+          </span>
+        </button>
 
         {/* Start/Stop - Primary CTA using blue accent */}
         <button

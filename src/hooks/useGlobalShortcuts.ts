@@ -33,6 +33,8 @@ const ROUTE_HANDLED_CUSTOM_ACTIONS = new Set([
   "view_response",
   "view_transcripts",
   "view_settings",
+  "clear_active_panel",
+  "toggle_verbosity_mode",
 ]);
 
 // Global hook consumer count for singleton listener lifecycle

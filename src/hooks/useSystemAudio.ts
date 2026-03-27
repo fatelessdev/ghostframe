@@ -242,6 +242,37 @@ const composePromptWithInstruction = (
     : trimmedInstruction;
 };
 
+const buildTailoringPromptBlock = (
+  tailoringEnabled: boolean,
+  resumeSummary: string,
+  jobDescriptionSummary: string
+): string => {
+  if (!tailoringEnabled) {
+    return "";
+  }
+
+  const trimmedResumeSummary = resumeSummary.trim();
+  const trimmedJobDescriptionSummary = jobDescriptionSummary.trim();
+  if (!trimmedResumeSummary && !trimmedJobDescriptionSummary) {
+    return "";
+  }
+
+  const sections: string[] = [];
+  if (trimmedResumeSummary) {
+    sections.push(`[USER_RESUME_SUMMARY]\n${trimmedResumeSummary}`);
+  }
+
+  if (trimmedJobDescriptionSummary) {
+    sections.push(`[TARGET_JOB_SUMMARY]\n${trimmedJobDescriptionSummary}`);
+  }
+
+  sections.push(
+    "Tailor responses using this profile context so wording, examples, and experience claims stay authentic and role-specific."
+  );
+
+  return sections.join("\n\n");
+};
+
 const initialConversation = (): ChatConversation => ({
   id: generateConversationId("sysaudio"),
   title: "",
@@ -447,6 +478,9 @@ export function useSystemAudio() {
   const quickActions = settings.quickActions;
   const useSystemPrompt = settings.useSystemPrompt;
   const contextContent = settings.contextContent;
+  const tailoringEnabled = settings.tailoringEnabled;
+  const resumeSummary = settings.resumeSummary;
+  const jobDescriptionSummary = settings.jobDescriptionSummary;
   const vadConfig = settings.vadConfig;
   const maxManualScreenshots = settings.maxManualScreenshots;
 
@@ -520,11 +554,28 @@ export function useSystemAudio() {
   );
 
   const getEffectiveSystemPrompt = useCallback(() => {
-    if (useSystemPrompt) {
-      return systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const basePrompt = useSystemPrompt
+      ? systemPrompt || DEFAULT_SYSTEM_PROMPT
+      : contextContent.trim() || DEFAULT_SYSTEM_PROMPT;
+    const tailoringBlock = buildTailoringPromptBlock(
+      tailoringEnabled,
+      resumeSummary,
+      jobDescriptionSummary
+    );
+
+    if (!tailoringBlock) {
+      return basePrompt;
     }
-    return contextContent.trim() || DEFAULT_SYSTEM_PROMPT;
-  }, [contextContent, systemPrompt, useSystemPrompt]);
+
+    return `${basePrompt}\n\n${tailoringBlock}`;
+  }, [
+    contextContent,
+    jobDescriptionSummary,
+    resumeSummary,
+    systemPrompt,
+    tailoringEnabled,
+    useSystemPrompt,
+  ]);
 
   const getPreviousMessages = useCallback(() => {
     const compactHistory: { role: ChatMessage["role"]; content: string }[] = [];
@@ -2440,6 +2491,35 @@ export function useSystemAudio() {
     });
   }, [clearAllInterimPromotionTimeouts, resetInterviewState]);
 
+  const clearPanelMemory = useCallback(
+    (panel: "response" | "transcripts") => {
+      if (panel === "response") {
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort();
+          abortControllerRef.current = null;
+        }
+
+        if (aiResponseFlushFrameRef.current !== null) {
+          window.cancelAnimationFrame(aiResponseFlushFrameRef.current);
+          aiResponseFlushFrameRef.current = null;
+        }
+
+        aiResponseBufferRef.current = "";
+        queuedAnswerTriggerRef.current = null;
+        setConversation(initialConversation());
+        setLastAIResponse("");
+        setError("");
+        setIsProcessing(false);
+        setIsAIProcessing(false);
+        return;
+      }
+
+      resetInterviewState();
+      setError("");
+    },
+    [resetInterviewState]
+  );
+
   return {
     capturing,
     isProcessing,
@@ -2479,5 +2559,6 @@ export function useSystemAudio() {
     scrollAreaRef,
     maxManualScreenshots,
     updateMaxManualScreenshots,
+    clearPanelMemory,
   };
 }

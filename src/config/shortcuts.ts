@@ -62,6 +62,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "toggle_verbosity_mode",
+    name: "Toggle Verbosity Mode",
+    description: "Switch response verbosity between short and verbose",
+    defaultKey: {
+      macos: "cmd+shift+s",
+      windows: "ctrl+shift+s",
+      linux: "ctrl+shift+s",
+    },
+  },
+  {
     id: "system_audio",
     name: "System Audio",
     description: "Toggle system audio capture",
@@ -110,6 +120,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
       macos: "alt+3",
       windows: "alt+3",
       linux: "alt+3",
+    },
+  },
+  {
+    id: "clear_active_panel",
+    name: "Clear Active Panel",
+    description: "Clear response or transcript data in the active view",
+    defaultKey: {
+      macos: "cmd+g",
+      windows: "ctrl+g",
+      linux: "ctrl+g",
     },
   },
   {

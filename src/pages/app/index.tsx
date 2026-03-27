@@ -15,10 +15,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
-import { getPlatform } from "@/lib";
+import { getPlatform, getResponseSettings, updateResponseLength } from "@/lib";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const CONTENT_PROTECTION_KEY = "content_protected";
+
+type ResponseLengthMode = "short" | "medium" | "auto";
 
 const VIEW_SHORTCUT_ACTIONS: Record<string, InterviewOverlayView> = {
   view_response: "response",
@@ -46,6 +48,24 @@ const resolveCustomShortcutView = (
   return VIEW_SHORTCUT_ACTIONS[actionId.trim().toLowerCase()] ?? null;
 };
 
+const normalizeResponseLengthMode = (value: string): ResponseLengthMode => {
+  if (value === "short" || value === "medium" || value === "auto") {
+    return value;
+  }
+
+  return "short";
+};
+
+const getVerbosityLabel = (
+  mode: ResponseLengthMode
+): "Auto" | "Short" | "Verbose" => {
+  if (mode === "auto") {
+    return "Auto";
+  }
+
+  return mode === "short" ? "Short" : "Verbose";
+};
+
 const App = () => {
   const { systemAudio } = useApp();
   const {
@@ -63,6 +83,10 @@ const App = () => {
   const [lastConversationView, setLastConversationView] = useState<
     "response" | "transcripts"
   >("transcripts");
+  const [responseLengthMode, setResponseLengthMode] =
+    useState<ResponseLengthMode>(() => {
+      return normalizeResponseLengthMode(getResponseSettings().responseLength);
+    });
 
   useClickableRects([activeView]);
 
@@ -111,6 +135,56 @@ const App = () => {
     }
   }, [isRecording, quickPromptText, systemAudio]);
 
+  const handleClearActivePanel = useCallback(() => {
+    if (!systemAudio) {
+      return;
+    }
+
+    if (activeView === "response") {
+      systemAudio.clearPanelMemory("response");
+      return;
+    }
+
+    if (activeView === "transcripts") {
+      systemAudio.clearPanelMemory("transcripts");
+    }
+  }, [activeView, systemAudio]);
+
+  const handleToggleVerbosityMode = useCallback(() => {
+    setResponseLengthMode((current) => {
+      const normalized = normalizeResponseLengthMode(current);
+      const nextMode: ResponseLengthMode =
+        normalized === "auto"
+          ? "short"
+          : normalized === "short"
+            ? "medium"
+            : "short";
+
+      updateResponseLength(nextMode);
+      return nextMode;
+    });
+  }, []);
+
+  useEffect(() => {
+    const syncResponseLengthMode = () => {
+      const stored = getResponseSettings().responseLength;
+      const normalized = normalizeResponseLengthMode(stored);
+      if (normalized !== stored) {
+        updateResponseLength(normalized);
+      }
+      setResponseLengthMode(normalized);
+    };
+
+    syncResponseLengthMode();
+    window.addEventListener("responseSettingsChanged", syncResponseLengthMode);
+    window.addEventListener("storage", syncResponseLengthMode);
+
+    return () => {
+      window.removeEventListener("responseSettingsChanged", syncResponseLengthMode);
+      window.removeEventListener("storage", syncResponseLengthMode);
+    };
+  }, []);
+
   useEffect(() => {
     if (activeView === "response" || activeView === "transcripts") {
       setLastConversationView(activeView);
@@ -154,8 +228,18 @@ const App = () => {
           return;
         }
 
+        if (actionId.trim().toLowerCase() === "toggle_verbosity_mode") {
+          handleToggleVerbosityMode();
+          return;
+        }
+
         if (actionId.trim().toLowerCase() === "view_settings") {
           void openSettingsPanel();
+          return;
+        }
+
+        if (actionId.trim().toLowerCase() === "clear_active_panel") {
+          handleClearActivePanel();
           return;
         }
 
@@ -178,7 +262,13 @@ const App = () => {
         .then((fn) => fn())
         .catch(() => {});
     };
-  }, [handleQuickPromptSend, isQuickPromptOpen, isRecording]);
+  }, [
+    handleClearActivePanel,
+    handleQuickPromptSend,
+    handleToggleVerbosityMode,
+    isQuickPromptOpen,
+    isRecording,
+  ]);
 
   useEffect(() => {
     if (
@@ -430,12 +520,14 @@ const App = () => {
               <OverlayTopBar
                 screenshotCount={systemAudio?.processedManualScreenshotsCount ?? 0}
                 mode={currentAIMode}
+                verbosityLabel={getVerbosityLabel(responseLengthMode)}
                 isCapturing={Boolean(systemAudio?.capturing)}
                 onStartInterview={() => {
                     void handleStartInterview();
                   }}
                 onOpenSettings={() => { void openSettingsPanel(); }}
                 onToggleMode={handleToggleMode}
+                onToggleVerbosity={handleToggleVerbosityMode}
               />
             </>
           }

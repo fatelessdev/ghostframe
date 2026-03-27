@@ -17,6 +17,9 @@ export interface SystemAudioVadConfig {
 export interface SystemAudioInterviewSettings {
   useSystemPrompt: boolean;
   contextContent: string;
+  tailoringEnabled: boolean;
+  resumeSummary: string;
+  jobDescriptionSummary: string;
   quickActions: string[];
   maxManualScreenshots: number;
   vadConfig: SystemAudioVadConfig;

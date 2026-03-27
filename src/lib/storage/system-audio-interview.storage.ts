@@ -21,6 +21,9 @@ export const DEFAULT_SYSTEM_AUDIO_INTERVIEW_SETTINGS: SystemAudioInterviewSettin
   {
     useSystemPrompt: true,
     contextContent: "",
+    tailoringEnabled: false,
+    resumeSummary: "",
+    jobDescriptionSummary: "",
     quickActions: DEFAULT_QUICK_ACTIONS,
     maxManualScreenshots: 4,
     vadConfig: DEFAULT_VAD_CONFIG,
@@ -188,6 +191,18 @@ export function getSystemAudioInterviewSettings(): SystemAudioInterviewSettings 
         typeof parsed.contextContent === "string"
           ? parsed.contextContent
           : DEFAULT_SYSTEM_AUDIO_INTERVIEW_SETTINGS.contextContent,
+      tailoringEnabled:
+        typeof parsed.tailoringEnabled === "boolean"
+          ? parsed.tailoringEnabled
+          : DEFAULT_SYSTEM_AUDIO_INTERVIEW_SETTINGS.tailoringEnabled,
+      resumeSummary:
+        typeof parsed.resumeSummary === "string"
+          ? parsed.resumeSummary
+          : DEFAULT_SYSTEM_AUDIO_INTERVIEW_SETTINGS.resumeSummary,
+      jobDescriptionSummary:
+        typeof parsed.jobDescriptionSummary === "string"
+          ? parsed.jobDescriptionSummary
+          : DEFAULT_SYSTEM_AUDIO_INTERVIEW_SETTINGS.jobDescriptionSummary,
       quickActions: Array.isArray(parsed.quickActions)
         ? parsed.quickActions
             .filter((entry: unknown) => typeof entry === "string")

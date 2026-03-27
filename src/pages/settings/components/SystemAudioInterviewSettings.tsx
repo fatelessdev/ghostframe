@@ -11,11 +11,37 @@ const clampManualScreenshotLimit = (value: number): number => {
   return Math.max(1, Math.min(8, Math.round(value)));
 };
 
+const TAILORING_HELPER_PROMPT = `You are helping me prepare interview personalization notes.
+
+I will provide:
+1) My resume
+2) The target job description
+
+Return exactly two concise sections:
+
+[RESUME_SUMMARY]
+- 8-15 bullets with facts I can credibly claim in interviews (skills, projects, measurable impact, domain experience, leadership, tools, constraints handled).
+- Keep each bullet short and specific.
+- No fluff.
+
+[JOB_DESCRIPTION_SUMMARY]
+- 8-15 bullets covering what this role prioritizes (required skills, responsibilities, domain focus, collaboration expectations, seniority signals, stack).
+- Include implicit expectations if obvious from context.
+
+Style constraints:
+- Plain text only.
+- No markdown tables.
+- No intro/conclusion.
+- Keep both sections practical for tailoring live interview answers.`;
+
 export const SystemAudioInterviewSettings = () => {
   const [settings, setSettings] = useState(() =>
     getSystemAudioInterviewSettings()
   );
   const [newQuickAction, setNewQuickAction] = useState("");
+  const [copyPromptState, setCopyPromptState] = useState<
+    "idle" | "copied" | "failed"
+  >("idle");
 
   useEffect(() => {
     const syncSettings = () => {
@@ -78,6 +104,22 @@ export const SystemAudioInterviewSettings = () => {
     });
   };
 
+  const handleCopyTailoringPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(TAILORING_HELPER_PROMPT);
+      setCopyPromptState("copied");
+      window.setTimeout(() => {
+        setCopyPromptState("idle");
+      }, 1800);
+    } catch (error) {
+      console.warn("Failed to copy tailoring helper prompt:", error);
+      setCopyPromptState("failed");
+      window.setTimeout(() => {
+        setCopyPromptState("idle");
+      }, 2200);
+    }
+  };
+
   return (
     <div id="system-audio-interview" className="space-y-4">
       <Header
@@ -113,6 +155,88 @@ export const SystemAudioInterviewSettings = () => {
             />
           </div>
         ) : null}
+
+        <div className="space-y-3 rounded-xl border border-border/60 bg-muted/20 p-3">
+          <div className="space-y-1">
+            <Label className="text-sm font-medium">Interview tailoring</Label>
+            <p className="text-xs text-muted-foreground">
+              Add your resume summary and job description summary so Start-mode
+              answers stay personalized and authentic.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Summary helper prompt</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Paste this into another AI tool with your resume and JD. Then copy
+              the generated summaries into the fields below.
+            </p>
+            <Textarea
+              value={TAILORING_HELPER_PROMPT}
+              readOnly
+              className="min-h-36 resize-y text-[11px]"
+            />
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleCopyTailoringPrompt();
+                }}
+                className="h-8 rounded-md border border-border px-3 text-xs hover:bg-muted"
+              >
+                Copy Prompt
+              </button>
+              <span className="text-[11px] text-muted-foreground">
+                {copyPromptState === "copied"
+                  ? "Copied"
+                  : copyPromptState === "failed"
+                    ? "Copy failed"
+                    : ""}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 border-t border-border/50 pt-2">
+            <div>
+              <Label className="text-sm font-medium">
+                Enable tailoring context
+              </Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                When on, these summaries are appended to interview prompts.
+              </p>
+            </div>
+            <Switch
+              checked={settings.tailoringEnabled}
+              onCheckedChange={(checked) =>
+                applySettings({ tailoringEnabled: checked })
+              }
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Resume summary</Label>
+            <Textarea
+              value={settings.resumeSummary}
+              onChange={(event) =>
+                applySettings({ resumeSummary: event.target.value })
+              }
+              placeholder="Paste the final summary of your background, projects, strengths, and measurable impact..."
+              className="min-h-24 resize-y"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label className="text-xs font-medium">Job description summary</Label>
+            <Textarea
+              value={settings.jobDescriptionSummary}
+              onChange={(event) =>
+                applySettings({ jobDescriptionSummary: event.target.value })
+              }
+              placeholder="Paste the summarized role expectations, required skills, priorities, and stack..."
+              className="min-h-24 resize-y"
+            />
+          </div>
+        </div>
 
         <div className="space-y-2">
           <Label className="text-xs font-medium">Max manual screenshots per send</Label>
