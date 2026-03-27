@@ -151,19 +151,23 @@ const App = () => {
   }, [activeView, systemAudio]);
 
   const handleToggleVerbosityMode = useCallback(() => {
+    if (isRecording) {
+      return;
+    }
+
     setResponseLengthMode((current) => {
       const normalized = normalizeResponseLengthMode(current);
       const nextMode: ResponseLengthMode =
-        normalized === "auto"
-          ? "short"
-          : normalized === "short"
-            ? "medium"
+        normalized === "short"
+          ? "medium"
+          : normalized === "medium"
+            ? "auto"
             : "short";
 
       updateResponseLength(nextMode);
       return nextMode;
     });
-  }, []);
+  }, [isRecording]);
 
   useEffect(() => {
     const syncResponseLengthMode = () => {
@@ -529,6 +533,7 @@ const App = () => {
                 mode={currentAIMode}
                 verbosityLabel={getVerbosityLabel(responseLengthMode)}
                 isCapturing={Boolean(systemAudio?.capturing)}
+                isVerbosityLocked={isRecording}
                 onStartInterview={() => {
                     void handleStartInterview();
                   }}

@@ -5,6 +5,7 @@ interface OverlayTopBarProps {
   mode: "D" | "P";
   verbosityLabel: "Auto" | "Short" | "Verbose";
   isCapturing: boolean;
+  isVerbosityLocked?: boolean;
   onStartInterview: () => void;
   onOpenSettings?: () => void;
   onToggleMode?: () => void;
@@ -16,6 +17,7 @@ export const OverlayTopBar = ({
   mode,
   verbosityLabel,
   isCapturing,
+  isVerbosityLocked = false,
   onStartInterview,
   onOpenSettings,
   onToggleMode,
@@ -81,6 +83,7 @@ export const OverlayTopBar = ({
 
         <button
           onClick={onToggleVerbosity}
+          disabled={isVerbosityLocked}
           className="
             flex items-center justify-center gap-1.5
             text-white/75 hover:text-white/90
@@ -89,8 +92,13 @@ export const OverlayTopBar = ({
             hover:bg-white/[0.06]
             active:scale-[0.98]
             focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-400/40
+            disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:text-white/75 disabled:hover:bg-transparent
           "
-          aria-label={`Verbosity: ${verbosityLabel}. Click to toggle.`}
+          aria-label={
+            isVerbosityLocked
+              ? `Verbosity: ${verbosityLabel}. Locked while interview is active.`
+              : `Verbosity: ${verbosityLabel}. Click to toggle.`
+          }
         >
           <span className="text-[12px] font-medium tracking-wide">
             {verbosityLabel}

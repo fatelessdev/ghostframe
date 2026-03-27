@@ -64,7 +64,7 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
   {
     id: "toggle_verbosity_mode",
     name: "Toggle Verbosity Mode",
-    description: "Switch response verbosity between short and verbose",
+    description: "Cycle response verbosity between short, verbose, and auto",
     defaultKey: {
       macos: "cmd+shift+s",
       windows: "ctrl+shift+s",
