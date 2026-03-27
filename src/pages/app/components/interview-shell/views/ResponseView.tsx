@@ -115,30 +115,20 @@ export const ResponseView = ({
       {shouldSplit ? (
         <div className="grid grid-cols-2 gap-3 md:gap-4">
           <section className="min-w-0 rounded-xl border border-white/[0.08] bg-black/20 p-3">
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
-              Explanation
-            </h3>
             <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert text-body text-white/90 leading-relaxed tracking-wide">
               <Markdown>{plainText || responseText}</Markdown>
             </div>
           </section>
 
-          <section className="min-w-0 rounded-xl border border-white/[0.08] bg-black/25 p-3">
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
-              Code
-            </h3>
-            <div className="space-y-3">
-              {codeBlocks.map((code, index) => {
-                return (
-                  <pre
-                    key={`${index}-${code.length}`}
-                    className="overflow-auto rounded-md border border-white/[0.08] bg-black/40 p-3 text-[12px] leading-relaxed text-white/90"
-                  >
-                    <code>{code}</code>
-                  </pre>
-                );
-              })}
-            </div>
+          <section className="min-w-0 rounded-xl border border-white/[0.08] bg-black/25 p-3 space-y-3">
+            {codeBlocks.map((code, index) => (
+              <pre
+                key={`${index}-${code.length}`}
+                className="overflow-auto rounded-md border border-white/[0.08] bg-black/40 p-3 text-[12px] leading-relaxed text-white/90"
+              >
+                <code>{code}</code>
+              </pre>
+            ))}
           </section>
         </div>
       ) : (

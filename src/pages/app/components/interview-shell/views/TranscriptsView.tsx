@@ -13,10 +13,8 @@ const STICKY_BOTTOM_THRESHOLD = 48;
 
 export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const { setScrollRef, scrollState } = useOverlayScroll();
+  const { setScrollRef } = useOverlayScroll();
   const shouldAutoStickRef = useRef(true);
-  const canScrollUpRef = useRef(false);
-  const canScrollDownRef = useRef(false);
   const {
     registerResponseScrollUpCallback,
     registerResponseScrollDownCallback,
@@ -61,11 +59,6 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
   }, []);
 
   useEffect(() => {
-    canScrollUpRef.current = scrollState.canScrollUp;
-    canScrollDownRef.current = scrollState.canScrollDown;
-  }, [scrollState.canScrollDown, scrollState.canScrollUp]);
-
-  useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport || !shouldAutoStickRef.current) {
       return;
@@ -91,18 +84,10 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
 
   useEffect(() => {
     const handleScrollUp = () => {
-      if (!canScrollUpRef.current) {
-        return;
-      }
-
       scrollTranscript(-TRANSCRIPT_SCROLL_STEP);
     };
 
     const handleScrollDown = () => {
-      if (!canScrollDownRef.current) {
-        return;
-      }
-
       scrollTranscript(TRANSCRIPT_SCROLL_STEP);
     };
 
