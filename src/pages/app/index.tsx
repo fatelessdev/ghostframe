@@ -1,4 +1,4 @@
-import { CopyButton, CustomCursor, Markdown } from "@/components";
+import { CopyButton, CustomCursor } from "@/components";
 import {
   OverlayPanel,
   OverlayTopBar,
@@ -104,6 +104,7 @@ const App = () => {
   useClickableRects([activeView]);
 
   const wasCapturingRef = useRef<boolean>(Boolean(systemAudio?.capturing));
+  const wasAIProcessingRef = useRef<boolean>(Boolean(systemAudio?.isAIProcessing));
   const quickPromptInputRef = useRef<HTMLInputElement | null>(null);
   const quickPromptSendInFlightRef = useRef<boolean>(false);
 
@@ -120,7 +121,6 @@ const App = () => {
   const canShowResponseView = isRecording || hasStandaloneResponse;
 
   const responseText = systemAudio?.lastAIResponse ?? "";
-  const responseHasCode = /```[\s\S]*?```|`[^`\n]+`/.test(responseText);
 
   const handleQuickPromptSend = useCallback(async () => {
     if (!systemAudio || quickPromptSendInFlightRef.current) {
@@ -155,6 +155,8 @@ const App = () => {
 
     if (activeView === "response") {
       systemAudio.clearPanelMemory("response");
+      setResponseHistory([]);
+      setResponseHistoryIndex(-1);
       return;
     }
 
@@ -205,26 +207,28 @@ const App = () => {
     setLayoutMode((current) => (current === "default" ? "split" : "default"));
   }, []);
 
-  // Track response history when new responses come in
+  // Track response history only when an answer finishes streaming.
   useEffect(() => {
-    const currentResponse = systemAudio?.lastAIResponse ?? "";
-    if (!currentResponse) {
-      return;
+    const isAIProcessingNow = Boolean(systemAudio?.isAIProcessing);
+    const completedAnswer = wasAIProcessingRef.current && !isAIProcessingNow;
+
+    if (completedAnswer) {
+      const completedResponse = (systemAudio?.lastAIResponse ?? "").trim();
+
+      if (completedResponse) {
+        setResponseHistory((prev) => {
+          if (prev.length > 0 && prev[prev.length - 1] === completedResponse) {
+            return prev;
+          }
+
+          return [...prev, completedResponse];
+        });
+        setResponseHistoryIndex(-1);
+      }
     }
 
-    setResponseHistory((prev) => {
-      // Avoid duplicates of the most recent response
-      if (prev.length > 0 && prev[prev.length - 1] === currentResponse) {
-        return prev;
-      }
-      return [...prev, currentResponse];
-    });
-    // Always show the latest response
-    setResponseHistoryIndex(() => {
-      // Move to new end when new response arrives
-      return responseHistory.length;
-    });
-  }, [systemAudio?.lastAIResponse, responseHistory.length]);
+    wasAIProcessingRef.current = isAIProcessingNow;
+  }, [systemAudio?.isAIProcessing, systemAudio?.lastAIResponse]);
 
   // Get the display response (current or from history)
   const displayResponseText = useMemo(() => {
@@ -233,6 +237,10 @@ const App = () => {
     }
     return responseText;
   }, [responseHistory, responseHistoryIndex, responseText]);
+
+  const displayResponseHasCode = useMemo(() => {
+    return /```[\s\S]*?```|`[^`\n]+`/.test(displayResponseText);
+  }, [displayResponseText]);
 
   useEffect(() => {
     const syncResponseLengthMode = () => {
@@ -639,57 +647,63 @@ const App = () => {
         >
 
           {activeView === "response" && canShowResponseView ? (
-            <ResponseView density={overlayDensity} layoutMode={layoutMode}>
+            <div className="group relative h-full w-full">
               {systemAudio?.error ? (
-                <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
+                <div className="mx-4 mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
                   <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />
                   <span>{systemAudio.error}</span>
                 </div>
               ) : null}
 
               {systemAudio?.setupRequired ? (
-                <PermissionFlow
-                  onPermissionGranted={() => {
-                    void systemAudio.startCapture("setup");
-                  }}
-                  onPermissionDenied={() => {
-                    // no-op
-                  }}
-                />
+                <div className="px-4 py-3">
+                  <PermissionFlow
+                    onPermissionGranted={() => {
+                      void systemAudio.startCapture("setup");
+                    }}
+                    onPermissionDenied={() => {
+                      // no-op
+                    }}
+                  />
+                </div>
               ) : (
-                <div className="group relative h-full w-full">
-                  {/* Response navigation for history */}
-                  {responseHistory.length > 1 && (
-                    <div className="absolute top-2 left-2 z-10">
+                <>
+                  {responseHistory.length > 1 ? (
+                    <div className="pointer-events-auto absolute left-2 top-2 z-10">
                       <ResponseNavigation
-                        currentIndex={responseHistoryIndex >= 0 ? responseHistoryIndex : responseHistory.length - 1}
+                        currentIndex={
+                          responseHistoryIndex >= 0
+                            ? responseHistoryIndex
+                            : responseHistory.length - 1
+                        }
                         totalCount={responseHistory.length}
                         onPrev={handlePrevResponse}
                         onNext={handleNextResponse}
                       />
                     </div>
-                  )}
-                  
-                  {responseHasCode && displayResponseText ? (
+                  ) : null}
+
+                  {displayResponseHasCode && displayResponseText ? (
                     <div className="pointer-events-auto absolute right-2 top-2 z-10 opacity-0 transition-opacity group-hover:opacity-100">
                       <CopyButton content={displayResponseText} />
                     </div>
                   ) : null}
 
                   {Boolean(systemAudio?.isAIProcessing) && !displayResponseText ? (
-                    <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+                    <div className="px-4 py-3 flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 className="h-4 w-4 animate-spin text-primary" />
                       <span>Generating response...</span>
                     </div>
                   ) : null}
 
-                  <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert">
-                    <Markdown>{displayResponseText}</Markdown>
-                  </div>
-                </div>
+                  <ResponseView
+                    responseText={displayResponseText}
+                    density={overlayDensity}
+                    layoutMode={layoutMode}
+                  />
+                </>
               )}
-
-            </ResponseView>
+            </div>
           ) : null}
 
           {activeView === "transcripts" && isRecording ? (

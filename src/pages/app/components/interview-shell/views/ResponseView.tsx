@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
+import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
 import type { OverlayDensity, ResponseLayoutMode } from "../types";
 
@@ -7,27 +8,40 @@ const RESPONSE_SCROLL_STEP = 120;
 const COMPACT_SCROLL_STEP = 60;
 
 interface ResponseViewProps {
-  children: ReactNode;
+  responseText: string;
   density?: OverlayDensity;
   layoutMode?: ResponseLayoutMode;
-  codeContent?: ReactNode;
-  textContent?: ReactNode;
 }
 
+const extractCodeBlocks = (text: string): string[] => {
+  const codeFenceRegex = /```(?:[\w-]+)?\n([\s\S]*?)```/g;
+  const blocks: string[] = [];
+  let match = codeFenceRegex.exec(text);
+
+  while (match) {
+    const code = match[1]?.trim();
+    if (code) {
+      blocks.push(code);
+    }
+    match = codeFenceRegex.exec(text);
+  }
+
+  return blocks;
+};
+
+const extractTextWithoutCode = (text: string): string => {
+  const withoutFences = text.replace(/```(?:[\w-]+)?\n([\s\S]*?)```/g, "");
+  return withoutFences.trim();
+};
+
 export const ResponseView = ({
-  children,
+  responseText,
   density = "normal",
   layoutMode = "default",
-  codeContent,
-  textContent,
 }: ResponseViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const codeViewportRef = useRef<HTMLDivElement | null>(null);
-  const { setScrollRef, scrollState } = useOverlayScroll();
-  const canScrollUpRef = useRef(false);
-  const canScrollDownRef = useRef(false);
+  const { setScrollRef } = useOverlayScroll();
   const isCompact = density === "compact";
-  const isSplit = layoutMode === "split";
   const scrollStep = isCompact ? COMPACT_SCROLL_STEP : RESPONSE_SCROLL_STEP;
   const {
     registerResponseScrollUpCallback,
@@ -36,42 +50,35 @@ export const ResponseView = ({
     unregisterResponseScrollDownCallback,
   } = useGlobalShortcuts();
 
-  // Register viewport ref with parent for scroll state tracking
+  const codeBlocks = useMemo(() => extractCodeBlocks(responseText), [responseText]);
+  const plainText = useMemo(() => extractTextWithoutCode(responseText), [responseText]);
+  const shouldSplit = layoutMode === "split" && codeBlocks.length > 0;
+
   useEffect(() => {
     setScrollRef(viewportRef.current);
     return () => setScrollRef(null);
   }, [setScrollRef]);
 
-  useEffect(() => {
-    canScrollUpRef.current = scrollState.canScrollUp;
-    canScrollDownRef.current = scrollState.canScrollDown;
-  }, [scrollState.canScrollDown, scrollState.canScrollUp]);
+  const scrollResponse = useCallback(
+    (delta: number) => {
+      const viewport = viewportRef.current;
+      if (!viewport) {
+        return;
+      }
 
-  const scrollResponse = useCallback((delta: number) => {
-    const viewport = viewportRef.current;
-    if (!viewport) {
-      return;
-    }
-
-    viewport.scrollBy({
-      top: delta,
-      behavior: "auto",
-    });
-  }, []);
+      viewport.scrollBy({
+        top: delta,
+        behavior: "auto",
+      });
+    },
+    []
+  );
 
   const handleScrollResponseUp = useCallback(() => {
-    if (!canScrollUpRef.current) {
-      return;
-    }
-
     scrollResponse(-scrollStep);
   }, [scrollResponse, scrollStep]);
 
   const handleScrollResponseDown = useCallback(() => {
-    if (!canScrollDownRef.current) {
-      return;
-    }
-
     scrollResponse(scrollStep);
   }, [scrollResponse, scrollStep]);
 
@@ -92,45 +99,12 @@ export const ResponseView = ({
     unregisterResponseScrollUpCallback,
   ]);
 
-  // Split layout: show code in left pane, text in right pane
-  if (isSplit && codeContent && textContent) {
-    return (
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {/* Code pane */}
-        <div
-          ref={codeViewportRef}
-          className="
-            w-1/2 overflow-auto border-r border-white/[0.06]
-            scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent
-          "
-        >
-          <div className="p-3 text-body text-white/90">
-            {codeContent}
-          </div>
-        </div>
-        {/* Text pane */}
-        <div
-          ref={viewportRef}
-          className={`
-            w-1/2 overflow-auto
-            scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent
-            ${isCompact ? "px-3 py-2" : "px-4 py-3"}
-          `}
-        >
-          <div className="text-body text-white/90 leading-relaxed tracking-wide">
-            {textContent}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div
       ref={viewportRef}
       className={`
-        font-abel flex-1 min-h-0 overflow-auto 
-        scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent 
+        font-abel flex-1 min-h-0 overflow-auto
+        scrollbar-thin scrollbar-thumb-white/[0.08] scrollbar-track-transparent
         animate-in fade-in-0 duration-200
         ${isCompact ? "px-3 py-2 pb-4" : "px-4 py-3 pb-14"}
       `}
@@ -138,10 +112,44 @@ export const ResponseView = ({
       aria-label="AI response"
       aria-live="polite"
     >
-      {/* Content wrapper with refined typography */}
-      <div className={`text-body text-white/90 leading-relaxed tracking-wide ${isCompact ? "text-[13px]" : ""}`}>
-        {children}
-      </div>
+      {shouldSplit ? (
+        <div className="grid grid-cols-2 gap-3 md:gap-4">
+          <section className="min-w-0 rounded-xl border border-white/[0.08] bg-black/20 p-3">
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+              Explanation
+            </h3>
+            <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert text-body text-white/90 leading-relaxed tracking-wide">
+              <Markdown>{plainText || responseText}</Markdown>
+            </div>
+          </section>
+
+          <section className="min-w-0 rounded-xl border border-white/[0.08] bg-black/25 p-3">
+            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/45">
+              Code
+            </h3>
+            <div className="space-y-3">
+              {codeBlocks.map((code, index) => {
+                return (
+                  <pre
+                    key={`${index}-${code.length}`}
+                    className="overflow-auto rounded-md border border-white/[0.08] bg-black/40 p-3 text-[12px] leading-relaxed text-white/90"
+                  >
+                    <code>{code}</code>
+                  </pre>
+                );
+              })}
+            </div>
+          </section>
+        </div>
+      ) : (
+        <div
+          className={`text-body text-white/90 leading-relaxed tracking-wide ${isCompact ? "text-[13px]" : ""}`}
+        >
+          <div className="response-text-root prose prose-sm max-w-none select-text dark:prose-invert">
+            <Markdown>{responseText}</Markdown>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

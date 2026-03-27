@@ -127,7 +127,7 @@ export const OverlayPanel = ({
   return (
     <ScrollContext.Provider value={{ scrollState, setScrollRef }}>
       <section
-        className={`flex flex-col w-full max-w-[900px] mx-auto gap-3 ${className ?? ""} pointer-events-none`}
+        className={`flex flex-col w-full mx-auto gap-3 ${className ?? ""} ${isCompact ? "overlay-shell-width-compact" : ""} pointer-events-none`}
         data-density={density}
         data-layout-mode={layoutMode}
       >
@@ -145,15 +145,14 @@ export const OverlayPanel = ({
               data-overlay-view-mode={viewMode}
               data-overlay-density={density}
               className={`
-                flex overflow-hidden overlay-panel-glass rounded-2xl 
+                flex flex-col overflow-hidden overlay-panel-glass rounded-2xl 
                 border border-white/[0.08] shadow-2xl relative pointer-events-auto
                 animate-in fade-in-0 slide-in-from-bottom-3 duration-300 ease-out
-                ${layoutMode === "split" && viewMode === "response" ? "flex-row" : "flex-col"}
                 ${getPanelHeightClasses()}
               `}
             >
               {viewMode !== "settings" && !isCompact && renderTabs()}
-              <div className={`flex-1 relative flex min-h-0 overflow-hidden ${layoutMode === "split" ? "flex-row" : "flex-col"}`}>
+              <div className="flex-1 relative flex min-h-0 overflow-hidden">
                 {children}
               </div>
 
