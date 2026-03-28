@@ -244,6 +244,10 @@ export const connectSystemAudioRealtime = async (
             reject(new Error(message));
           };
 
+          const isCurrentConnection = (): boolean => {
+            return handle.connectionId === connectionId && !signal.aborted;
+          };
+
           const captureStructuredRealtimeError = (event: unknown) => {
             const normalizedEvent = event as {
               error?: string;
@@ -340,10 +344,18 @@ export const connectSystemAudioRealtime = async (
           });
 
           connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
+            if (!isCurrentConnection()) {
+              return;
+            }
+
             onPartialTranscript(data.text);
           });
 
           connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+            if (!isCurrentConnection()) {
+              return;
+            }
+
             onCommittedTranscript(data.text);
           });
 

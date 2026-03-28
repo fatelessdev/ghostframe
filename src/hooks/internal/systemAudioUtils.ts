@@ -7,6 +7,7 @@ import {
 
 const MAX_TRANSCRIPT_SEGMENTS = 300;
 const MAX_TRANSCRIPT_PROMPT_SEGMENTS = 120;
+const NON_FINAL_REFINEMENT_MAX_AGE_MS = 12000;
 
 export const toErrorMessage = (value: unknown): string => {
   if (value instanceof Error && value.message) {
@@ -200,7 +201,6 @@ export function commitSegment(
 ): TranscriptSegment[] {
   const normalizedText = normalizeTranscription(text).trim();
   const now = Date.now();
-  let encounteredOtherCommitted = false;
 
   let next = segments.filter((item) => {
     return !item.isLive || item.source !== source;
@@ -213,9 +213,6 @@ export function commitSegment(
   for (let i = next.length - 1; i >= 0; i--) {
     const segment = next[i];
     if (segment.source !== source || segment.isLive) {
-      if (!segment.isLive && segment.source !== source) {
-        encounteredOtherCommitted = true;
-      }
       continue;
     }
 
@@ -237,8 +234,11 @@ export function commitSegment(
     }
 
     // Keep a single bubble while the same speaker's non-final transcript
-    // is still being refined by STT.
-    if (segment.stability !== "final" && !encounteredOtherCommitted) {
+    // is still being refined by STT, even if the other speaker interleaves.
+    if (
+      segment.stability !== "final" &&
+      now - segment.timestamp <= NON_FINAL_REFINEMENT_MAX_AGE_MS
+    ) {
       next[i] = {
         ...segment,
         text: normalizedText,
@@ -268,6 +268,7 @@ export function replaceLatestCommittedSegment(
 ): TranscriptSegment[] | null {
   const normalizedPrevious = normalizeTranscription(previousText).trim();
   const normalizedNext = normalizeTranscription(nextText).trim();
+  const now = Date.now();
   if (!normalizedNext) {
     return null;
   }
@@ -284,6 +285,7 @@ export function replaceLatestCommittedSegment(
         ...segment,
         text: normalizedNext,
         stability,
+        timestamp: now,
       };
       return trimSegments(next);
     }
@@ -299,6 +301,7 @@ export function replaceLatestPendingCommittedSegment(
   stability: TranscriptStability = "final"
 ): TranscriptSegment[] | null {
   const normalizedNext = normalizeTranscription(nextText).trim();
+  const now = Date.now();
   if (!normalizedNext) {
     return null;
   }
@@ -314,6 +317,7 @@ export function replaceLatestPendingCommittedSegment(
       ...segment,
       text: normalizedNext,
       stability,
+      timestamp: now,
     };
     return trimSegments(next);
   }

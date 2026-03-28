@@ -216,6 +216,8 @@ const SCREENSHOT_COMPRESS_INITIAL_QUALITY = 0.82;
 const SCREENSHOT_COMPRESS_MIN_REDUCTION_RATIO = 0.08;
 const MAX_SEND_LOCKS = 3;
 const INTERIM_IDLE_PROMOTION_MS = 900;
+const COMMITTED_REFINEMENT_MAX_AGE_MS = 12000;
+const TRANSCRIPT_CLEAR_COMMIT_SUPPRESSION_MS = 450;
 
 type ActiveAnswerSendLock = {
   id: number;
@@ -408,6 +410,9 @@ export function useSystemAudio() {
   const latestPartialUserRef = useRef<string>("");
   const pendingCommitEchoRef = useRef<
     Partial<Record<TranscriptSource, PendingCommitEcho>>
+  >({});
+  const suppressCommittedTranscriptUntilRef = useRef<
+    Partial<Record<TranscriptSource, number>>
   >({});
   const activeAnswerSendLocksRef = useRef<ActiveAnswerSendLock[]>([]);
   const answerSendLockSeqRef = useRef(0);
@@ -646,6 +651,7 @@ export function useSystemAudio() {
     latestPartialInterviewerRef.current = "";
     latestPartialUserRef.current = "";
     pendingCommitEchoRef.current = {};
+    suppressCommittedTranscriptUntilRef.current = {};
     activeAnswerSendLocksRef.current = [];
   }, [clearAllInterimPromotionTimeouts]);
 
@@ -680,6 +686,18 @@ export function useSystemAudio() {
     applySegmentUpdate(() => []);
     clearPendingRealtimeState();
   }, [applySegmentUpdate, clearPendingRealtimeState]);
+
+  const suppressCommittedTranscriptEcho = useCallback(
+    (durationMs: number = TRANSCRIPT_CLEAR_COMMIT_SUPPRESSION_MS) => {
+      const normalizedDuration = Math.max(0, Math.round(durationMs));
+      const until = Date.now() + normalizedDuration;
+      suppressCommittedTranscriptUntilRef.current = {
+        interviewer: until,
+        user: until,
+      };
+    },
+    []
+  );
 
   const appendLiveTranscript = useCallback(
     (source: TranscriptSource, text: string) => {
@@ -1915,6 +1933,7 @@ export function useSystemAudio() {
 
           commitLiveSegmentOnSpeakerSwitch(source);
           setError("");
+          suppressCommittedTranscriptUntilRef.current[source] = 0;
 
           if (source === "interviewer") {
             latestPartialInterviewerRef.current = text;
@@ -1931,9 +1950,14 @@ export function useSystemAudio() {
           }
 
           clearInterimPromotionTimeout(source);
+          const pending = pendingCommitEchoRef.current[source];
+          const suppressedUntil = suppressCommittedTranscriptUntilRef.current[source] || 0;
+          if (!pending && suppressedUntil > Date.now()) {
+            return;
+          }
+          suppressCommittedTranscriptUntilRef.current[source] = 0;
 
           setError("");
-          const pending = pendingCommitEchoRef.current[source];
           if (pending) {
             const replaced = replaceLatestCommittedSegment(
               segmentsRef.current,
@@ -1958,7 +1982,7 @@ export function useSystemAudio() {
                   segmentsRef.current,
                   source,
                   text,
-                  8000,
+                  COMMITTED_REFINEMENT_MAX_AGE_MS,
                   "final"
                 );
 
@@ -1971,6 +1995,19 @@ export function useSystemAudio() {
             }
             patchAnswerSendLocks(source, pending.partialText, text);
             pendingCommitEchoRef.current[source] = undefined;
+            return;
+          }
+
+          const recentReplaced = replaceLatestCommittedSegmentIfRecent(
+            segmentsRef.current,
+            source,
+            text,
+            COMMITTED_REFINEMENT_MAX_AGE_MS,
+            "final"
+          );
+          if (recentReplaced) {
+            applySegmentUpdate(() => recentReplaced);
+            patchAnswerSendLocks(source, "", text);
             return;
           }
 
@@ -2514,10 +2551,13 @@ export function useSystemAudio() {
         return;
       }
 
+      queuedAnswerTriggerRef.current = null;
+      setConversation(initialConversation());
       resetInterviewState();
+      suppressCommittedTranscriptEcho();
       setError("");
     },
-    [resetInterviewState]
+    [resetInterviewState, suppressCommittedTranscriptEcho]
   );
 
   return {

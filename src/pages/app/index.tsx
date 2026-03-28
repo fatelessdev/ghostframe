@@ -166,10 +166,6 @@ const App = () => {
   }, [activeView, systemAudio]);
 
   const handleToggleVerbosityMode = useCallback(() => {
-    if (isRecording) {
-      return;
-    }
-
     setResponseLengthMode((current) => {
       const normalized = normalizeResponseLengthMode(current);
       const nextMode: ResponseLengthMode =
@@ -182,7 +178,7 @@ const App = () => {
       updateResponseLength(nextMode);
       return nextMode;
     });
-  }, [isRecording]);
+  }, []);
 
   // Feature 3.3: Toggle compact overlay mode
   const handleToggleCompactMode = useCallback(() => {
@@ -634,7 +630,7 @@ const App = () => {
                 mode={currentAIMode}
                 verbosityLabel={getVerbosityLabel(responseLengthMode)}
                 isCapturing={Boolean(systemAudio?.capturing)}
-                isVerbosityLocked={isRecording}
+                isVerbosityLocked={false}
                 onStartInterview={() => {
                     void handleStartInterview();
                   }}
