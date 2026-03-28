@@ -815,19 +815,26 @@ pub fn start_scroll_response<R: Runtime>(app: &AppHandle<R>, direction: &str) {
 
     let stop_flag: MoveWindowTask = Arc::new(AtomicBool::new(false));
     let flag_clone = stop_flag.clone();
-    let dir = direction.to_string();
+    let scroll_up = direction == "up";
     let app_handle = app.clone();
+
+    tasks.insert(task_key, stop_flag);
+    drop(tasks);
+
+    // Always emit one scroll step immediately so quick key taps still work.
+    handle_scroll_response_shortcut(app, scroll_up);
 
     tauri::async_runtime::spawn(async move {
         // Emit roughly every 50ms for smooth enough repetitive scrolling
         let interval = Duration::from_millis(50);
-        while !flag_clone.load(Ordering::Relaxed) {
-            handle_scroll_response_shortcut(&app_handle, dir == "up");
+        loop {
             sleep(interval).await;
+            if flag_clone.load(Ordering::Relaxed) {
+                break;
+            }
+            handle_scroll_response_shortcut(&app_handle, scroll_up);
         }
     });
-
-    tasks.insert(task_key, stop_flag);
 }
 
 pub fn stop_scroll_response<R: Runtime>(app: &AppHandle<R>, direction: &str) {

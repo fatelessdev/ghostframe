@@ -152,7 +152,7 @@ export const OverlayPanel = ({
               `}
             >
               {viewMode !== "settings" && !isCompact && renderTabs()}
-              <div className="flex-1 relative flex min-h-0 overflow-hidden">
+              <div className="flex-1 relative flex flex-col min-h-0 overflow-hidden">
                 {children}
               </div>
 

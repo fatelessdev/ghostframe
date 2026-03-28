@@ -135,6 +135,34 @@ function getStabilityRank(stability: TranscriptStability): number {
   return 2;
 }
 
+function isTranscriptRefinement(previous: string, next: string): boolean {
+  if (!previous || !next) {
+    return false;
+  }
+
+  if (next.startsWith(previous) || previous.startsWith(next)) {
+    return true;
+  }
+
+  const previousTokens = previous.split(" ").filter(Boolean);
+  const nextTokens = next.split(" ").filter(Boolean);
+  if (previousTokens.length === 0 || nextTokens.length === 0) {
+    return false;
+  }
+
+  const overlap = Math.min(previousTokens.length, nextTokens.length);
+  let sharedPrefix = 0;
+  for (let i = 0; i < overlap; i++) {
+    if (previousTokens[i] !== nextTokens[i]) {
+      break;
+    }
+    sharedPrefix += 1;
+  }
+
+  const minTokens = Math.min(previousTokens.length, nextTokens.length);
+  return sharedPrefix >= Math.max(2, Math.floor(minTokens * 0.7));
+}
+
 export function replaceLiveSegment(
   segments: TranscriptSegment[],
   source: TranscriptSource,
@@ -171,6 +199,8 @@ export function commitSegment(
   stability: TranscriptStability = "final"
 ): TranscriptSegment[] {
   const normalizedText = normalizeTranscription(text).trim();
+  const now = Date.now();
+  let encounteredOtherCommitted = false;
 
   let next = segments.filter((item) => {
     return !item.isLive || item.source !== source;
@@ -183,6 +213,9 @@ export function commitSegment(
   for (let i = next.length - 1; i >= 0; i--) {
     const segment = next[i];
     if (segment.source !== source || segment.isLive) {
+      if (!segment.isLive && segment.source !== source) {
+        encounteredOtherCommitted = true;
+      }
       continue;
     }
 
@@ -198,7 +231,22 @@ export function commitSegment(
       next[i] = {
         ...segment,
         stability,
-        timestamp: Date.now(),
+        timestamp: now,
+      };
+      return trimSegments(next);
+    }
+
+    // Keep a single bubble while the same speaker's non-final transcript
+    // is still being refined by STT.
+    if (segment.stability !== "final" && !encounteredOtherCommitted) {
+      next[i] = {
+        ...segment,
+        text: normalizedText,
+        stability:
+          getStabilityRank(stability) > getStabilityRank(segment.stability)
+            ? stability
+            : segment.stability,
+        timestamp: now,
       };
       return trimSegments(next);
     }
@@ -304,9 +352,10 @@ export function replaceLatestCommittedSegmentIfRecent(
       return null;
     }
 
-    const appearsToBeRefinement =
-      normalizedNext.startsWith(normalizedCurrent) ||
-      normalizedCurrent.startsWith(normalizedNext);
+    const appearsToBeRefinement = isTranscriptRefinement(
+      normalizedCurrent,
+      normalizedNext
+    );
 
     if (!appearsToBeRefinement) {
       return null;

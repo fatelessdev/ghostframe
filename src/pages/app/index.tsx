@@ -647,7 +647,7 @@ const App = () => {
         >
 
           {activeView === "response" && canShowResponseView ? (
-            <div className="group relative h-full w-full">
+            <div className="group relative flex min-h-0 w-full flex-1 flex-col overflow-hidden">
               {systemAudio?.error ? (
                 <div className="mx-4 mt-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive flex items-start gap-2">
                   <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" aria-hidden="true" />

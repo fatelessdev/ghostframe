@@ -25,8 +25,8 @@ let globalAudioCallback: (() => void) | null = null;
 let globalScreenshotCallback: (() => void | Promise<void>) | null = null;
 let globalSystemAudioCallback: (() => void) | null = null;
 let globalAnswerTriggerCallback: (() => void | Promise<void>) | null = null;
-let globalResponseScrollUpCallback: (() => void) | null = null;
-let globalResponseScrollDownCallback: (() => void) | null = null;
+let globalResponseScrollUpCallbacks: Set<() => void> = new Set();
+let globalResponseScrollDownCallbacks: Set<() => void> = new Set();
 let globalCustomShortcutCallbacks: Map<string, () => void> = new Map();
 
 const ROUTE_HANDLED_CUSTOM_ACTIONS = new Set([
@@ -44,8 +44,31 @@ let globalListenersSetupInProgress = false;
 let globalListenersSetupGeneration = 0;
 
 const clearGlobalResponseScrollCallbacks = (): void => {
-  globalResponseScrollUpCallback = null;
-  globalResponseScrollDownCallback = null;
+  globalResponseScrollUpCallbacks.clear();
+  globalResponseScrollDownCallbacks.clear();
+};
+
+const fallbackScrollActiveView = (delta: number): void => {
+  const candidates: Array<HTMLElement | null> = [
+    document.querySelector<HTMLElement>("[aria-label='AI response']"),
+    document.querySelector<HTMLElement>("[aria-label='Live transcript']"),
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    if (candidate.scrollHeight <= candidate.clientHeight + 1) {
+      continue;
+    }
+
+    candidate.scrollBy({
+      top: delta,
+      behavior: "auto",
+    });
+    return;
+  }
 };
 
 const isCurrentSetup = (setupGeneration: number): boolean => {
@@ -181,26 +204,31 @@ export const useGlobalShortcuts = () => {
   );
 
   const registerResponseScrollUpCallback = useCallback((callback: () => void) => {
-    // Single-consumer callback model: latest registration owns this callback.
+    const previousCallback = responseScrollUpCallbackRef.current;
+    if (previousCallback) {
+      globalResponseScrollUpCallbacks.delete(previousCallback);
+    }
+
     responseScrollUpCallbackRef.current = callback;
-    globalResponseScrollUpCallback = callback;
+    globalResponseScrollUpCallbacks.add(callback);
   }, []);
 
   const registerResponseScrollDownCallback = useCallback((callback: () => void) => {
-    // Single-consumer callback model: latest registration owns this callback.
+    const previousCallback = responseScrollDownCallbackRef.current;
+    if (previousCallback) {
+      globalResponseScrollDownCallbacks.delete(previousCallback);
+    }
+
     responseScrollDownCallbackRef.current = callback;
-    globalResponseScrollDownCallback = callback;
+    globalResponseScrollDownCallbacks.add(callback);
   }, []);
 
   const unregisterResponseScrollUpCallback = useCallback(() => {
     const ownedCallback = responseScrollUpCallbackRef.current;
     responseScrollUpCallbackRef.current = null;
 
-    if (
-      ownedCallback &&
-      globalResponseScrollUpCallback === ownedCallback
-    ) {
-      globalResponseScrollUpCallback = null;
+    if (ownedCallback) {
+      globalResponseScrollUpCallbacks.delete(ownedCallback);
     }
   }, []);
 
@@ -208,11 +236,8 @@ export const useGlobalShortcuts = () => {
     const ownedCallback = responseScrollDownCallbackRef.current;
     responseScrollDownCallbackRef.current = null;
 
-    if (
-      ownedCallback &&
-      globalResponseScrollDownCallback === ownedCallback
-    ) {
-      globalResponseScrollDownCallback = null;
+    if (ownedCallback) {
+      globalResponseScrollDownCallbacks.delete(ownedCallback);
     }
   }, []);
 
@@ -358,9 +383,14 @@ export const useGlobalShortcuts = () => {
         globalEventListeners.answerTrigger = unlistenAnswerTrigger;
 
         const unlistenResponseScrollUp = await listen("scroll-response-up", () => {
-          if (globalResponseScrollUpCallback) {
-            globalResponseScrollUpCallback();
+          if (globalResponseScrollUpCallbacks.size > 0) {
+            globalResponseScrollUpCallbacks.forEach((callback) => {
+              callback();
+            });
+            return;
           }
+
+          fallbackScrollActiveView(-120);
         });
         if (!isActive || !isCurrentSetup(setupGeneration)) {
           unlistenResponseScrollUp();
@@ -371,9 +401,14 @@ export const useGlobalShortcuts = () => {
         const unlistenResponseScrollDown = await listen(
           "scroll-response-down",
           () => {
-            if (globalResponseScrollDownCallback) {
-              globalResponseScrollDownCallback();
+            if (globalResponseScrollDownCallbacks.size > 0) {
+              globalResponseScrollDownCallbacks.forEach((callback) => {
+                callback();
+              });
+              return;
             }
+
+            fallbackScrollActiveView(120);
           }
         );
         if (!isActive || !isCurrentSetup(setupGeneration)) {
