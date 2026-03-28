@@ -484,6 +484,15 @@ body {
 [data-streamdown="code-inline"] code,
 .response-text-root code:not(pre code) {
   white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+/* In normal density, wrap long inline-comment code lines instead of spilling out */
+[data-overlay-density="normal"] [data-streamdown="code-block"] pre,
+[data-overlay-density="normal"] [data-streamdown="code-block"] code {
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
   word-break: break-word !important;
 }
 
