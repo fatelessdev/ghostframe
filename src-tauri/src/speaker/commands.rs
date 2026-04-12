@@ -117,7 +117,7 @@ pub async fn start_system_audio_capture(
 
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
-        run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
+        run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
 
         let state = app_clone.state::<crate::AudioState>();
         {
@@ -320,6 +320,7 @@ async fn run_continuous_capture(
 
     // Pre-allocate buffer to prevent reallocations
     let mut audio_buffer = Vec::with_capacity(max_samples);
+    let mut realtime_chunk_buffer = Vec::with_capacity(REALTIME_CHUNK_SAMPLES * 2);
     let start_time = Instant::now();
     let max_duration = Duration::from_secs(config.max_recording_duration_secs);
 
@@ -354,6 +355,12 @@ async fn run_continuous_capture(
                         }
 
                         audio_buffer.push(sample);
+                        queue_realtime_audio_chunk(
+                            &app,
+                            sr,
+                            std::slice::from_ref(&sample),
+                            &mut realtime_chunk_buffer,
+                        );
 
                         let elapsed = start_time.elapsed();
 
@@ -385,6 +392,7 @@ async fn run_continuous_capture(
 
     // Clean up event listener (CRITICAL)
     app.unlisten(stop_listener);
+    flush_realtime_audio_chunk(&app, sr, &mut realtime_chunk_buffer);
 
     // Process and emit audio
     if !audio_buffer.is_empty() {

@@ -208,15 +208,16 @@ export function getElevenLabsRealtimeConfig(
     readVariable(variables, "commit_strategy")
   );
   const commitStrategy: ElevenLabsRealtimeCommitStrategy =
-    requestedCommitStrategy === "vad" ? "manual" : requestedCommitStrategy;
+    requestedCommitStrategy === "manual" ? "vad" : requestedCommitStrategy;
   const includeTimestamps = normalizeBooleanValue(
     readVariable(variables, "include_timestamps"),
     ELEVENLABS_REALTIME_DEFAULT_INCLUDE_TIMESTAMPS
   );
-  const vadSilenceThresholdSecs = null;
-  const vadThreshold = null;
-  const minSpeechDurationMs = null;
-  const minSilenceDurationMs = null;
+  const vadSilenceThresholdSecs =
+    ELEVENLABS_REALTIME_DEFAULT_VAD_SILENCE_THRESHOLD_SECS;
+  const vadThreshold = ELEVENLABS_REALTIME_DEFAULT_VAD_THRESHOLD;
+  const minSpeechDurationMs = ELEVENLABS_REALTIME_DEFAULT_MIN_SPEECH_DURATION_MS;
+  const minSilenceDurationMs = ELEVENLABS_REALTIME_DEFAULT_MIN_SILENCE_DURATION_MS;
   const previousText = normalizePreviousText(
     readVariable(
       variables,
