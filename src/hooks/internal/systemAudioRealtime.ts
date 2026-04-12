@@ -3,6 +3,8 @@ import { type RealtimeAudioChunkEvent } from "@/lib";
 import { type TranscriptSource } from "@/types";
 import { estimatePcm16DurationMs } from "@/hooks/internal/systemAudioUtils";
 
+export type RealtimeCommitStrategy = "manual" | "vad";
+
 export type RealtimeHandle = {
   label: TranscriptSource;
   connection: RealtimeConnection | null;
@@ -18,6 +20,7 @@ export type RealtimeHandle = {
   keepAliveIntervalId: number | null;
   lastSentAtMs: number;
   uncommittedAudioMs: number;
+  commitStrategy: RealtimeCommitStrategy;
   queue: RealtimeAudioChunkEvent[];
   queueHead: number;
   droppedQueueChunks: number;
@@ -61,6 +64,7 @@ export const createRealtimeHandle = (label: TranscriptSource): RealtimeHandle =>
     keepAliveIntervalId: null,
     lastSentAtMs: 0,
     uncommittedAudioMs: 0,
+    commitStrategy: "manual",
     queue: [],
     queueHead: 0,
     droppedQueueChunks: 0,
@@ -177,6 +181,7 @@ export const closeRealtimeHandle = (
   handle.errorLabel = "";
   handle.lastSentAtMs = 0;
   handle.uncommittedAudioMs = 0;
+  handle.commitStrategy = "manual";
   handle.connectionId = null;
 
   if (handle.connection) {
@@ -199,6 +204,10 @@ export const commitRealtimeHandle = (
   onError?: (error: unknown) => void
 ): boolean => {
   if (!handle.connection || !handle.ready) {
+    return false;
+  }
+
+  if (handle.commitStrategy === "vad") {
     return false;
   }
 

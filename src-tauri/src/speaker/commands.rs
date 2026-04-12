@@ -117,11 +117,7 @@ pub async fn start_system_audio_capture(
 
     let state_clone = app.state::<crate::AudioState>();
     let task = tokio::spawn(async move {
-        if vad_config.enabled {
-            run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
-        } else {
-            run_continuous_capture(app_clone.clone(), stream, sr, vad_config).await;
-        }
+        run_vad_capture(app_clone.clone(), stream, sr, vad_config).await;
 
         let state = app_clone.state::<crate::AudioState>();
         {

@@ -4,6 +4,7 @@ import {
   ELEVENLABS_REALTIME_FALLBACK_BASE_URIS,
   fetchElevenLabsRealtimeToken,
   getElevenLabsAudioFormat,
+  type ElevenLabsRealtimeCommitStrategy,
 } from "@/lib";
 import { type TranscriptSource } from "@/types";
 import {
@@ -21,6 +22,14 @@ type RealtimeConfig = {
   model: string;
   baseUri?: string | null;
   tokenBaseUrl?: string | null;
+  languageCode: string | null;
+  commitStrategy: ElevenLabsRealtimeCommitStrategy;
+  includeTimestamps: boolean;
+  vadSilenceThresholdSecs: number | null;
+  vadThreshold: number | null;
+  minSpeechDurationMs: number | null;
+  minSilenceDurationMs: number | null;
+  previousText: string | null;
 };
 
 type ConnectSystemAudioRealtimeOptions = {
@@ -193,14 +202,50 @@ export const connectSystemAudioRealtime = async (
         let openResolved = false;
         let sessionResolved = false;
         let settled = false;
+        let lastCommittedText = "";
+        let lastCommittedAt = 0;
 
         await new Promise<void>((resolve, reject) => {
+          const commitStrategy =
+            realtimeConfig.commitStrategy === "vad"
+              ? CommitStrategy.VAD
+              : CommitStrategy.MANUAL;
           const connection = Scribe.connect({
             token,
             modelId: realtimeConfig.model,
-            commitStrategy: CommitStrategy.MANUAL,
+            commitStrategy,
             audioFormat,
             sampleRate,
+            ...(realtimeConfig.languageCode
+              ? {
+                  languageCode: realtimeConfig.languageCode,
+                }
+              : {}),
+            ...(realtimeConfig.includeTimestamps
+              ? {
+                  includeTimestamps: true,
+                }
+              : {}),
+            ...(typeof realtimeConfig.vadSilenceThresholdSecs === "number"
+              ? {
+                  vadSilenceThresholdSecs: realtimeConfig.vadSilenceThresholdSecs,
+                }
+              : {}),
+            ...(typeof realtimeConfig.vadThreshold === "number"
+              ? {
+                  vadThreshold: realtimeConfig.vadThreshold,
+                }
+              : {}),
+            ...(typeof realtimeConfig.minSpeechDurationMs === "number"
+              ? {
+                  minSpeechDurationMs: realtimeConfig.minSpeechDurationMs,
+                }
+              : {}),
+            ...(typeof realtimeConfig.minSilenceDurationMs === "number"
+              ? {
+                  minSilenceDurationMs: realtimeConfig.minSilenceDurationMs,
+                }
+              : {}),
             ...(candidateBaseUri &&
             candidateBaseUri !== ELEVENLABS_REALTIME_DEFAULT_BASE_URI
               ? { baseUri: candidateBaseUri }
@@ -227,6 +272,7 @@ export const connectSystemAudioRealtime = async (
           handle.errorLabel = "";
           handle.lastSentAtMs = Date.now();
           handle.uncommittedAudioMs = 0;
+          handle.commitStrategy = realtimeConfig.commitStrategy;
 
           const settleResolve = () => {
             if (settled) {
@@ -276,6 +322,22 @@ export const connectSystemAudioRealtime = async (
             onRealtimeError(eventMessage || "Realtime transcription failed.", event);
           };
 
+          const emitCommittedTranscript = (text: string) => {
+            const normalized = text.trim();
+            if (!normalized) {
+              return;
+            }
+
+            const now = Date.now();
+            if (normalized === lastCommittedText && now - lastCommittedAt < 300) {
+              return;
+            }
+
+            lastCommittedText = normalized;
+            lastCommittedAt = now;
+            onCommittedTranscript(text);
+          };
+
           connection.on(RealtimeEvents.OPEN, () => {
             openResolved = true;
             onInfo(`[SystemAudio][${source}] realtime open via ${candidateBaseUri}`);
@@ -286,10 +348,6 @@ export const connectSystemAudioRealtime = async (
             handle.ready = true;
             handle.connectAttempts = 0;
             onReconnectOpened?.(source, attempt);
-            onReady();
-            flushRealtimeQueue(handle);
-            onInfo(`[SystemAudio][${source}] session started @${sampleRate}Hz`);
-
             const bootstrapSilenceSamples = Math.max(
               128,
               Math.round(sampleRate * (bootstrapSilenceMs / 1000))
@@ -303,8 +361,19 @@ export const connectSystemAudioRealtime = async (
             connection.send({
               audioBase64: bootstrapAudio,
               sampleRate,
+              ...(realtimeConfig.previousText
+                ? {
+                    previousText: realtimeConfig.previousText,
+                  }
+                : {}),
             });
             handle.lastSentAtMs = Date.now();
+
+            onReady();
+            flushRealtimeQueue(handle);
+            onInfo(
+              `[SystemAudio][${source}] session started @${sampleRate}Hz (commit=${realtimeConfig.commitStrategy}${realtimeConfig.languageCode ? `, language=${realtimeConfig.languageCode}` : ""})`
+            );
 
             if (handle.keepAliveIntervalId !== null) {
               window.clearInterval(handle.keepAliveIntervalId);
@@ -356,8 +425,19 @@ export const connectSystemAudioRealtime = async (
               return;
             }
 
-            onCommittedTranscript(data.text);
+            emitCommittedTranscript(data.text);
           });
+
+          connection.on(
+            RealtimeEvents.COMMITTED_TRANSCRIPT_WITH_TIMESTAMPS,
+            (data) => {
+              if (!isCurrentConnection()) {
+                return;
+              }
+
+              emitCommittedTranscript(data.text);
+            }
+          );
 
           REALTIME_ERROR_EVENTS.forEach((eventName) => {
             connection.on(eventName, captureStructuredRealtimeError);
