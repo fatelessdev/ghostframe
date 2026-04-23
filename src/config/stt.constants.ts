@@ -37,17 +37,7 @@ export const SPEECH_TO_TEXT_PROVIDERS = [
     name: "ElevenLabs Realtime Speech-to-Text",
     curl: `curl -X POST "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe" \\
       -H "xi-api-key: {{API_KEY}}" \\
-      -H "x-model-id: {{MODEL}}" \\
-      -H "x-language-code: {{LANGUAGE_CODE}}" \\
-      -H "x-commit-strategy: {{COMMIT_STRATEGY}}" \\
-      -H "x-include-timestamps: {{INCLUDE_TIMESTAMPS}}" \\
-      -H "x-vad-silence-threshold-secs: {{VAD_SILENCE_THRESHOLD_SECS}}" \\
-      -H "x-vad-threshold: {{VAD_THRESHOLD}}" \\
-      -H "x-min-speech-duration-ms: {{MIN_SPEECH_DURATION_MS}}" \\
-      -H "x-min-silence-duration-ms: {{MIN_SILENCE_DURATION_MS}}" \\
-      -H "x-base-uri: {{BASE_URI}}" \\
-      -H "x-token-base-url: {{TOKEN_BASE_URL}}" \\
-      -H "x-previous-text: {{PREVIOUS_TEXT}}"`,
+      -H "x-model-id: {{MODEL}}"`,
     responseContentPath: "text",
     streaming: true,
   },

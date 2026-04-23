@@ -5,7 +5,7 @@ export const ELEVENLABS_REALTIME_STT_PROVIDER_ID =
   "elevenlabs-realtime-stt";
 export const ELEVENLABS_REALTIME_DEFAULT_MODEL = "scribe_v2_realtime";
 export const ELEVENLABS_REALTIME_DEFAULT_BASE_URI = "wss://api.elevenlabs.io";
-export const ELEVENLABS_REALTIME_DEFAULT_LANGUAGE_CODE = "en";
+export const ELEVENLABS_REALTIME_DEFAULT_LANGUAGE_CODE: string | null = null;
 export const ELEVENLABS_REALTIME_DEFAULT_INCLUDE_TIMESTAMPS = true;
 export type ElevenLabsRealtimeCommitStrategy = "manual" | "vad";
 export const ELEVENLABS_REALTIME_DEFAULT_COMMIT_STRATEGY: ElevenLabsRealtimeCommitStrategy =
@@ -15,7 +15,7 @@ export const ELEVENLABS_REALTIME_DEFAULT_VAD_THRESHOLD = 0.4;
 export const ELEVENLABS_REALTIME_DEFAULT_MIN_SPEECH_DURATION_MS = 100;
 export const ELEVENLABS_REALTIME_DEFAULT_MIN_SILENCE_DURATION_MS = 100;
 export const ELEVENLABS_REALTIME_DEFAULT_PREVIOUS_TEXT =
-  "The interviewer may speak in English or Hindi and can switch languages mid-sentence. Always output the transcript in English. If Hindi is spoken, translate it into natural English and do not output non-English scripts.";
+  "The interviewer will speak only in English or Hindi and may switch languages mid-sentence. Always output the transcript in English. Translate any Hindi speech into natural English and never return non-English scripts.";
 export const ELEVENLABS_REALTIME_FALLBACK_BASE_URIS = [
   ELEVENLABS_REALTIME_DEFAULT_BASE_URI,
   "wss://api.us.elevenlabs.io",
@@ -67,38 +67,6 @@ function normalizeUriValue(value?: string | null): string | null {
   return trimmed.replace(/\/+$/, "");
 }
 
-function normalizeWebsocketBaseUri(value?: string | null): string | null {
-  let normalized = normalizeUriValue(value);
-  if (!normalized) {
-    return null;
-  }
-
-  normalized = normalized
-    .replace(/\/v1\/speech-to-text\/realtime$/i, "")
-    .replace(/\/v1\/speech-to-text$/i, "");
-
-  if (!/^wss?:\/\//i.test(normalized)) {
-    normalized = "wss://" + normalized.replace(/^https?:\/\//i, "");
-  }
-
-  return normalized;
-}
-
-function normalizeTokenBaseUrl(value?: string | null): string | null {
-  let normalized = normalizeUriValue(value);
-  if (!normalized) {
-    return null;
-  }
-
-  normalized = normalized.replace(/\/v1\/single-use-token\/realtime_scribe$/i, "");
-
-  if (!/^https?:\/\//i.test(normalized)) {
-    normalized = "https://" + normalized.replace(/^wss?:\/\//i, "");
-  }
-
-  return normalized;
-}
-
 function readVariable(
   variables: Record<string, string>,
   ...keys: string[]
@@ -113,119 +81,22 @@ function readVariable(
   return undefined;
 }
 
-function normalizeBooleanValue(value: string | undefined, fallback: boolean): boolean {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-
-  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
-    return true;
-  }
-
-  if (["0", "false", "no", "n", "off"].includes(normalized)) {
-    return false;
-  }
-
-  throw new Error(
-    `Invalid include_timestamps value "${value}". Use true/false (or 1/0).`
-  );
-}
-
-function normalizeCommitStrategy(
-  value: string | undefined
-): ElevenLabsRealtimeCommitStrategy {
-  if (typeof value !== "string" || !value.trim()) {
-    return ELEVENLABS_REALTIME_DEFAULT_COMMIT_STRATEGY;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "manual" || normalized === "vad") {
-    return normalized;
-  }
-
-  throw new Error(
-    `Invalid commit_strategy value "${value}". Supported values: manual, vad.`
-  );
-}
-
-function normalizeLanguageCode(value: string | undefined): string | null {
-  if (typeof value !== "string" || !value.trim()) {
-    return ELEVENLABS_REALTIME_DEFAULT_LANGUAGE_CODE;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "auto" || normalized === "detect") {
-    return null;
-  }
-
-  if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(normalized)) {
-    throw new Error(
-      `Invalid language_code value "${value}". Use ISO 639 language code (e.g. en, hi).`
-    );
-  }
-
-  return normalized;
-}
-
-function normalizePreviousText(value: string | undefined): string | null {
-  if (typeof value !== "string" || !value.trim()) {
-    return ELEVENLABS_REALTIME_DEFAULT_PREVIOUS_TEXT;
-  }
-
-  const normalized = value.trim();
-  if (normalized.toLowerCase() === "none" || normalized.toLowerCase() === "off") {
-    return null;
-  }
-
-  return normalized;
-}
-
 export function getElevenLabsRealtimeConfig(
   selectedProvider: ElevenLabsRealtimeSelection
 ): ElevenLabsRealtimeConfig {
   const variables = selectedProvider.variables;
   const apiKey = readVariable(variables, "api_key")?.trim();
   const model = readVariable(variables, "model")?.trim() || ELEVENLABS_REALTIME_DEFAULT_MODEL;
-  const baseUri = normalizeUriValue(
-    normalizeWebsocketBaseUri(
-      readVariable(variables, "base_uri", "websocket_base_uri")
-    )
-  );
-  const tokenBaseUrl = normalizeUriValue(
-    normalizeTokenBaseUrl(
-      readVariable(variables, "token_base_url", "api_base_url")
-    )
-  );
-  const languageCode = normalizeLanguageCode(
-    readVariable(variables, "language_code", "language")
-  );
-  const requestedCommitStrategy = normalizeCommitStrategy(
-    readVariable(variables, "commit_strategy")
-  );
-  const commitStrategy: ElevenLabsRealtimeCommitStrategy =
-    requestedCommitStrategy === "vad" ? "manual" : requestedCommitStrategy;
-  const includeTimestamps = normalizeBooleanValue(
-    readVariable(variables, "include_timestamps"),
-    ELEVENLABS_REALTIME_DEFAULT_INCLUDE_TIMESTAMPS
-  );
+  const baseUri = null;
+  const tokenBaseUrl = null;
+  const languageCode = ELEVENLABS_REALTIME_DEFAULT_LANGUAGE_CODE;
+  const commitStrategy = ELEVENLABS_REALTIME_DEFAULT_COMMIT_STRATEGY;
+  const includeTimestamps = ELEVENLABS_REALTIME_DEFAULT_INCLUDE_TIMESTAMPS;
   const vadSilenceThresholdSecs = null;
   const vadThreshold = null;
   const minSpeechDurationMs = null;
   const minSilenceDurationMs = null;
-  const previousText = normalizePreviousText(
-    readVariable(
-      variables,
-      "previous_text",
-      "transcription_context",
-      "transcript_context",
-      "context_hint"
-    )
-  );
+  const previousText = ELEVENLABS_REALTIME_DEFAULT_PREVIOUS_TEXT;
 
   if (!apiKey) {
     throw new Error("ElevenLabs realtime STT requires an API key.");

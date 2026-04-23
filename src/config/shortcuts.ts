@@ -3,8 +3,8 @@ import { ShortcutAction } from "@/types";
 export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
   {
     id: "emergency_erase",
-    name: "Emergency Erase",
-    description: "Panic shortcut to wipe data and quit immediately",
+    name: "Quick Exit",
+    description: "Close the app immediately without clearing saved data",
     defaultKey: {
       macos: "cmd+shift+e",
       windows: "ctrl+shift+e",

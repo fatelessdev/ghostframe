@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -16,21 +15,8 @@ use crate::window::{
     toggle_click_through_state,
 };
 
-const SENSITIVE_LOCAL_STORAGE_KEYS: &[&str] = &[
-    "ai_provider_config",
-    "curl_custom_ai_providers",
-    "curl_selected_ai_provider",
-    "curl_custom_speech_providers",
-    "curl_selected_stt_provider",
-    "system_prompt",
-    "selected_system_prompt_id",
-    "system_audio_context",
-];
-
 const EMERGENCY_ERASE_ACTION_ID: &str = "emergency_erase";
 const TOGGLE_MODEL_MODE_ACTION_ID: &str = "toggle_model_mode";
-const EMERGENCY_ERASE_DATABASE_FILE: &str = "ghostframe.db";
-const EMERGENCY_ERASE_STORAGE_SCRIPT: &str = "(function(){try{localStorage.clear();sessionStorage.clear();}catch(e){console.error('Failed to clear web storage during emergency erase', e);}})();";
 
 pub struct WindowPreferencesState {
     always_on_top: AtomicBool,
@@ -153,7 +139,7 @@ pub fn setup_global_shortcuts<R: Runtime>(
     match emergency_shortcut.parse::<Shortcut>() {
         Ok(shortcut) => {
             if let Err(error) = app.global_shortcut().register(shortcut) {
-                eprintln!("Failed to register emergency erase shortcut: {}", error);
+                eprintln!("Failed to register quick-exit shortcut: {}", error);
             } else {
                 registered.insert(
                     EMERGENCY_ERASE_ACTION_ID.to_string(),
@@ -163,7 +149,7 @@ pub fn setup_global_shortcuts<R: Runtime>(
         }
         Err(error) => {
             eprintln!(
-                "Failed to parse emergency erase shortcut '{}': {}",
+                "Failed to parse quick-exit shortcut '{}': {}",
                 emergency_shortcut, error
             );
         }
@@ -201,84 +187,8 @@ pub fn setup_global_shortcuts<R: Runtime>(
     Ok(())
 }
 
-pub fn scrub_sensitive_data_on_quit<R: Runtime>(app: &AppHandle<R>) {
-    let mut script = String::from("(function(){try{");
-    for key in SENSITIVE_LOCAL_STORAGE_KEYS {
-        script.push_str(&format!("localStorage.removeItem({});", json!(key)));
-    }
-    script.push_str(
-        "}catch(e){console.error('Failed to scrub sensitive localStorage keys', e);}})();",
-    );
-
-    for (label, window) in app.webview_windows() {
-        if let Err(error) = window.eval(&script) {
-            eprintln!(
-                "Failed to scrub sensitive localStorage keys in '{}' window: {}",
-                label, error
-            );
-        }
-    }
-}
-
-fn clear_web_storage<R: Runtime>(app: &AppHandle<R>) {
-    for (label, window) in app.webview_windows() {
-        if let Err(error) = window.eval(EMERGENCY_ERASE_STORAGE_SCRIPT) {
-            eprintln!(
-                "Failed to clear web storage in '{}' window: {}",
-                label, error
-            );
-        }
-    }
-}
-
-fn clear_sqlite_database_files<R: Runtime>(app: &AppHandle<R>) {
-    let mut candidate_dirs = Vec::new();
-
-    if let Ok(dir) = app.path().app_data_dir() {
-        candidate_dirs.push(dir.clone());
-        candidate_dirs.push(dir.join("sqlite"));
-    }
-
-    if let Ok(dir) = app.path().app_local_data_dir() {
-        candidate_dirs.push(dir.clone());
-        candidate_dirs.push(dir.join("sqlite"));
-    }
-
-    if let Ok(dir) = app.path().app_cache_dir() {
-        candidate_dirs.push(dir.clone());
-        candidate_dirs.push(dir.join("sqlite"));
-    }
-
-    if let Ok(current_dir) = std::env::current_dir() {
-        candidate_dirs.push(current_dir.clone());
-        candidate_dirs.push(current_dir.join("src-tauri"));
-    }
-
-    for dir in candidate_dirs {
-        for suffix in ["", "-wal", "-shm"] {
-            let path = dir.join(format!("{}{}", EMERGENCY_ERASE_DATABASE_FILE, suffix));
-            if !path.exists() {
-                continue;
-            }
-
-            if let Err(error) = fs::remove_file(&path) {
-                eprintln!("Failed to remove database file '{}': {}", path.display(), error);
-            }
-        }
-    }
-}
-
-fn perform_emergency_erase<R: Runtime>(app: &AppHandle<R>) {
-    if let Err(error) = hide_main_window(app) {
-        eprintln!("Failed to hide main window during emergency erase: {}", error);
-    }
-
-    scrub_sensitive_data_on_quit(app);
-    clear_web_storage(app);
-    clear_sqlite_database_files(app);
-
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    std::process::exit(0);
+fn exit_application<R: Runtime>(app: &AppHandle<R>) {
+    app.exit(0);
 }
 
 /// Handle shortcut action based on action_id
@@ -311,7 +221,7 @@ pub fn handle_shortcut_action<R: Runtime>(app: &AppHandle<R>, action_id: &str) {
         "answer_trigger" => handle_answer_trigger_shortcut(app),
         "scroll_response_up" => handle_scroll_response_shortcut(app, true),
         "scroll_response_down" => handle_scroll_response_shortcut(app, false),
-        EMERGENCY_ERASE_ACTION_ID => perform_emergency_erase(app),
+        EMERGENCY_ERASE_ACTION_ID => exit_application(app),
         custom_action => {
             // Emit custom action event for frontend to handle
             if let Some(window) = app.get_webview_window("main") {
@@ -789,17 +699,16 @@ fn handle_toggle_click_through<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Tauri command to trigger emergency erase and immediate exit
+/// Tauri command to exit the application through the quick-exit shortcut path
 #[tauri::command]
 pub fn emergency_erase(app_handle: tauri::AppHandle) {
-    perform_emergency_erase(&app_handle);
+    exit_application(&app_handle);
 }
 
 /// Tauri command to exit the application
 #[tauri::command]
 pub fn exit_app(app_handle: tauri::AppHandle) {
-    scrub_sensitive_data_on_quit(&app_handle);
-    app_handle.exit(0);
+    exit_application(&app_handle);
 }
 pub fn start_scroll_response<R: Runtime>(app: &AppHandle<R>, direction: &str) {
     let state = app.state::<MoveWindowState>();
