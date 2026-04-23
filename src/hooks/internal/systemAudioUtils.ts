@@ -105,13 +105,14 @@ function createSegment(
   source: TranscriptSource,
   text: string,
   isLive: boolean = false,
-  stability: TranscriptStability = isLive ? "interim" : "final"
+  stability: TranscriptStability = isLive ? "interim" : "final",
+  timestamp: number = Date.now()
 ): TranscriptSegment {
   return {
     id: `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     source,
     text,
-    timestamp: Date.now(),
+    timestamp,
     isLive,
     stability,
   };
@@ -167,7 +168,8 @@ function isTranscriptRefinement(previous: string, next: string): boolean {
 export function replaceLiveSegment(
   segments: TranscriptSegment[],
   source: TranscriptSource,
-  text: string
+  text: string,
+  timestamp: number = Date.now()
 ): TranscriptSegment[] {
   const normalizedText = normalizeTranscription(text).trim();
   if (!normalizedText) {
@@ -183,10 +185,10 @@ export function replaceLiveSegment(
     ? {
         ...existingLive,
         text: normalizedText,
-        timestamp: Date.now(),
+        timestamp,
         stability: "interim" as const,
       }
-    : createSegment(source, normalizedText, true, "interim");
+    : createSegment(source, normalizedText, true, "interim", timestamp);
 
   const next = [...withoutLive, nextLive];
 
@@ -197,10 +199,11 @@ export function commitSegment(
   segments: TranscriptSegment[],
   source: TranscriptSource,
   text: string,
-  stability: TranscriptStability = "final"
+  stability: TranscriptStability = "final",
+  timestamp: number = Date.now()
 ): TranscriptSegment[] {
   const normalizedText = normalizeTranscription(text).trim();
-  const now = Date.now();
+  const now = timestamp;
 
   let next = segments.filter((item) => {
     return !item.isLive || item.source !== source;
@@ -254,7 +257,7 @@ export function commitSegment(
     break;
   }
 
-  const committed = createSegment(source, normalizedText, false, stability);
+  const committed = createSegment(source, normalizedText, false, stability, now);
   next = [...next, committed];
   return trimSegments(next);
 }
@@ -264,11 +267,12 @@ export function replaceLatestCommittedSegment(
   source: TranscriptSource,
   previousText: string,
   nextText: string,
-  stability: TranscriptStability = "final"
+  stability: TranscriptStability = "final",
+  timestamp: number = Date.now()
 ): TranscriptSegment[] | null {
   const normalizedPrevious = normalizeTranscription(previousText).trim();
   const normalizedNext = normalizeTranscription(nextText).trim();
-  const now = Date.now();
+  const now = timestamp;
   if (!normalizedNext) {
     return null;
   }
@@ -298,10 +302,11 @@ export function replaceLatestPendingCommittedSegment(
   segments: TranscriptSegment[],
   source: TranscriptSource,
   nextText: string,
-  stability: TranscriptStability = "final"
+  stability: TranscriptStability = "final",
+  timestamp: number = Date.now()
 ): TranscriptSegment[] | null {
   const normalizedNext = normalizeTranscription(nextText).trim();
-  const now = Date.now();
+  const now = timestamp;
   if (!normalizedNext) {
     return null;
   }
@@ -330,14 +335,15 @@ export function replaceLatestCommittedSegmentIfRecent(
   source: TranscriptSource,
   nextText: string,
   maxAgeMs: number = 8000,
-  stability: TranscriptStability = "final"
+  stability: TranscriptStability = "final",
+  timestamp: number = Date.now()
 ): TranscriptSegment[] | null {
   const normalizedNext = normalizeTranscription(nextText).trim();
   if (!normalizedNext) {
     return null;
   }
 
-  const now = Date.now();
+  const now = timestamp;
   const maxAge = Math.max(0, Math.round(maxAgeMs));
   const next = [...segments];
 

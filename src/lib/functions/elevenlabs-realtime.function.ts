@@ -7,6 +7,7 @@ export const ELEVENLABS_REALTIME_DEFAULT_MODEL = "scribe_v2_realtime";
 export const ELEVENLABS_REALTIME_DEFAULT_BASE_URI = "wss://api.elevenlabs.io";
 export const ELEVENLABS_REALTIME_DEFAULT_LANGUAGE_CODE: string | null = null;
 export const ELEVENLABS_REALTIME_DEFAULT_INCLUDE_TIMESTAMPS = true;
+export const ELEVENLABS_REALTIME_DEFAULT_INCLUDE_LANGUAGE_DETECTION = true;
 export type ElevenLabsRealtimeCommitStrategy = "manual" | "vad";
 export const ELEVENLABS_REALTIME_DEFAULT_COMMIT_STRATEGY: ElevenLabsRealtimeCommitStrategy =
   "manual";
@@ -15,7 +16,7 @@ export const ELEVENLABS_REALTIME_DEFAULT_VAD_THRESHOLD = 0.4;
 export const ELEVENLABS_REALTIME_DEFAULT_MIN_SPEECH_DURATION_MS = 100;
 export const ELEVENLABS_REALTIME_DEFAULT_MIN_SILENCE_DURATION_MS = 100;
 export const ELEVENLABS_REALTIME_DEFAULT_PREVIOUS_TEXT =
-  "The interviewer will speak only in English or Hindi and may switch languages mid-sentence. Always output the transcript in English. Translate any Hindi speech into natural English and never return non-English scripts.";
+  "The interviewer will speak only in English or Hindi and may switch languages mid-sentence. Return transcript text in natural English only, preserve names and technical terms, translate Hindi speech into English, and never output non-English scripts.";
 export const ELEVENLABS_REALTIME_FALLBACK_BASE_URIS = [
   ELEVENLABS_REALTIME_DEFAULT_BASE_URI,
   "wss://api.us.elevenlabs.io",
@@ -36,6 +37,7 @@ export interface ElevenLabsRealtimeConfig {
   languageCode: string | null;
   commitStrategy: ElevenLabsRealtimeCommitStrategy;
   includeTimestamps: boolean;
+  includeLanguageDetection: boolean;
   vadSilenceThresholdSecs: number | null;
   vadThreshold: number | null;
   minSpeechDurationMs: number | null;
@@ -92,6 +94,8 @@ export function getElevenLabsRealtimeConfig(
   const languageCode = ELEVENLABS_REALTIME_DEFAULT_LANGUAGE_CODE;
   const commitStrategy = ELEVENLABS_REALTIME_DEFAULT_COMMIT_STRATEGY;
   const includeTimestamps = ELEVENLABS_REALTIME_DEFAULT_INCLUDE_TIMESTAMPS;
+  const includeLanguageDetection =
+    ELEVENLABS_REALTIME_DEFAULT_INCLUDE_LANGUAGE_DETECTION;
   const vadSilenceThresholdSecs = null;
   const vadThreshold = null;
   const minSpeechDurationMs = null;
@@ -110,6 +114,7 @@ export function getElevenLabsRealtimeConfig(
     languageCode,
     commitStrategy,
     includeTimestamps,
+    includeLanguageDetection,
     vadSilenceThresholdSecs,
     vadThreshold,
     minSpeechDurationMs,

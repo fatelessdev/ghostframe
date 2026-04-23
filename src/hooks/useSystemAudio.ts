@@ -53,7 +53,10 @@ import {
   restartSystemAudioCaptureWithRetry,
   waitForCaptureState,
 } from "@/hooks/internal/systemAudioCapture";
-import { connectSystemAudioRealtime } from "@/hooks/internal/systemAudioConnection";
+import {
+  connectSystemAudioRealtime,
+  type RealtimeCommittedTranscript,
+} from "@/hooks/internal/systemAudioConnection";
 import {
   appendManualScreenshot,
   buildImagesPayload as buildImagesPayloadInternal,
@@ -218,6 +221,35 @@ const MAX_SEND_LOCKS = 3;
 const INTERIM_IDLE_PROMOTION_MS = 900;
 const COMMITTED_REFINEMENT_MAX_AGE_MS = 12000;
 const TRANSCRIPT_CLEAR_COMMIT_SUPPRESSION_MS = 450;
+const ENGLISH_TRANSCRIPT_LANGUAGE_CODES = new Set(["en", "eng"]);
+const ALLOWED_INTERVIEW_LANGUAGE_CODES = new Set(["en", "eng", "hi", "hin"]);
+const NON_LATIN_TRANSCRIPT_PATTERN =
+  /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}\p{N}\s]/u;
+const ENGLISH_TRANSCRIPT_TRANSLATION_SYSTEM_PROMPT =
+  "Translate short interview transcript snippets into natural English. Output only the final English transcript text, preserve names, numbers, technical terms, and intent, and never include any non-English script or extra commentary.";
+
+const normalizeTranscriptLanguageCode = (
+  value: string | null | undefined
+): string | null => {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : null;
+};
+
+const shouldHideTranscriptFromUi = (text: string): boolean => {
+  return NON_LATIN_TRANSCRIPT_PATTERN.test(text);
+};
+
+const shouldTranslateCommittedTranscript = (
+  text: string,
+  languageCode: string | null
+): boolean => {
+  const normalizedLanguageCode = normalizeTranscriptLanguageCode(languageCode);
+  if (normalizedLanguageCode && !ENGLISH_TRANSCRIPT_LANGUAGE_CODES.has(normalizedLanguageCode)) {
+    return true;
+  }
+
+  return shouldHideTranscriptFromUi(text);
+};
 
 type ActiveAnswerSendLock = {
   id: number;
@@ -444,6 +476,8 @@ export function useSystemAudio() {
   const manualScreenshotsRef = useRef<ManualScreenshot[]>([]);
   const pendingScreenshotCaptureCountRef = useRef(0);
   const processingScreenshotQueueRef = useRef(false);
+  const pendingTranscriptTranslationsRef = useRef<Set<Promise<void>>>(new Set());
+  const transcriptMutationSessionRef = useRef(0);
 
   const interviewerRealtimeRef = useRef<RealtimeHandle>(
     createRealtimeHandle("interviewer")
@@ -556,6 +590,74 @@ export function useSystemAudio() {
       });
     },
     [updateSettings]
+  );
+
+  const getSelectedAiProviderConfig = useCallback(() => {
+    if (!selectedAIProvider.provider) {
+      return null;
+    }
+
+    const provider = allAiProviders.find(
+      (entry) => entry.id === selectedAIProvider.provider
+    );
+    if (!provider) {
+      return null;
+    }
+
+    return {
+      provider,
+      selectedProvider: selectedAIProvider,
+    };
+  }, [allAiProviders, selectedAIProvider]);
+
+  const trackPendingTranscriptTranslation = useCallback((task: Promise<void>) => {
+    pendingTranscriptTranslationsRef.current.add(task);
+    void task.finally(() => {
+      pendingTranscriptTranslationsRef.current.delete(task);
+    });
+  }, []);
+
+  const waitForPendingTranscriptTranslations = useCallback(async () => {
+    const pendingTranslations = Array.from(pendingTranscriptTranslationsRef.current);
+    if (pendingTranslations.length === 0) {
+      return;
+    }
+
+    await Promise.allSettled(pendingTranslations);
+  }, []);
+
+  const translateTranscriptToEnglish = useCallback(
+    async (text: string, languageCode: string | null): Promise<string> => {
+      const normalizedText = normalizeTranscription(text).trim();
+      if (!normalizedText) {
+        return "";
+      }
+
+      const providerConfig = getSelectedAiProviderConfig();
+      if (!providerConfig) {
+        return normalizedText;
+      }
+
+      const normalizedLanguageCode = normalizeTranscriptLanguageCode(languageCode);
+      const translationPrompt = normalizedLanguageCode
+        ? `Detected language: ${normalizedLanguageCode}\nTranscript: ${normalizedText}`
+        : `Transcript: ${normalizedText}`;
+
+      let translatedText = "";
+      for await (const chunk of fetchAIResponse({
+        provider: providerConfig.provider,
+        selectedProvider: providerConfig.selectedProvider,
+        systemPrompt: ENGLISH_TRANSCRIPT_TRANSLATION_SYSTEM_PROMPT,
+        history: [],
+        userMessage: translationPrompt,
+        aiMode: currentAIMode,
+      })) {
+        translatedText += chunk;
+      }
+
+      return normalizeTranscription(translatedText).trim() || normalizedText;
+    },
+    [currentAIMode, getSelectedAiProviderConfig]
   );
 
   const getEffectiveSystemPrompt = useCallback(() => {
@@ -683,6 +785,8 @@ export function useSystemAudio() {
   );
 
   const resetInterviewState = useCallback(() => {
+    transcriptMutationSessionRef.current += 1;
+    pendingTranscriptTranslationsRef.current.clear();
     applySegmentUpdate(() => []);
     clearPendingRealtimeState();
   }, [applySegmentUpdate, clearPendingRealtimeState]);
@@ -746,14 +850,24 @@ export function useSystemAudio() {
     (
       source: TranscriptSource,
       text: string,
-      stability: TranscriptStability = "final"
+      stability: TranscriptStability = "final",
+      timestamp: number = Date.now()
     ) => {
       if (stability === "final") {
         clearInterimPromotionTimeout(source);
       }
-      applySegmentUpdate((previous) => commitSegment(previous, source, text, stability));
+      applySegmentUpdate((previous) =>
+        commitSegment(previous, source, text, stability, timestamp)
+      );
     },
     [applySegmentUpdate, clearInterimPromotionTimeout]
+  );
+
+  const clearLiveTranscript = useCallback(
+    (source: TranscriptSource) => {
+      applySegmentUpdate((previous) => commitSegment(previous, source, "", "final"));
+    },
+    [applySegmentUpdate]
   );
 
   const createAnswerSendLock = useCallback(
@@ -876,6 +990,94 @@ export function useSystemAudio() {
       }
     },
     []
+  );
+
+  const applyCommittedTranscriptUpdate = useCallback(
+    (
+      source: TranscriptSource,
+      rawText: string,
+      committedAt: number = Date.now()
+    ) => {
+      const text = normalizeTranscription(rawText).trim();
+      if (!text) {
+        return;
+      }
+
+      clearInterimPromotionTimeout(source);
+      const pending = pendingCommitEchoRef.current[source];
+      const suppressedUntil = suppressCommittedTranscriptUntilRef.current[source] || 0;
+      if (!pending && suppressedUntil > Date.now()) {
+        return;
+      }
+      suppressCommittedTranscriptUntilRef.current[source] = 0;
+
+      setError("");
+      if (pending) {
+        const replaced = replaceLatestCommittedSegment(
+          segmentsRef.current,
+          source,
+          pending.partialText,
+          text,
+          "final",
+          committedAt
+        );
+        if (replaced) {
+          applySegmentUpdate(() => replaced);
+        } else {
+          const fallbackReplaced = replaceLatestPendingCommittedSegment(
+            segmentsRef.current,
+            source,
+            text,
+            "final",
+            committedAt
+          );
+          if (fallbackReplaced) {
+            applySegmentUpdate(() => fallbackReplaced);
+          } else {
+            const recentReplaced = replaceLatestCommittedSegmentIfRecent(
+              segmentsRef.current,
+              source,
+              text,
+              COMMITTED_REFINEMENT_MAX_AGE_MS,
+              "final",
+              committedAt
+            );
+
+            if (recentReplaced) {
+              applySegmentUpdate(() => recentReplaced);
+            } else {
+              appendCommittedTranscript(source, text, "final", committedAt);
+            }
+          }
+        }
+        patchAnswerSendLocks(source, pending.partialText, text);
+        pendingCommitEchoRef.current[source] = undefined;
+        return;
+      }
+
+      const recentReplaced = replaceLatestCommittedSegmentIfRecent(
+        segmentsRef.current,
+        source,
+        text,
+        COMMITTED_REFINEMENT_MAX_AGE_MS,
+        "final",
+        committedAt
+      );
+      if (recentReplaced) {
+        applySegmentUpdate(() => recentReplaced);
+        patchAnswerSendLocks(source, "", text);
+        return;
+      }
+
+      appendCommittedTranscript(source, text, "final", committedAt);
+      patchAnswerSendLocks(source, "", text);
+    },
+    [
+      appendCommittedTranscript,
+      applySegmentUpdate,
+      clearInterimPromotionTimeout,
+      patchAnswerSendLocks,
+    ]
   );
 
   const commitLiveSegmentOnSpeakerSwitch = useCallback(
@@ -1189,11 +1391,6 @@ export function useSystemAudio() {
 
     try {
       while (pendingScreenshotCaptureCountRef.current > 0) {
-        if (!captureRef.current) {
-          pendingScreenshotCaptureCountRef.current = 0;
-          break;
-        }
-
         pendingScreenshotCaptureCountRef.current -= 1;
         await captureManualScreenshot();
       }
@@ -1792,10 +1989,8 @@ export function useSystemAudio() {
             answer_trigger: triggerTs,
           };
       recordLatencyMark("answer_trigger", triggerTs);
-
-      const sendLock = createAnswerSendLock(trimmedInstruction, triggerTs);
-
       clearAllInterimPromotionTimeouts();
+      let sendLock: ActiveAnswerSendLock | null = null;
 
       try {
         let prompt = "";
@@ -1812,6 +2007,8 @@ export function useSystemAudio() {
         };
 
         if (capturing) {
+          await waitForPendingTranscriptTranslations();
+          sendLock = createAnswerSendLock(trimmedInstruction, triggerTs);
           if (!sendLock) {
             setIsProcessing(false);
             setError("No transcript available yet. Keep speaking and try again.");
@@ -1827,23 +2024,31 @@ export function useSystemAudio() {
         recordLatencyMark("transcript_finalized", Date.now());
 
         const images = buildImagesPayload();
+        let sendLockOptions:
+          | {
+              resolveUserMessage: () => string;
+              onRequestDispatched: () => void;
+            }
+          | undefined;
+        if (sendLock) {
+          const activeSendLock = sendLock;
+          sendLockOptions = {
+            resolveUserMessage: () => {
+              const latestLock = activeAnswerSendLocksRef.current.find(
+                (lock) => lock.id === activeSendLock.id
+              );
+              return latestLock?.prompt || activeSendLock.prompt;
+            },
+            onRequestDispatched: () => {
+              markAnswerSendLockDispatched(activeSendLock.id);
+              applyDispatchCleanup();
+            },
+          };
+        }
         const sent = await runAI(
           prompt,
           images,
-          sendLock
-            ? {
-                resolveUserMessage: () => {
-                  const latestLock = activeAnswerSendLocksRef.current.find(
-                    (lock) => lock.id === sendLock.id
-                  );
-                  return latestLock?.prompt || sendLock.prompt;
-                },
-                onRequestDispatched: () => {
-                  markAnswerSendLockDispatched(sendLock.id);
-                  applyDispatchCleanup();
-                },
-              }
-            : undefined
+          sendLockOptions
         );
         if (sent && capturing && !dispatchCleanupApplied) {
           applyDispatchCleanup();
@@ -1868,6 +2073,7 @@ export function useSystemAudio() {
       recordLatencyMark,
       removeAnswerSendLock,
       runAI,
+      waitForPendingTranscriptTranslations,
     ]
   );
 
@@ -1931,6 +2137,18 @@ export function useSystemAudio() {
             return;
           }
 
+          if (shouldHideTranscriptFromUi(text)) {
+            clearInterimPromotionTimeout(source);
+            clearLiveTranscript(source);
+
+            if (source === "interviewer") {
+              latestPartialInterviewerRef.current = "";
+            } else {
+              latestPartialUserRef.current = "";
+            }
+            return;
+          }
+
           commitLiveSegmentOnSpeakerSwitch(source);
           setError("");
           suppressCommittedTranscriptUntilRef.current[source] = 0;
@@ -1943,76 +2161,70 @@ export function useSystemAudio() {
 
           appendLiveTranscript(source, text);
         },
-        onCommittedTranscript: (rawText) => {
-          const text = normalizeTranscription(rawText).trim();
+        onCommittedTranscript: (payload: RealtimeCommittedTranscript) => {
+          const text = normalizeTranscription(payload.text).trim();
           if (!text) {
             return;
           }
+          const committedAt = Date.now();
+          const languageCode = normalizeTranscriptLanguageCode(payload.languageCode);
 
-          clearInterimPromotionTimeout(source);
-          const pending = pendingCommitEchoRef.current[source];
-          const suppressedUntil = suppressCommittedTranscriptUntilRef.current[source] || 0;
-          if (!pending && suppressedUntil > Date.now()) {
+          if (languageCode && !ALLOWED_INTERVIEW_LANGUAGE_CODES.has(languageCode)) {
+            console.warn(
+              `[SystemAudio][${source}] unexpected realtime transcript language: ${languageCode}`
+            );
+          }
+
+          if (!shouldTranslateCommittedTranscript(text, languageCode)) {
+            applyCommittedTranscriptUpdate(source, text, committedAt);
             return;
           }
-          suppressCommittedTranscriptUntilRef.current[source] = 0;
 
-          setError("");
-          if (pending) {
-            const replaced = replaceLatestCommittedSegment(
-              segmentsRef.current,
-              source,
-              pending.partialText,
-              text,
-              "final"
-            );
-            if (replaced) {
-              applySegmentUpdate(() => replaced);
-            } else {
-              const fallbackReplaced = replaceLatestPendingCommittedSegment(
-                segmentsRef.current,
-                source,
+          const translationSession = transcriptMutationSessionRef.current;
+          const translationTask = (async () => {
+            try {
+              const translatedText = await translateTranscriptToEnglish(
                 text,
-                "final"
+                languageCode
               );
-              if (fallbackReplaced) {
-                applySegmentUpdate(() => fallbackReplaced);
-              } else {
-                const recentReplaced = replaceLatestCommittedSegmentIfRecent(
-                  segmentsRef.current,
-                  source,
-                  text,
-                  COMMITTED_REFINEMENT_MAX_AGE_MS,
-                  "final"
-                );
 
-                if (recentReplaced) {
-                  applySegmentUpdate(() => recentReplaced);
-                } else {
-                  appendCommittedTranscript(source, text, "final");
+              if (translationSession !== transcriptMutationSessionRef.current) {
+                return;
+              }
+
+              const normalizedTranslated = normalizeTranscription(translatedText).trim();
+              if (!normalizedTranslated) {
+                if (!shouldHideTranscriptFromUi(text)) {
+                  applyCommittedTranscriptUpdate(source, text, committedAt);
                 }
+                return;
+              }
+
+              if (shouldHideTranscriptFromUi(normalizedTranslated)) {
+                if (!shouldHideTranscriptFromUi(text)) {
+                  applyCommittedTranscriptUpdate(source, text, committedAt);
+                }
+                return;
+              }
+
+              applyCommittedTranscriptUpdate(source, normalizedTranslated, committedAt);
+            } catch (translationError) {
+              if (translationSession !== transcriptMutationSessionRef.current) {
+                return;
+              }
+
+              console.warn(
+                `[SystemAudio][${source}] failed to normalize transcript to English:`,
+                translationError
+              );
+
+              if (!shouldHideTranscriptFromUi(text)) {
+                applyCommittedTranscriptUpdate(source, text, committedAt);
               }
             }
-            patchAnswerSendLocks(source, pending.partialText, text);
-            pendingCommitEchoRef.current[source] = undefined;
-            return;
-          }
+          })();
 
-          const recentReplaced = replaceLatestCommittedSegmentIfRecent(
-            segmentsRef.current,
-            source,
-            text,
-            COMMITTED_REFINEMENT_MAX_AGE_MS,
-            "final"
-          );
-          if (recentReplaced) {
-            applySegmentUpdate(() => recentReplaced);
-            patchAnswerSendLocks(source, "", text);
-            return;
-          }
-
-          appendCommittedTranscript(source, text, "final");
-          patchAnswerSendLocks(source, "", text);
+          trackPendingTranscriptTranslation(translationTask);
         },
         onRealtimeError: (message, event) => {
           if (event) {
@@ -2049,14 +2261,15 @@ export function useSystemAudio() {
       });
     },
     [
-      applySegmentUpdate,
-      appendCommittedTranscript,
+      applyCommittedTranscriptUpdate,
       appendLiveTranscript,
+      clearInterimPromotionTimeout,
+      clearLiveTranscript,
       commitLiveSegmentOnSpeakerSwitch,
       closeRealtimeConnection,
-      patchAnswerSendLocks,
-      clearInterimPromotionTimeout,
       selectedSttProvider,
+      trackPendingTranscriptTranslation,
+      translateTranscriptToEnglish,
     ]
   );
 
@@ -2336,23 +2549,14 @@ export function useSystemAudio() {
   }, [capturing]);
 
   useEffect(() => {
-    if (capturing) {
-      registerScreenshotCallback(async () => {
-        if (!captureRef.current) {
-          return;
-        }
-        await handleCaptureScreenshot();
-      });
-      return;
-    }
+    registerScreenshotCallback(async () => {
+      await handleCaptureScreenshot();
+    });
 
-    unregisterScreenshotCallback();
-  }, [
-    capturing,
-    handleCaptureScreenshot,
-    registerScreenshotCallback,
-    unregisterScreenshotCallback,
-  ]);
+    return () => {
+      unregisterScreenshotCallback();
+    };
+  }, [handleCaptureScreenshot, registerScreenshotCallback, unregisterScreenshotCallback]);
 
   const handleQuickActionClick = useCallback(
     async (action: string) => {

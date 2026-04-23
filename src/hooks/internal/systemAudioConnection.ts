@@ -1,4 +1,7 @@
-import { CommitStrategy, RealtimeEvents, Scribe } from "@elevenlabs/client";
+import {
+  RealtimeConnection,
+  RealtimeEvents,
+} from "@elevenlabs/client";
 import {
   ELEVENLABS_REALTIME_DEFAULT_BASE_URI,
   ELEVENLABS_REALTIME_FALLBACK_BASE_URIS,
@@ -25,11 +28,17 @@ type RealtimeConfig = {
   languageCode: string | null;
   commitStrategy: ElevenLabsRealtimeCommitStrategy;
   includeTimestamps: boolean;
+  includeLanguageDetection: boolean;
   vadSilenceThresholdSecs: number | null;
   vadThreshold: number | null;
   minSpeechDurationMs: number | null;
   minSilenceDurationMs: number | null;
   previousText: string | null;
+};
+
+export type RealtimeCommittedTranscript = {
+  text: string;
+  languageCode: string | null;
 };
 
 type ConnectSystemAudioRealtimeOptions = {
@@ -50,7 +59,7 @@ type ConnectSystemAudioRealtimeOptions = {
   ) => void;
   onReady: () => void;
   onPartialTranscript: (text: string) => void;
-  onCommittedTranscript: (text: string) => void;
+  onCommittedTranscript: (payload: RealtimeCommittedTranscript) => void;
   onRealtimeError: (message: string, event?: unknown) => void;
   onInfo: (message: string) => void;
   onWarn: (message: string) => void;
@@ -117,6 +126,130 @@ const getSilencePcm16Base64 = (sampleRate: number, silenceMs: number): string =>
   const encoded = float32ToPcm16Base64(silence);
   silencePcm16Cache.set(cacheKey, encoded);
   return encoded;
+};
+
+const buildRealtimeWebSocketUri = ({
+  baseUri,
+  token,
+  modelId,
+  commitStrategy,
+  audioFormat,
+  languageCode,
+  includeTimestamps,
+  includeLanguageDetection,
+  vadSilenceThresholdSecs,
+  vadThreshold,
+  minSpeechDurationMs,
+  minSilenceDurationMs,
+}: {
+  baseUri: string;
+  token: string;
+  modelId: string;
+  commitStrategy: ElevenLabsRealtimeCommitStrategy;
+  audioFormat: ReturnType<typeof getElevenLabsAudioFormat>;
+  languageCode: string | null;
+  includeTimestamps: boolean;
+  includeLanguageDetection: boolean;
+  vadSilenceThresholdSecs: number | null;
+  vadThreshold: number | null;
+  minSpeechDurationMs: number | null;
+  minSilenceDurationMs: number | null;
+}): string => {
+  const normalizedBaseUri = baseUri.endsWith("/") ? baseUri : `${baseUri}/`;
+  const websocketUrl = new URL("v1/speech-to-text/realtime", normalizedBaseUri);
+
+  websocketUrl.searchParams.set("model_id", modelId);
+  websocketUrl.searchParams.set("token", token);
+  websocketUrl.searchParams.set("audio_format", audioFormat);
+  websocketUrl.searchParams.set("commit_strategy", commitStrategy);
+  websocketUrl.searchParams.set(
+    "include_timestamps",
+    includeTimestamps ? "true" : "false"
+  );
+  websocketUrl.searchParams.set(
+    "include_language_detection",
+    includeLanguageDetection ? "true" : "false"
+  );
+
+  if (languageCode) {
+    websocketUrl.searchParams.set("language_code", languageCode);
+  }
+
+  if (typeof vadSilenceThresholdSecs === "number") {
+    websocketUrl.searchParams.set(
+      "vad_silence_threshold_secs",
+      String(vadSilenceThresholdSecs)
+    );
+  }
+
+  if (typeof vadThreshold === "number") {
+    websocketUrl.searchParams.set("vad_threshold", String(vadThreshold));
+  }
+
+  if (typeof minSpeechDurationMs === "number") {
+    websocketUrl.searchParams.set(
+      "min_speech_duration_ms",
+      String(minSpeechDurationMs)
+    );
+  }
+
+  if (typeof minSilenceDurationMs === "number") {
+    websocketUrl.searchParams.set(
+      "min_silence_duration_ms",
+      String(minSilenceDurationMs)
+    );
+  }
+
+  return websocketUrl.toString();
+};
+
+const createRealtimeConnection = ({
+  baseUri,
+  token,
+  modelId,
+  sampleRate,
+  audioFormat,
+  languageCode,
+  commitStrategy,
+  includeTimestamps,
+  includeLanguageDetection,
+  vadSilenceThresholdSecs,
+  vadThreshold,
+  minSpeechDurationMs,
+  minSilenceDurationMs,
+}: {
+  baseUri: string;
+  token: string;
+  modelId: string;
+  sampleRate: number;
+  audioFormat: ReturnType<typeof getElevenLabsAudioFormat>;
+  languageCode: string | null;
+  commitStrategy: ElevenLabsRealtimeCommitStrategy;
+  includeTimestamps: boolean;
+  includeLanguageDetection: boolean;
+  vadSilenceThresholdSecs: number | null;
+  vadThreshold: number | null;
+  minSpeechDurationMs: number | null;
+  minSilenceDurationMs: number | null;
+}): RealtimeConnection => {
+  const websocketUri = buildRealtimeWebSocketUri({
+    baseUri,
+    token,
+    modelId,
+    commitStrategy,
+    audioFormat,
+    languageCode,
+    includeTimestamps,
+    includeLanguageDetection,
+    vadSilenceThresholdSecs,
+    vadThreshold,
+    minSpeechDurationMs,
+    minSilenceDurationMs,
+  });
+
+  const connection = new RealtimeConnection(sampleRate);
+  connection.setWebSocket(new WebSocket(websocketUri));
+  return connection;
 };
 
 export const connectSystemAudioRealtime = async (
@@ -206,50 +339,20 @@ export const connectSystemAudioRealtime = async (
         let lastCommittedAt = 0;
 
         await new Promise<void>((resolve, reject) => {
-          const commitStrategy =
-            realtimeConfig.commitStrategy === "vad"
-              ? CommitStrategy.VAD
-              : CommitStrategy.MANUAL;
-          const connection = Scribe.connect({
+          const connection = createRealtimeConnection({
+            baseUri: candidateBaseUri,
             token,
             modelId: realtimeConfig.model,
-            commitStrategy,
-            audioFormat,
             sampleRate,
-            ...(realtimeConfig.languageCode
-              ? {
-                  languageCode: realtimeConfig.languageCode,
-                }
-              : {}),
-            ...(realtimeConfig.includeTimestamps
-              ? {
-                  includeTimestamps: true,
-                }
-              : {}),
-            ...(typeof realtimeConfig.vadSilenceThresholdSecs === "number"
-              ? {
-                  vadSilenceThresholdSecs: realtimeConfig.vadSilenceThresholdSecs,
-                }
-              : {}),
-            ...(typeof realtimeConfig.vadThreshold === "number"
-              ? {
-                  vadThreshold: realtimeConfig.vadThreshold,
-                }
-              : {}),
-            ...(typeof realtimeConfig.minSpeechDurationMs === "number"
-              ? {
-                  minSpeechDurationMs: realtimeConfig.minSpeechDurationMs,
-                }
-              : {}),
-            ...(typeof realtimeConfig.minSilenceDurationMs === "number"
-              ? {
-                  minSilenceDurationMs: realtimeConfig.minSilenceDurationMs,
-                }
-              : {}),
-            ...(candidateBaseUri &&
-            candidateBaseUri !== ELEVENLABS_REALTIME_DEFAULT_BASE_URI
-              ? { baseUri: candidateBaseUri }
-              : {}),
+            audioFormat,
+            languageCode: realtimeConfig.languageCode,
+            commitStrategy: realtimeConfig.commitStrategy,
+            includeTimestamps: realtimeConfig.includeTimestamps,
+            includeLanguageDetection: realtimeConfig.includeLanguageDetection,
+            vadSilenceThresholdSecs: realtimeConfig.vadSilenceThresholdSecs,
+            vadThreshold: realtimeConfig.vadThreshold,
+            minSpeechDurationMs: realtimeConfig.minSpeechDurationMs,
+            minSilenceDurationMs: realtimeConfig.minSilenceDurationMs,
           });
 
           if (signal.aborted) {
@@ -322,8 +425,8 @@ export const connectSystemAudioRealtime = async (
             onRealtimeError(eventMessage || "Realtime transcription failed.", event);
           };
 
-          const emitCommittedTranscript = (text: string) => {
-            const normalized = text.trim();
+          const emitCommittedTranscript = (payload: RealtimeCommittedTranscript) => {
+            const normalized = payload.text.trim();
             if (!normalized) {
               return;
             }
@@ -335,7 +438,7 @@ export const connectSystemAudioRealtime = async (
 
             lastCommittedText = normalized;
             lastCommittedAt = now;
-            onCommittedTranscript(text);
+            onCommittedTranscript(payload);
           };
 
           connection.on(RealtimeEvents.OPEN, () => {
@@ -425,7 +528,10 @@ export const connectSystemAudioRealtime = async (
               return;
             }
 
-            emitCommittedTranscript(data.text);
+            emitCommittedTranscript({
+              text: data.text,
+              languageCode: realtimeConfig.languageCode,
+            });
           });
 
           connection.on(
@@ -435,7 +541,13 @@ export const connectSystemAudioRealtime = async (
                 return;
               }
 
-              emitCommittedTranscript(data.text);
+              emitCommittedTranscript({
+                text: data.text,
+                languageCode:
+                  typeof data.language_code === "string"
+                    ? data.language_code
+                    : realtimeConfig.languageCode,
+              });
             }
           );
 
