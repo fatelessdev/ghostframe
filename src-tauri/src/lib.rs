@@ -197,11 +197,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app_handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = event {
-            shortcuts::scrub_sensitive_data_on_quit(app_handle);
-        }
-    });
+    app.run(|_app_handle, _event| {});
 }
 
 #[cfg(target_os = "macos")]

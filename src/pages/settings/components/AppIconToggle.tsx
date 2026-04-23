@@ -20,7 +20,7 @@ export const AppIconToggle = ({ className }: AppIconToggleProps) => {
         title="App Icon Stealth Mode"
         description={
           isWindows
-            ? "On Windows, the main Ghostframe window is always hidden from taskbar and Alt+Tab"
+            ? "On Windows, the main OneDrive window is always hidden from taskbar and Alt+Tab"
             : "Control dock/taskbar icon visibility for maximum discretion"
         }
         isMainTitle

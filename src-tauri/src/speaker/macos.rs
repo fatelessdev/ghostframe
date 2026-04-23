@@ -1,4 +1,4 @@
-// Ghostframe macos speaker input and stream
+// OneDrive macos speaker input and stream
 use super::AudioDevice;
 use anyhow::Result;
 use ca::aggregate_device_keys as agg_keys;

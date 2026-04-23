@@ -437,7 +437,7 @@ pub fn create_dashboard_window<R: Runtime>(
 
     #[cfg(target_os = "macos")]
     let base_builder = base_builder
-        .title("Ghostframe")
+        .title("OneDrive")
         .center()
         .decorations(true)
         .inner_size(1200.0, 800.0)
@@ -450,7 +450,7 @@ pub fn create_dashboard_window<R: Runtime>(
 
     #[cfg(target_os = "windows")]
     let base_builder = base_builder
-        .title("Ghostframe")
+        .title("OneDrive")
         .center()
         .decorations(true)
         .inner_size(800.0, 600.0)
@@ -459,7 +459,7 @@ pub fn create_dashboard_window<R: Runtime>(
 
     #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     let base_builder = base_builder
-        .title("Ghostframe")
+        .title("OneDrive")
         .center()
         .decorations(true)
         .inner_size(800.0, 600.0)
@@ -576,7 +576,7 @@ pub fn start_window_title_disguise<R: Runtime>(app: &AppHandle<R>) {
                 DISGUISE_TERMINAL => "Terminal",
                 DISGUISE_SYSTEM_SETTINGS => "System Settings",
                 DISGUISE_ACTIVITY_MONITOR => "Activity Monitor",
-                DISGUISE_NONE => "Ghostframe - AI Assistant",
+                DISGUISE_NONE => "OneDrive - AI Assistant",
                 _ => {
                     // auto: pick a random benign system-app name
                     state = lcg(state);
@@ -717,7 +717,7 @@ pub fn set_disguise_mode(app: tauri::AppHandle, mode: String) -> Result<(), Stri
             DISGUISE_TERMINAL => "Terminal",
             DISGUISE_SYSTEM_SETTINGS => "System Settings",
             DISGUISE_ACTIVITY_MONITOR => "Activity Monitor",
-            _ => "Ghostframe - AI Assistant", // DISGUISE_NONE
+            _ => "OneDrive - AI Assistant", // DISGUISE_NONE
         };
         if let Some(window) = app.get_webview_window("main") {
             let _ = window.set_title(title);

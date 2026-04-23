@@ -1,4 +1,4 @@
-// Ghostframe windows speaker input and stream
+// OneDrive windows speaker input and stream
 use super::AudioDevice;
 use anyhow::Result;
 use futures_util::Stream;
@@ -136,18 +136,18 @@ impl SpeakerInput {
             if let Err(e) =
                 SpeakerStream::capture_audio_loop(queue_clone, waker_clone, init_tx, device_id)
             {
-                error!("Ghostframe Audio capture loop failed: {}", e);
+                error!("OneDrive Audio capture loop failed: {}", e);
             }
         });
 
         let actual_sample_rate = match init_rx.recv_timeout(Duration::from_secs(5)) {
             Ok(Ok(rate)) => rate,
             Ok(Err(e)) => {
-                error!("Ghostframe Audio initialization failed: {}", e);
+                error!("OneDrive Audio initialization failed: {}", e);
                 44100
             }
             Err(_) => {
-                error!("Ghostframe Audio initialization timeout");
+                error!("OneDrive Audio initialization timeout");
                 44100
             }
         };
@@ -257,13 +257,13 @@ impl SpeakerStream {
                     }
 
                     if h_event.wait_for_event(3000).is_err() {
-                        error!("Ghostframe timeout error, stopping capture");
+                        error!("OneDrive timeout error, stopping capture");
                         break;
                     }
 
                     let mut temp_queue = VecDeque::new();
                     if let Err(e) = render_client.read_from_device_to_deque(&mut temp_queue) {
-                        error!("Ghostframe Failed to read audio data: {}", e);
+                        error!("OneDrive Failed to read audio data: {}", e);
                         continue;
                     }
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Ghostframe",
+  "productName": "OneDrive",
   "version": "0.1.9",
   "identifier": "com.ghostframe.app",
   "build": {
@@ -13,7 +13,7 @@
     "macOSPrivateApi": true,
     "windows": [
       {
-        "title": "Ghostframe - AI Assistant",
+        "title": "OneDrive - AI Assistant",
         "width": 600,
         "height": 54,
         "decorations": false,

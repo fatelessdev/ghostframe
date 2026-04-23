@@ -7,12 +7,12 @@ fn resolve_logs_path(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(user_profile) = std::env::var("USERPROFILE") {
         return Ok(PathBuf::from(user_profile)
             .join("Documents")
-            .join("Ghostframe")
+            .join("OneDrive")
             .join("logs.txt"));
     }
 
     if let Ok(documents_dir) = app.path().document_dir() {
-        return Ok(documents_dir.join("Ghostframe").join("logs.txt"));
+        return Ok(documents_dir.join("OneDrive").join("logs.txt"));
     }
 
     Err("Unable to resolve Documents directory for logs".to_string())

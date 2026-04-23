@@ -105,7 +105,7 @@ export const PermissionFlow = ({
     requesting: {
       icon: <LoaderIcon className="w-5 h-5 animate-spin" />,
       title: "Waiting for Permission",
-      description: `Enable Ghostframe in System Settings (${checkAttempts}/20)`,
+      description: `Enable OneDrive in System Settings (${checkAttempts}/20)`,
       bgColor: "bg-orange-50",
       borderColor: "border-orange-200",
       textColor: "text-orange-800",
@@ -165,7 +165,7 @@ export const PermissionFlow = ({
                   <li>Open System Settings</li>
                   <li>Go to Privacy & Security</li>
                   <li>Select Screen & System Audio Recording</li>
-                  <li>Enable Ghostframe</li>
+                  <li>Enable OneDrive</li>
                 </ol>
               )}
             </div>

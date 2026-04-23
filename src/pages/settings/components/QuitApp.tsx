@@ -15,7 +15,7 @@ export const QuitApp = () => {
     <div className="space-y-3">
       <Header
         title="Quit Application"
-        description="Close Ghostframe immediately from settings."
+        description="Close OneDrive immediately from settings."
         isMainTitle
       />
       <Button

@@ -9,7 +9,7 @@ import { tauriCommands, tauriEvents } from "@/lib";
 import type { AIImagePayload, ScreenshotConfig } from "@/types";
 
 const SCREEN_RECORDING_PERMISSION_REQUIRED_MESSAGE =
-  "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Ghostframe in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.";
+  "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see OneDrive in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.";
 
 type ScreenshotSubmitHandler = (
   image: AIImagePayload,
