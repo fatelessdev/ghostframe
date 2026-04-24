@@ -224,6 +224,7 @@ const Settings = ({ onClose }: SettingsProps) => {
           <h2 className="text-sm font-bold tracking-wide">Settings</h2>
           {onClose && (
             <button
+              aria-label="Close settings"
               onClick={onClose}
               className="p-1 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
