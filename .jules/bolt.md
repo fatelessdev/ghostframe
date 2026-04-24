@@ -1,0 +1,3 @@
+## 2025-04-24 - Batch SQLite Message Insertions
+**Learning:** SQLite database interactions through Tauri IPC (`@tauri-apps/plugin-sql`) are vulnerable to an N+1 performance bottleneck when inserting records (like chat messages) individually inside loops. The IPC roundtrips combined with disk synchronization (`fsync`) overhead per transaction severely degrade performance on large message sets or data migrations.
+**Action:** Always batch multi-row inserts into a single parameterized query (e.g., `INSERT INTO table VALUES (?,?), (?,?)`). Be careful to chunk the batches (e.g., 100 rows per chunk) to stay well within SQLite's strict query parameter limit.

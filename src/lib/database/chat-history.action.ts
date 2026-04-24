@@ -86,6 +86,46 @@ function validateMessage(message: any): boolean {
 }
 
 /**
+ * Batch insert messages into a conversation
+ */
+async function batchInsertMessages(
+  db: any,
+  conversationId: string,
+  messages: any[]
+): Promise<void> {
+  if (!messages || messages.length === 0) return;
+
+  const validMessages = messages.filter(validateMessage);
+  if (validMessages.length === 0) return;
+
+  const chunkSize = 100; // Safe limit for SQLite parameters
+  for (let i = 0; i < validMessages.length; i += chunkSize) {
+    const chunk = validMessages.slice(i, i + chunkSize);
+
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+    const query = `INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES ${placeholders}`;
+
+    const values: any[] = [];
+    for (const msg of chunk) {
+      const attachedFilesJson = msg.attachedFiles
+        ? JSON.stringify(msg.attachedFiles)
+        : null;
+
+      values.push(
+        msg.id,
+        conversationId,
+        msg.role,
+        msg.content,
+        msg.timestamp || Date.now(),
+        attachedFilesJson
+      );
+    }
+
+    await db.execute(query, values);
+  }
+}
+
+/**
  * Create a new conversation with transaction safety
  */
 export async function createConversation(
@@ -110,28 +150,7 @@ export async function createConversation(
     );
 
     // Insert all messages
-    for (const message of conversation.messages) {
-      if (!validateMessage(message)) {
-        console.warn("Skipping invalid message in conversation creation");
-        continue;
-      }
-
-      const attachedFilesJson = message.attachedFiles
-        ? JSON.stringify(message.attachedFiles)
-        : null;
-
-      await db.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-        [
-          message.id,
-          conversation.id,
-          message.role,
-          message.content,
-          message.timestamp,
-          attachedFilesJson,
-        ]
-      );
-    }
+    await batchInsertMessages(db, conversation.id, conversation.messages);
 
     return conversation;
   } catch (error) {
@@ -285,49 +304,39 @@ export async function updateConversation(
 
     // Insert updated messages
     try {
-      for (const message of conversation.messages) {
-        if (!validateMessage(message)) {
-          console.warn("Skipping invalid message in conversation update");
-          continue;
-        }
-
-        const attachedFilesJson = message.attachedFiles
-          ? JSON.stringify(message.attachedFiles)
-          : null;
-
-        await db.execute(
-          "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-          [
-            message.id,
-            conversation.id,
-            message.role,
-            message.content,
-            message.timestamp,
-            attachedFilesJson,
-          ]
-        );
-      }
+      await batchInsertMessages(db, conversation.id, conversation.messages);
     } catch (messageError) {
       // Rollback: restore original messages
       console.error(
         "Failed to insert new messages, restoring backup:",
         messageError
       );
-      for (const msg of existingMessages) {
-        await db
-          .execute(
-            "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-            [
+
+      if (existingMessages.length > 0) {
+        const chunkSize = 100;
+        for (let i = 0; i < existingMessages.length; i += chunkSize) {
+          const chunk = existingMessages.slice(i, i + chunkSize);
+          const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+          const query = `INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES ${placeholders}`;
+
+          const values: any[] = [];
+          for (const msg of chunk) {
+            values.push(
               msg.id,
               msg.conversation_id,
               msg.role,
               msg.content,
               msg.timestamp,
-              msg.attached_files,
-            ]
-          )
-          .catch(() => {});
+              msg.attached_files
+            );
+          }
+
+          await db.execute(query, values).catch((e: Error) => {
+             console.error("Failed to restore backup messages chunk:", e);
+          });
+        }
       }
+
       throw messageError;
     }
 
@@ -496,36 +505,7 @@ export async function migrateLocalStorageToSQLite(): Promise<{
           Array.isArray(conversation.messages) &&
           conversation.messages.length > 0
         ) {
-          for (const message of conversation.messages) {
-            // Validate message
-            if (
-              !message?.id ||
-              !message?.role ||
-              typeof message?.content !== "string"
-            ) {
-              console.warn(
-                `Skipping invalid message in conversation ${conversation.id}:`,
-                message
-              );
-              continue;
-            }
-
-            const attachedFilesJson = message.attachedFiles
-              ? JSON.stringify(message.attachedFiles)
-              : null;
-
-            await db.execute(
-              "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-              [
-                message.id,
-                conversation.id,
-                message.role,
-                message.content,
-                message.timestamp || Date.now(),
-                attachedFilesJson,
-              ]
-            );
-          }
+          await batchInsertMessages(db, conversation.id, conversation.messages);
         }
 
         migratedCount++;
