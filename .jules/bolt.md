@@ -1,0 +1,3 @@
+## 2025-04-25 - React.memo Optimization for Expensive Markdown Rendering
+**Learning:** The `Markdown` component in this project's frontend relies on heavy libraries (`streamdown`, `shiki`, `mermaid`) for parsing, syntax highlighting, and rendering diagrams. When used inside lists (like message history), any state update in the parent component triggers re-renders of all rendered messages unless specifically memoized, causing noticeable UI jank and high CPU usage.
+**Action:** Always wrap `Markdown` or similarly expensive rendering components with `React.memo` to ensure they only re-render when their direct props (such as the raw markdown string) actually change.

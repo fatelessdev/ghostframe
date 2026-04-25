@@ -8,7 +8,10 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// Wrapped in React.memo to prevent expensive re-renders of the markdown
+// content (parsing, syntax highlighting, mermaid diagrams) during parent
+// component updates, unless the markdown string itself changes.
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
@@ -31,7 +34,7 @@ export function Markdown({
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
