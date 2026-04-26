@@ -53,7 +53,7 @@ export const Theme = () => {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" aria-label="Select theme">
                 {theme === "system" ? (
                   <MonitorIcon className="h-[1.2rem] w-[1.2rem]" />
                 ) : (
