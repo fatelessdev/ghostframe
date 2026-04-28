@@ -1,0 +1,3 @@
+## 2024-05-18 - Markdown Component Re-renders
+**Learning:** The `Markdown` component (`src/components/Markdown/index.tsx`) is computationally expensive due to its reliance on `streamdown`, `shiki`, and `mermaid`. When parent components update (like typing in a chat), it causes unnecessary re-renders of the entire markdown tree, which can block the main thread and degrade the typing experience.
+**Action:** Always wrap expensive, stateless UI components—especially markdown renderers—in `React.memo` to prevent wasteful re-renders during parent state changes.
