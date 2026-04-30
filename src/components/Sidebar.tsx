@@ -63,6 +63,7 @@ export const Sidebar = () => {
             <Button
               key={`${item.title}-${index}`}
               title={item.title}
+              aria-label={item.title}
               size="sm"
               variant="outline"
               onClick={() => openUrl(item.link)}

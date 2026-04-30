@@ -226,6 +226,7 @@ const Settings = ({ onClose }: SettingsProps) => {
             <button
               onClick={onClose}
               className="p-1 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              aria-label="Close settings"
             >
               <XIcon className="w-4 h-4" />
             </button>
