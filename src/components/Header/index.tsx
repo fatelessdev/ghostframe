@@ -42,7 +42,7 @@ export const Header = ({
     >
       <div className="flex items-center gap-2">
         {allowBackButton && (
-          <Button size="icon" variant="outline" onClick={() => navigate(-1)}>
+          <Button size="icon" variant="outline" onClick={() => navigate(-1)} aria-label="Go back">
             <ArrowLeftIcon className="size-3 lg:size-4 transition-all duration-300" />
           </Button>
         )}
