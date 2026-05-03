@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Streamdown } from "streamdown";
 import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -8,7 +8,10 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Memoize the Markdown component using React.memo
+// 🎯 Why: Markdown rendering is computationally expensive (streamdown, shiki, mermaid). This prevents wasteful re-renders when parent components update.
+// 📊 Impact: Significantly reduces CPU usage and improves responsiveness by avoiding expensive re-evaluations during unrelated UI state changes.
+export const Markdown = memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
@@ -31,7 +34,8 @@ export function Markdown({
       {children}
     </Streamdown>
   );
-}
+});
+Markdown.displayName = "Markdown";
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
