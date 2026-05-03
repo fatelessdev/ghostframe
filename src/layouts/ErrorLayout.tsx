@@ -12,7 +12,7 @@ export const ErrorLayout = ({ isCompact }: { isCompact?: boolean }) => {
       </p>
 
       <div className="flex flex-row items-center gap-2">
-        <Button size="icon" onClick={() => window.location.reload()}>
+        <Button aria-label="Reload application" size="icon" onClick={() => window.location.reload()}>
           <RefreshCcwIcon className="size-4" />
         </Button>
         <DragButton />
