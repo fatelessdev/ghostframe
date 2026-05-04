@@ -219,6 +219,7 @@ const SystemPrompts = () => {
                         onClick={(e) => {
                           e.stopPropagation();
                         }}
+                        aria-label="More options"
                       >
                         <MoreHorizontal className="size-4 text-muted-foreground" />
                       </button>
