@@ -1,0 +1,3 @@
+## 2025-05-06 - Accessible Input with ARIA descriptions
+**Learning:** Reusable input components (like TextInput) frequently lack proper ARIA associations out of the box, leading to a degraded experience for screen reader users when errors or help text are present. Using `useId` provides a stable and unique way to link a `Label` to an `Input`, and dynamically joining IDs for `aria-describedby` provides robust feedback on form states.
+**Action:** When creating or updating form inputs, ensure `useId` is used to link `Label`s via `htmlFor` and input `id` attributes. Further, dynamically tie any error or hint text elements to the input using `aria-describedby` and reflect error states using `aria-invalid`.

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Input, Label } from "@/components";
 
 export const TextInput = ({
@@ -15,19 +16,26 @@ export const TextInput = ({
   error?: string;
   notes?: string;
 }) => {
+  const id = useId();
+  const errorId = error ? `${id}-error` : undefined;
+  const notesId = notes ? `${id}-notes` : undefined;
+
   return (
     <div className="space-y-1">
-      {label ? <Label className="text-xs font-medium">{label}</Label> : null}
+      {label ? <Label htmlFor={id} className="text-xs font-medium">{label}</Label> : null}
       <Input
+        id={id}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-invalid={!!error}
+        aria-describedby={[errorId, notesId].filter(Boolean).join(" ") || undefined}
         className={`h-11 border-1 border-input/50 focus:border-primary/50 transition-colors ${
           error ? "border-destructive" : ""
         }`}
       />
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      {notes && <p className="text-xs text-muted-foreground">{notes}</p>}
+      {error && <p id={errorId} className="text-xs text-destructive">{error}</p>}
+      {notes && <p id={notesId} className="text-xs text-muted-foreground">{notes}</p>}
     </div>
   );
 };
