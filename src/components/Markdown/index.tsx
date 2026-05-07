@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { Streamdown } from "streamdown";
 import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -8,7 +8,12 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Wrapped Markdown component in React.memo()
+// 🎯 Why: Streamdown (which uses shiki, mermaid, etc.) is computationally expensive.
+//         Memoization prevents wasteful re-renders when parent components update.
+// 📊 Impact: Significantly reduces UI blocking and CPU usage during typing or when
+//            unrelated parent state changes.
+export const Markdown = memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
@@ -31,7 +36,7 @@ export function Markdown({
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
