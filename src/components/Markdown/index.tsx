@@ -8,7 +8,10 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Wrapped Markdown component in React.memo
+// 🎯 Why: Markdown rendering is computationally expensive (streamdown, shiki, mermaid). This prevents wasteful re-renders when parent components update but the markdown props remain unchanged.
+// 📊 Impact: Significantly reduces CPU load and main thread blocking during chat/message updates.
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
@@ -31,7 +34,7 @@ export function Markdown({
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {

@@ -1,0 +1,3 @@
+## 2024-05-24 - Markdown Memoization
+**Learning:** The `Markdown` component in this codebase (`src/components/Markdown/index.tsx`) is computationally expensive as it uses `streamdown`, `shiki`, and `mermaid`. Parent components re-rendering (like message lists or chat inputs) can cause unnecessary and expensive re-renders of the markdown content, leading to main thread blocking.
+**Action:** Always wrap markdown rendering components or heavy syntax-highlighting components in `React.memo` to prevent wasteful re-renders when their props haven't changed.
