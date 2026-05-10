@@ -589,6 +589,7 @@ const ConversationView = ({
           size="icon"
           onClick={onBack}
           className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
+          aria-label="Go back"
         >
           <ArrowLeftIcon className="w-4 h-4" />
         </Button>
@@ -796,6 +797,7 @@ const ConversationView = ({
                   title="Send message"
                   onClick={() => completion.submit()}
                   disabled={completion.isLoading || !completion.input.trim()}
+                  aria-label="Send message"
                 >
                   {completion.isLoading ? (
                     <Loader2 className="size-4 animate-spin" />
