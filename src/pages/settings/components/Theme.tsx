@@ -94,6 +94,7 @@ export const Theme = () => {
               max={100}
               step={1}
               className="flex-1"
+              aria-label="Window transparency level"
             />
           </div>
 

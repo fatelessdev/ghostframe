@@ -251,6 +251,7 @@ export const SystemAudioInterviewSettings = () => {
                   maxManualScreenshots: clampManualScreenshotLimit(value),
                 });
               }}
+              aria-label="Maximum manual screenshots per send"
             />
             <span className="w-10 text-xs text-muted-foreground text-right">
               {settings.maxManualScreenshots}
@@ -353,7 +354,8 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
-              />
+              aria-label="Speech sensitivity"
+            />
           </div>
 
           <div className="space-y-2">
@@ -376,6 +378,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Peak threshold"
             />
           </div>
 
@@ -399,6 +402,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Hop size"
             />
           </div>
 
@@ -422,6 +426,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Silence chunks"
             />
           </div>
 
@@ -445,6 +450,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Minimum speech chunks"
             />
           </div>
 
@@ -468,6 +474,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Pre-speech chunks"
             />
           </div>
 
@@ -491,6 +498,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Maximum recording duration"
             />
           </div>
 
@@ -514,6 +522,7 @@ export const SystemAudioInterviewSettings = () => {
                   },
                 });
               }}
+              aria-label="Noise gate threshold"
             />
           </div>
         </div>
