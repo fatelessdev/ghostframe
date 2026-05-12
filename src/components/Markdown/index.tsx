@@ -8,30 +8,20 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
-  children,
-  isStreaming = false,
-}: MarkdownRendererProps) {
-  return (
-    <Streamdown
-      isAnimating={isStreaming}
-      shikiTheme={["github-light", "github-dark"]}
-      components={COMPONENTS as any}
-      controls={{
-        table: true,
-        code: true,
-        mermaid: {
-          download: true,
-          copy: true,
-          fullscreen: false,
-          panZoom: false,
-        },
-      }}
-    >
-      {children}
-    </Streamdown>
-  );
-}
+// 💡 What: Extract static configurations outside the component
+// 🎯 Why: Prevents creating new array/object references on every render, which would otherwise defeat React.memo
+// 📊 Impact: Reduces memory allocation and allows Streamdown to skip re-renders when props are unchanged
+const SHIKI_THEME: ["github-light", "github-dark"] = ["github-light", "github-dark"];
+const CONTROLS = {
+  table: true,
+  code: true,
+  mermaid: {
+    download: true,
+    copy: true,
+    fullscreen: false,
+    panZoom: false,
+  },
+};
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
@@ -58,3 +48,22 @@ const COMPONENTS = {
     );
   },
 };
+
+// 💡 What: Wrap Markdown component with React.memo
+// 🎯 Why: Markdown rendering (with shiki, streamdown, mermaid) is computationally expensive
+// 📊 Impact: Prevents wasteful re-renders during parent component updates when children/isStreaming haven't changed
+export const Markdown = React.memo(function Markdown({
+  children,
+  isStreaming = false,
+}: MarkdownRendererProps) {
+  return (
+    <Streamdown
+      isAnimating={isStreaming}
+      shikiTheme={SHIKI_THEME}
+      components={COMPONENTS as any}
+      controls={CONTROLS}
+    >
+      {children}
+    </Streamdown>
+  );
+});
