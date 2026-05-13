@@ -53,7 +53,7 @@ export const Theme = () => {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="icon">
+              <Button variant="outline" size="icon" aria-label="Toggle theme">
                 {theme === "system" ? (
                   <MonitorIcon className="h-[1.2rem] w-[1.2rem]" />
                 ) : (
@@ -94,6 +94,7 @@ export const Theme = () => {
               max={100}
               step={1}
               className="flex-1"
+              aria-label="Adjust window transparency"
             />
           </div>
 
