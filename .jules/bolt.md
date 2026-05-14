@@ -1,0 +1,3 @@
+## 2024-10-25 - React.memo and Static Contexts for Expensive Components
+**Learning:** In heavily streaming contexts like LLM apps, extracting static configurations (like `shikiTheme` or UI control options) outside the component definition and wrapping the component in `React.memo` prevents referential equality breakages. For components like Markdown that parse ASTs and render math/code repeatedly, this eliminates massive CPU spikes caused by React thinking the props changed when only the parent container re-rendered.
+**Action:** Always verify referential equality of complex props passed to computationally expensive components. Extract inline object or array literals to module-level constants.
