@@ -485,6 +485,8 @@ const AutoSpeechVADInternal = ({
     <>
       <Button
         size="icon"
+        aria-label={vad.listening ? "Stop recording" : "Start recording"}
+        title={vad.listening ? "Stop recording" : "Start recording"}
         onClick={() => {
           if (vad.listening) {
             vad.pause();

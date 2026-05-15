@@ -587,6 +587,8 @@ const ConversationView = ({
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Go back"
+          title="Go back"
           onClick={onBack}
           className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
         >
