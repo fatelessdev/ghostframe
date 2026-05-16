@@ -495,6 +495,8 @@ const AutoSpeechVADInternal = ({
           }
         }}
         className="cursor-pointer"
+        title="Toggle voice input"
+        aria-label="Toggle voice input"
       >
         {isTranscribing ? (
           <LoaderCircleIcon className="h-4 w-4 animate-spin text-green-500" />
