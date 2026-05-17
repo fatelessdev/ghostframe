@@ -8,30 +8,37 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Extract static config arrays/objects and memoize Markdown component
+// 🎯 Why: Markdown is computationally expensive. Prevents wasteful re-renders due to new reference creation on every render
+// 📊 Impact: Significantly reduces React render tree depth when parent components re-render
+
+const SHIKI_THEME: ["github-light", "github-dark"] = ["github-light", "github-dark"];
+const CONTROLS = {
+  table: true,
+  code: true,
+  mermaid: {
+    download: true,
+    copy: true,
+    fullscreen: false,
+    panZoom: false,
+  },
+};
+
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
   return (
     <Streamdown
       isAnimating={isStreaming}
-      shikiTheme={["github-light", "github-dark"]}
+      shikiTheme={SHIKI_THEME}
       components={COMPONENTS as any}
-      controls={{
-        table: true,
-        code: true,
-        mermaid: {
-          download: true,
-          copy: true,
-          fullscreen: false,
-          panZoom: false,
-        },
-      }}
+      controls={CONTROLS}
     >
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
