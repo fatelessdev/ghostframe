@@ -8,30 +8,40 @@ interface MarkdownRendererProps {
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Extracted static configuration objects outside the component
+// 🎯 Why: To maintain referential equality across renders
+// 📊 Impact: Prevents expensive re-rendering of the Markdown component
+import type { BundledTheme } from "shiki";
+const SHIKI_THEME: [BundledTheme, BundledTheme] = ["github-light", "github-dark"];
+const CONTROLS = {
+  table: true,
+  code: true,
+  mermaid: {
+    download: true,
+    copy: true,
+    fullscreen: false,
+    panZoom: false,
+  },
+};
+
+// 💡 What: Wrapped Markdown in React.memo
+// 🎯 Why: Markdown uses heavy computational tools (Streamdown, Shiki, KaTeX)
+// 📊 Impact: Significantly reduces wasteful re-renders when parent components re-render
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
   return (
     <Streamdown
       isAnimating={isStreaming}
-      shikiTheme={["github-light", "github-dark"]}
+      shikiTheme={SHIKI_THEME}
       components={COMPONENTS as any}
-      controls={{
-        table: true,
-        code: true,
-        mermaid: {
-          download: true,
-          copy: true,
-          fullscreen: false,
-          panZoom: false,
-        },
-      }}
+      controls={CONTROLS}
     >
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
