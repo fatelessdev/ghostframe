@@ -188,6 +188,7 @@ export const AudioSelection = () => {
                 disabled={isLoadingDevices}
                 className="h-11 w-11 shrink-0"
                 title="Refresh microphone list"
+                aria-label="Refresh microphone list"
               >
                 <RefreshCwIcon
                   className={`size-4 ${isLoadingDevices ? "animate-spin" : ""}`}
@@ -287,6 +288,7 @@ export const AudioSelection = () => {
                 disabled={isLoadingDevices}
                 className="h-11 w-11 shrink-0"
                 title="Refresh output device list"
+                aria-label="Refresh output device list"
               >
                 <RefreshCwIcon
                   className={`size-4 ${isLoadingDevices ? "animate-spin" : ""}`}
