@@ -36,6 +36,11 @@ export const ChatScreenshot = ({
           ? "Screenshot not supported by current AI provider"
           : `${captureMode} mode (${processingMode}) - ${attachedFiles.length}/${MAX_FILES} files`
       }
+      aria-label={
+        !supportsImages
+          ? "Screenshot not supported by current AI provider"
+          : `${captureMode} mode (${processingMode}) - ${attachedFiles.length}/${MAX_FILES} files`
+      }
       onClick={captureScreenshot}
       disabled={
         attachedFiles.length >= MAX_FILES ||

@@ -63,6 +63,11 @@ export const ChatFiles = ({
                 ? "Attach images"
                 : "Image upload not supported by current AI provider"
             }
+            aria-label={
+              supportsImages
+                ? "Attach images"
+                : "Image upload not supported by current AI provider"
+            }
           >
             <PaperclipIcon className="size-3 lg:size-4" />
           </Button>
@@ -92,6 +97,7 @@ export const ChatFiles = ({
                 onClick={() => setIsFilesPopoverOpen(false)}
                 className="cursor-pointer"
                 title="Close"
+                aria-label="Close"
               >
                 <XIcon className="h-4 w-4" />
               </Button>
@@ -132,6 +138,7 @@ export const ChatFiles = ({
                       className="absolute top-2 right-2 h-6 w-6 cursor-pointer"
                       onClick={() => removeFile(file.id)}
                       title="Remove image"
+                      aria-label="Remove image"
                     >
                       <XIcon className="h-3 w-3" />
                     </Button>
