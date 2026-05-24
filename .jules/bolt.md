@@ -1,0 +1,3 @@
+## 2024-03-24 - Markdown Memoization
+**Learning:** The Markdown component uses Streamdown, which renders complex entities like Shiki blocks and Mermaid diagrams. If static configuration props (like `shikiTheme` or `controls`) are defined inline, they create new object references on every parent render. This defeats React's ability to memoize and causes expensive, wasteful re-renders of the entire Markdown tree whenever the parent component updates (e.g. state changes like `textSize` or `messages`).
+**Action:** Always extract static configuration objects out of the component body, and wrap such computationally expensive components in `React.memo` to ensure they only re-render when actual content changes.
