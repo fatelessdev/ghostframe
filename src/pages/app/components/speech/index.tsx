@@ -148,6 +148,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
         <Button
           size="icon"
           title={getButtonTitle()}
+          aria-label={getButtonTitle()}
           onClick={handleToggleCapture}
           className={cn(
             capturing && "bg-emerald-50 hover:bg-emerald-100",
@@ -235,6 +236,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       variant="ghost"
                       className="h-6 w-6"
                       title="Close"
+                      aria-label="Close"
                       onClick={() => {
                         setIsPopoverOpen(false);
                       }}
