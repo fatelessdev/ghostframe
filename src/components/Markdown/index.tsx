@@ -1,37 +1,44 @@
 import React from "react";
 import { Streamdown } from "streamdown";
+import type { BundledTheme } from "shiki";
 import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
+
+// 💡 What: Extract static Streamdown configuration arrays and objects
+// 🎯 Why: Prevent creating new object references on every render
+// 📊 Impact: Combined with React.memo, this prevents expensive Shiki/Mermaid/KaTeX re-renders when parent state changes
+const SHIKI_THEMES: [BundledTheme, BundledTheme] = ["github-light", "github-dark"];
+const STREAMDOWN_CONTROLS = {
+  table: true,
+  code: true,
+  mermaid: {
+    download: true,
+    copy: true,
+    fullscreen: false,
+    panZoom: false,
+  },
+};
 
 interface MarkdownRendererProps {
   children: string;
   isStreaming?: boolean;
 }
 
-export function Markdown({
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
   return (
     <Streamdown
       isAnimating={isStreaming}
-      shikiTheme={["github-light", "github-dark"]}
+      shikiTheme={SHIKI_THEMES}
       components={COMPONENTS as any}
-      controls={{
-        table: true,
-        code: true,
-        mermaid: {
-          download: true,
-          copy: true,
-          fullscreen: false,
-          panZoom: false,
-        },
-      }}
+      controls={STREAMDOWN_CONTROLS}
     >
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
