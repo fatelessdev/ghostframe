@@ -179,6 +179,7 @@ export const Input = ({
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label={isLoading ? "Cancel loading" : keepEngaged ? "Close and start new conversation" : "Clear conversation"}
                     onClick={() => {
                       setIsManuallyOpen(false);
                       if (isLoading) {

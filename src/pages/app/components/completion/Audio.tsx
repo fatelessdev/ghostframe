@@ -35,6 +35,7 @@ export const Audio = ({
               setEnableVAD(!enableVAD);
             }}
             className="cursor-pointer"
+            aria-label="Toggle voice input"
             title="Toggle voice input"
           >
             <MicIcon className="h-4 w-4" />

@@ -147,6 +147,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
       <PopoverTrigger asChild>
         <Button
           size="icon"
+          aria-label={getButtonTitle()}
           title={getButtonTitle()}
           onClick={handleToggleCapture}
           className={cn(
@@ -234,6 +235,7 @@ export const SystemAudio = (props: useSystemAudioType) => {
                       size="icon"
                       variant="ghost"
                       className="h-6 w-6"
+                      aria-label="Close"
                       title="Close"
                       onClick={() => {
                         setIsPopoverOpen(false);

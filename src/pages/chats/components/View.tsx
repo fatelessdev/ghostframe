@@ -304,6 +304,7 @@ const View = () => {
                 <Button
                   size="icon"
                   className="size-7 lg:size-9 rounded-lg lg:rounded-xl absolute right-2 bottom-2"
+                  aria-label="Send message"
                   title="Send message"
                   onClick={() => completion.submit()}
                   disabled={

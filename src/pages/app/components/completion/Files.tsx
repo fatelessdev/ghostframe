@@ -34,6 +34,7 @@ export const Files = ({
         <PopoverTrigger asChild>
           <Button
             size="icon"
+            aria-label="Attach images"
             onClick={() => {
               if (attachedFiles.length === 0) {
                 // If no files, directly open file picker
@@ -76,6 +77,7 @@ export const Files = ({
               <Button
                 size="icon"
                 variant="ghost"
+                aria-label="Close"
                 onClick={() => setIsFilesPopoverOpen(false)}
                 className="cursor-pointer"
                 title="Close"
@@ -116,6 +118,7 @@ export const Files = ({
                     <Button
                       size="icon"
                       variant="default"
+                      aria-label="Remove image"
                       className="absolute top-2 right-2 h-6 w-6 cursor-pointer"
                       onClick={() => removeFile(file.id)}
                       title="Remove image"
