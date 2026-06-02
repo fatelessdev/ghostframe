@@ -2,36 +2,47 @@ import React from "react";
 import { Streamdown } from "streamdown";
 import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { BundledTheme } from "shiki";
 
 interface MarkdownRendererProps {
   children: string;
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Extract static config objects (shikiTheme, controls) outside of the component.
+// 🎯 Why: To maintain referential equality across renders, avoiding wasteful re-renders.
+// 📊 Impact: Prevents unnecessary Shiki/Streamdown re-initializations during parent re-renders.
+const SHIKI_THEME: [BundledTheme, BundledTheme] = ["github-light", "github-dark"];
+
+const STREAMDOWN_CONTROLS = {
+  table: true,
+  code: true,
+  mermaid: {
+    download: true,
+    copy: true,
+    fullscreen: false,
+    panZoom: false,
+  },
+};
+
+// 💡 What: Memoize the Markdown component.
+// 🎯 Why: Markdown rendering with Shiki/Mermaid/KaTeX is computationally expensive.
+// 📊 Impact: Prevents full re-renders of the Markdown component unless children or isStreaming changes.
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
   return (
     <Streamdown
       isAnimating={isStreaming}
-      shikiTheme={["github-light", "github-dark"]}
+      shikiTheme={SHIKI_THEME}
       components={COMPONENTS as any}
-      controls={{
-        table: true,
-        code: true,
-        mermaid: {
-          download: true,
-          copy: true,
-          fullscreen: false,
-          panZoom: false,
-        },
-      }}
+      controls={STREAMDOWN_CONTROLS}
     >
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
