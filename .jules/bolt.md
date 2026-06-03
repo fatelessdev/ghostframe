@@ -1,0 +1,7 @@
+## 2024-05-24 - Extracted static configuration from Markdown Renderer
+**Learning:** The Markdown component uses `Streamdown`, which internally initializes computationally expensive elements like Shiki, Mermaid, and KaTeX. Passing inline object literals (e.g., `controls={{ table: true, ... }}` or arrays `shikiTheme={["github-light", "github-dark"]}`) directly as props breaks referential equality in React, causing `Streamdown` to re-render needlessly when parent state (like the streaming state of a chat response) changes.
+**Action:** Always extract static configuration objects and arrays outside of the React component body or wrap them in `useMemo` before passing them to expensive components. When extracting `shikiTheme`, explicitly type it as a mutable tuple `[BundledTheme, BundledTheme]` (not `readonly` or `as const`) and import `BundledTheme` from `shiki` to avoid TypeScript assignment errors with Streamdown, while avoiding the use of `// @ts-expect-error` which causes TS2578 failures.
+
+## 2024-11-20 - Prevented unnecessary re-renders in Markdown component
+**Learning:** React components containing expensive operations like `Streamdown` will re-render if the parent components' state changes and their props are not referentially equal. Specifically, inline object configurations break memoization.
+**Action:** Extract configuration options outside the React functional component definition to maintain referential equality and wrap the component export in `React.memo` to optimize performance significantly.
