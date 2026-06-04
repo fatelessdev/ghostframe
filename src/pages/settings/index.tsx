@@ -587,6 +587,7 @@ const ConversationView = ({
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Go back"
           onClick={onBack}
           className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
         >
@@ -604,6 +605,7 @@ const ConversationView = ({
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Open in Overlay"
             onClick={() => handleAttachToOverlay(conversationId)}
             disabled={isAttached}
             className="h-7 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -618,6 +620,7 @@ const ConversationView = ({
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Download conversation"
             onClick={(e) => handleDownload(messages, e)}
             disabled={isDownloaded}
             className="h-7 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
@@ -632,6 +635,7 @@ const ConversationView = ({
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Delete conversation"
             onClick={() => {
               handleDeleteConfirm(conversationId);
               setDeleteConfirmOpen(true);
@@ -792,6 +796,7 @@ const ConversationView = ({
                 />
                 <Button
                   size="icon"
+                  aria-label="Send message"
                   className="size-8 rounded-lg absolute right-2 bottom-2"
                   title="Send message"
                   onClick={() => completion.submit()}
