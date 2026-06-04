@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
@@ -34,11 +34,14 @@ const extractTextWithoutCode = (text: string): string => {
   return withoutFences.trim();
 };
 
-export const ResponseView = ({
+// 💡 What: Apply React.memo to the ResponseView component
+// 🎯 Why: This component renders the heavily recursive Markdown component which is slow. Memoizing it prevents re-renders on simple state updates in parent like shell status.
+// 📊 Impact: Greatly limits unnecessary re-renders in the heavy child tree when non-affecting shell states are updated in parent.
+export const ResponseView = React.memo(function ResponseView({
   responseText,
   density = "normal",
   layoutMode = "default",
-}: ResponseViewProps) => {
+}: ResponseViewProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const { setScrollRef } = useOverlayScroll();
   const isCompact = density === "compact";
@@ -142,4 +145,4 @@ export const ResponseView = ({
       )}
     </div>
   );
-};
+});
