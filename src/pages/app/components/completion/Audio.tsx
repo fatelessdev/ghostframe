@@ -36,6 +36,7 @@ export const Audio = ({
             }}
             className="cursor-pointer"
             title="Toggle voice input"
+            aria-label="Toggle voice input"
           >
             <MicIcon className="h-4 w-4" />
           </Button>
