@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
@@ -34,7 +34,10 @@ const extractTextWithoutCode = (text: string): string => {
   return withoutFences.trim();
 };
 
-export const ResponseView = ({
+// 💡 What: Wrapped ResponseView in React.memo
+// 🎯 Why: Prevents expensive child components (like Markdown) from wasteful re-renders when higher-level context states change.
+// 📊 Impact: Significantly reduces UI lag during unrelated state updates in OverlayPanel or InterviewShell.
+export const ResponseView = memo(({
   responseText,
   density = "normal",
   layoutMode = "default",
@@ -142,4 +145,4 @@ export const ResponseView = ({
       )}
     </div>
   );
-};
+});
