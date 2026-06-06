@@ -216,6 +216,7 @@ const SystemPrompts = () => {
                     <DropdownMenuTrigger asChild className="mr-6">
                       <button
                         className="flex size-8 items-center justify-center rounded-xl transition-opacity hover:bg-accent"
+                        aria-label="More options"
                         onClick={(e) => {
                           e.stopPropagation();
                         }}
