@@ -1,0 +1,3 @@
+## 2024-06-08 - Streamdown Render Optimization
+**Learning:** The `Streamdown` component used for Markdown rendering is computationally expensive because it bundles heavy libraries like Shiki, Mermaid, and KaTeX. Passing inline objects or arrays (like `shikiTheme={["github-light", "github-dark"]}` or `controls={{...}}`) breaks referential equality, causing wasteful re-renders on every parent state change.
+**Action:** Always extract static configuration objects (e.g., `shikiTheme` using strictly typed mutable tuples like `[BundledTheme, BundledTheme]` and `controls`) outside the React component. Wrap parent components like `ResponseView` and `Markdown` with `React.memo` to shield these expensive sub-trees from unnecessary re-renders.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
@@ -34,11 +34,14 @@ const extractTextWithoutCode = (text: string): string => {
   return withoutFences.trim();
 };
 
-export const ResponseView = ({
+// 💡 What: Wrap with React.memo
+// 🎯 Why: Prevent re-rendering heavy Markdown child component when unrelated state changes in parent
+// 📊 Impact: Prevents wasteful parent re-renders propagating down to the expensive Streamdown render tree
+export const ResponseView = React.memo(function ResponseView({
   responseText,
   density = "normal",
   layoutMode = "default",
-}: ResponseViewProps) => {
+}: ResponseViewProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const { setScrollRef } = useOverlayScroll();
   const isCompact = density === "compact";
@@ -142,4 +145,4 @@ export const ResponseView = ({
       )}
     </div>
   );
-};
+});
