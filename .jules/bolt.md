@@ -1,0 +1,3 @@
+## 2025-02-18 - Referential Equality in Expensive Components
+**Learning:** In computationally expensive React components like `Streamdown` (which runs Markdown parsing, Shiki syntax highlighting, and KaTeX rendering), passing inline arrays (like `shikiTheme={["github-light", "github-dark"]}`) or objects breaks referential equality on every render of the parent component. This forces the heavy component to continuously re-render unnecessarily.
+**Action:** Always extract static configurations (like theme arrays or control objects) outside the React component function. Use `React.memo` aggressively on components that wrap these heavy third-party renderers to shield them from wasteful re-renders triggered by unrelated state updates in parent components.
