@@ -1,0 +1,3 @@
+## 2026-06-10 - Expensive Sub-tree Re-renders via React.memo
+**Learning:** Markdown rendering via Streamdown is computationally expensive and parent state changes in view components like ResponseView trigger wasteful sub-tree updates, causing performance issues.
+**Action:** Wrap parent view components that render heavy child components with React.memo to shield the expensive sub-tree from wasteful re-renders triggered by unrelated state updates in higher-level contexts. Additionally, statically extract configuration arrays/objects like SHIKI_THEME to prevent creating new references on every render.
