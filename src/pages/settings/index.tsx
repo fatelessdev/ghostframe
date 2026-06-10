@@ -587,6 +587,7 @@ const ConversationView = ({
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Go back"
           onClick={onBack}
           className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
         >
@@ -792,6 +793,7 @@ const ConversationView = ({
                 />
                 <Button
                   size="icon"
+                  aria-label="Send message"
                   className="size-8 rounded-lg absolute right-2 bottom-2"
                   title="Send message"
                   onClick={() => completion.submit()}
