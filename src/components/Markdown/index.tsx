@@ -2,36 +2,43 @@ import React from "react";
 import { Streamdown } from "streamdown";
 import "katex/dist/katex.min.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import type { BundledTheme } from "shiki";
 
 interface MarkdownRendererProps {
   children: string;
   isStreaming?: boolean;
 }
 
-export function Markdown({
+// 💡 What: Extracted static configuration objects outside the component and wrapped component in React.memo
+// 🎯 Why: Prevents creating new object references on every render, and memoization shields this computationally expensive component from wasteful parent re-renders
+// 📊 Impact: Significantly reduces React reconciliation overhead and prevents redundant Markdown parsing/highlighting when parent state changes but content remains identical
+const SHIKI_THEME: [BundledTheme, BundledTheme] = ["github-light", "github-dark"];
+const CONTROLS = {
+  table: true,
+  code: true,
+  mermaid: {
+    download: true,
+    copy: true,
+    fullscreen: false,
+    panZoom: false,
+  },
+};
+
+export const Markdown = React.memo(function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
   return (
     <Streamdown
       isAnimating={isStreaming}
-      shikiTheme={["github-light", "github-dark"]}
+      shikiTheme={SHIKI_THEME}
       components={COMPONENTS as any}
-      controls={{
-        table: true,
-        code: true,
-        mermaid: {
-          download: true,
-          copy: true,
-          fullscreen: false,
-          panZoom: false,
-        },
-      }}
+      controls={CONTROLS}
     >
       {children}
     </Streamdown>
   );
-}
+});
 
 const COMPONENTS = {
   a: ({ children, href, ...props }: any) => {
