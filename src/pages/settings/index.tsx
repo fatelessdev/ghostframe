@@ -226,6 +226,7 @@ const Settings = ({ onClose }: SettingsProps) => {
             <button
               onClick={onClose}
               className="p-1 rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              aria-label="Close settings"
             >
               <XIcon className="w-4 h-4" />
             </button>
@@ -589,6 +590,7 @@ const ConversationView = ({
           size="icon"
           onClick={onBack}
           className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
+          aria-label="Go back"
         >
           <ArrowLeftIcon className="w-4 h-4" />
         </Button>
@@ -608,6 +610,7 @@ const ConversationView = ({
             disabled={isAttached}
             className="h-7 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
             title="Open in Overlay"
+            aria-label="Open in Overlay"
           >
             {isAttached ? (
               <Check className="w-3 h-3 text-green-500" />
@@ -622,6 +625,7 @@ const ConversationView = ({
             disabled={isDownloaded}
             className="h-7 text-xs text-muted-foreground hover:text-foreground hover:bg-accent"
             title="Download"
+            aria-label="Download"
           >
             {isDownloaded ? (
               <Check className="w-3 h-3 text-green-500" />
@@ -638,6 +642,7 @@ const ConversationView = ({
             }}
             className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
             title="Delete"
+            aria-label="Delete"
           >
             <Trash2 className="w-3 h-3" />
           </Button>
@@ -794,6 +799,7 @@ const ConversationView = ({
                   size="icon"
                   className="size-8 rounded-lg absolute right-2 bottom-2"
                   title="Send message"
+                  aria-label="Send message"
                   onClick={() => completion.submit()}
                   disabled={completion.isLoading || !completion.input.trim()}
                 >
