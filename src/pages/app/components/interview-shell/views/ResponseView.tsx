@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
@@ -34,7 +34,10 @@ const extractTextWithoutCode = (text: string): string => {
   return withoutFences.trim();
 };
 
-export const ResponseView = ({
+// 💡 What: Wrap ResponseView with React.memo
+// 🎯 Why: ResponseView renders the computationally expensive Markdown component. This shields the sub-tree from wasteful re-renders triggered by unrelated higher-level context updates.
+// 📊 Impact: Significantly improves rendering performance during overlay interactions by avoiding heavy Markdown re-processing.
+export const ResponseView = React.memo(({
   responseText,
   density = "normal",
   layoutMode = "default",
@@ -142,4 +145,4 @@ export const ResponseView = ({
       )}
     </div>
   );
-};
+});

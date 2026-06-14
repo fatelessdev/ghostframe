@@ -1,0 +1,3 @@
+## 2025-06-14 - Markdown Render Optimization
+**Learning:** In Ghostframe, the `ResponseView` component often re-renders during interactions with the overlay context (like scrolling or other state changes). When `Markdown` component's `shikiTheme` and `controls` props are instantiated directly within the render loop, it breaks the `Streamdown` component's internal memoization by passing new references on each cycle.
+**Action:** Always extract static configuration objects and arrays outside of the component scope to ensure referential equality across renders, and wrap parent container components (like `ResponseView`) that invoke computationally heavy components in `React.memo` to block wasteful top-down re-renders.
