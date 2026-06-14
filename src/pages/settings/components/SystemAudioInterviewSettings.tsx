@@ -242,6 +242,7 @@ export const SystemAudioInterviewSettings = () => {
           <Label className="text-xs font-medium">Max manual screenshots per send</Label>
           <div className="flex items-center gap-3">
             <Slider
+              aria-label="Max manual screenshots per send"
               value={[settings.maxManualScreenshots]}
               min={1}
               max={8}
@@ -342,6 +343,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Speech sensitivity"
               value={[settings.vadConfig.sensitivity_rms * 1000]}
               min={1}
               max={20}
@@ -366,6 +368,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Peak threshold"
               value={[settings.vadConfig.peak_threshold * 1000]}
               min={5}
               max={100}
@@ -390,6 +393,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Hop size"
               value={[settings.vadConfig.hop_size]}
               min={256}
               max={4096}
@@ -414,6 +418,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Silence chunks"
               value={[settings.vadConfig.silence_chunks]}
               min={1}
               max={60}
@@ -438,6 +443,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Minimum speech chunks"
               value={[settings.vadConfig.min_speech_chunks]}
               min={1}
               max={20}
@@ -462,6 +468,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Pre-speech chunks"
               value={[settings.vadConfig.pre_speech_chunks]}
               min={0}
               max={20}
@@ -486,6 +493,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Max recording duration"
               value={[settings.vadConfig.max_recording_duration_secs]}
               min={30}
               max={3600}
@@ -510,6 +518,7 @@ export const SystemAudioInterviewSettings = () => {
               </span>
             </div>
             <Slider
+              aria-label="Noise gate"
               value={[settings.vadConfig.noise_gate_threshold * 1000]}
               min={0}
               max={10}

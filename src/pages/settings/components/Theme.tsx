@@ -88,6 +88,7 @@ export const Theme = () => {
         <div className="space-y-3">
           <div className="flex items-center gap-4 mt-4">
             <Slider
+              aria-label="Window Transparency"
               value={[transparency]}
               onValueChange={(value: number[]) => onSetTransparency(value[0])}
               min={0}
