@@ -589,6 +589,7 @@ const ConversationView = ({
           size="icon"
           onClick={onBack}
           className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-accent"
+          aria-label="Go back"
         >
           <ArrowLeftIcon className="w-4 h-4" />
         </Button>
