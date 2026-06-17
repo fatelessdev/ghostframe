@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
@@ -34,11 +34,14 @@ const extractTextWithoutCode = (text: string): string => {
   return withoutFences.trim();
 };
 
-export const ResponseView = ({
+// 💡 What: Wrapped ResponseView in React.memo
+// 🎯 Why: Shields the expensive Markdown sub-tree from wasteful re-renders triggered by unrelated state updates in parent contexts (e.g., OverlayPanel or InterviewShell)
+// 📊 Impact: Prevents full re-calculation of streamdown/shiki parsing when parent components re-render without changing ResponseView props
+export const ResponseView = memo(function ResponseView({
   responseText,
   density = "normal",
   layoutMode = "default",
-}: ResponseViewProps) => {
+}: ResponseViewProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const { setScrollRef } = useOverlayScroll();
   const isCompact = density === "compact";
@@ -142,4 +145,4 @@ export const ResponseView = ({
       )}
     </div>
   );
-};
+});
