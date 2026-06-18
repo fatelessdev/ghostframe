@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { cn } from "@/lib/utils";
 import { TranscriptSegment } from "@/types";
@@ -11,7 +11,10 @@ interface TranscriptsViewProps {
 const TRANSCRIPT_SCROLL_STEP = 120;
 const STICKY_BOTTOM_THRESHOLD = 48;
 
-export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) => {
+// 💡 What: Wrapped TranscriptsView in React.memo
+// 🎯 Why: Prevents wasteful re-renders of the large transcript list when parent OverlayPanel state changes (like scrolling)
+// 📊 Impact: Improves scroll performance and reduces CPU load when viewing transcripts
+export const TranscriptsView = React.memo(({ transcriptSegments }: TranscriptsViewProps) => {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const { setScrollRef } = useOverlayScroll();
   const shouldAutoStickRef = useRef(true);
@@ -195,4 +198,4 @@ export const TranscriptsView = ({ transcriptSegments }: TranscriptsViewProps) =>
       </div>
     </div>
   );
-};
+});
