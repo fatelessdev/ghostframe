@@ -179,6 +179,7 @@ export const Input = ({
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label="Close conversation"
                     onClick={() => {
                       setIsManuallyOpen(false);
                       if (isLoading) {

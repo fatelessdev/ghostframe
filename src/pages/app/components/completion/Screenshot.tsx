@@ -27,6 +27,7 @@ export const Screenshot = ({
     <Button
       size="icon"
       className="cursor-pointer"
+      aria-label="Capture screenshot"
       title={
         !supportsImages
           ? "Screenshot not supported by current AI provider"

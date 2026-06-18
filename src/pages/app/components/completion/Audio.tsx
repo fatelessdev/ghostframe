@@ -31,6 +31,7 @@ export const Audio = ({
         ) : (
           <Button
             size="icon"
+            aria-label="Toggle voice input"
             onClick={() => {
               setEnableVAD(!enableVAD);
             }}
