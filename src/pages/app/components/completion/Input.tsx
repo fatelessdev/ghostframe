@@ -179,6 +179,7 @@ export const Input = ({
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label="Cancel or reset message"
                     onClick={() => {
                       setIsManuallyOpen(false);
                       if (isLoading) {
