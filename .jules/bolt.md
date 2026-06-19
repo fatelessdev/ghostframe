@@ -1,0 +1,3 @@
+## 2025-01-20 - Memoization of Markdown Component
+**Learning:** The Markdown component uses Streamdown, Shiki, Mermaid, and KaTeX, which are computationally expensive. Inline object/array configurations (like `shikiTheme` or `controls`) break referential equality, causing wasteful re-renders. When statically extracting `shikiTheme` configurations, it must be typed strictly as a mutable tuple (e.g., `[BundledTheme, BundledTheme]`) rather than a `readonly` array to avoid TypeScript errors. Wrap parent components like ResponseView in React.memo to shield them from higher-level re-renders.
+**Action:** Always extract static configuration objects and arrays outside of React components before applying `React.memo`.
