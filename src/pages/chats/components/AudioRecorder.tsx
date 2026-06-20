@@ -203,6 +203,7 @@ export const AudioRecorder = ({
             disabled={isTranscribing}
             className="h-8 w-8"
             title="Stop recording"
+            aria-label="Stop recording"
           >
             <StopCircle className="h-4 w-4" />
           </Button>
@@ -212,6 +213,7 @@ export const AudioRecorder = ({
             disabled={isTranscribing}
             className="h-8 w-8"
             title={isTranscribing ? "Sending..." : "Send to AI"}
+            aria-label={isTranscribing ? "Sending..." : "Send to AI"}
           >
             <Send className="h-4 w-4" />
           </Button>
