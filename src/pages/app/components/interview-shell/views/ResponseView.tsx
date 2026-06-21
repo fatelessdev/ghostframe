@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, memo } from "react";
 import { useGlobalShortcuts } from "@/hooks";
 import { Markdown } from "@/components";
 import { useOverlayScroll } from "../OverlayPanel";
@@ -34,7 +34,10 @@ const extractTextWithoutCode = (text: string): string => {
   return withoutFences.trim();
 };
 
-export const ResponseView = ({
+// 💡 What: Memoizing ResponseView to prevent unnecessary re-renders.
+// 🎯 Why: This component renders heavy children like Markdown and code blocks, making it expensive to re-render.
+// 📊 Impact: Shields this expensive sub-tree from wasteful re-renders when parent state changes.
+export const ResponseView = memo(({
   responseText,
   density = "normal",
   layoutMode = "default",
@@ -142,4 +145,5 @@ export const ResponseView = ({
       )}
     </div>
   );
-};
+});
+ResponseView.displayName = "ResponseView";
