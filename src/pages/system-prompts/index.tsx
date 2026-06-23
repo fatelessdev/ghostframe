@@ -215,6 +215,7 @@ const SystemPrompts = () => {
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild className="mr-6">
                       <button
+                        aria-label="Prompt options"
                         className="flex size-8 items-center justify-center rounded-xl transition-opacity hover:bg-accent"
                         onClick={(e) => {
                           e.stopPropagation();
