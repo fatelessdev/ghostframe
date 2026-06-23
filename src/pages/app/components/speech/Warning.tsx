@@ -15,6 +15,8 @@ export const Warning = () => {
       <button
         type="button"
         onClick={() => setIsExpanded(!isExpanded)}
+        aria-expanded={isExpanded}
+        aria-controls="warning-content"
         className="w-full flex items-center justify-between p-3 hover:bg-muted/50 transition-colors"
       >
         <div className="flex items-center gap-2">
@@ -30,7 +32,7 @@ export const Warning = () => {
       </button>
 
       {isExpanded ? (
-        <div className="px-3 pb-3 space-y-3">
+        <div id="warning-content" className="px-3 pb-3 space-y-3">
           <div className="rounded-md bg-primary/5 p-2.5 space-y-1">
             <p className="text-xs font-medium">Interview mode flow</p>
             <p className="text-[10px] text-muted-foreground">
